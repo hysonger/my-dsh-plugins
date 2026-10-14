@@ -119,6 +119,15 @@ const zh = {
   "status.network-error": "\u7f51\u7edc\u9519\u8bef",
   "status.invalid-response": "\u54cd\u5e94\u5f02\u5e38",
   "status.disabled": "\u5df2\u505c\u7528",
+  "message.notConfigured": "\u5c1a\u672a\u914d\u7f6e\u8fd9\u5bb6\u670d\u52a1\u7684\u51ed\u636e\uff0c\u8bf7\u5728 DSH \u8bbe\u7f6e\u91cc\u586b\u5199\u5bf9\u5e94\u5bc6\u94a5\u3002",
+  "message.authRejected": "\u51ed\u636e\u88ab\u670d\u52a1\u65b9\u62d2\u7edd\uff0c\u53ef\u80fd\u5df2\u8fc7\u671f\u6216\u586b\u9519\u3002",
+  "message.noCodingPlan": "\u8fd9\u4e2a\u5bc6\u94a5\u6ca1\u6709\u6709\u6548\u7684 Coding Plan \u5957\u9910\u3002",
+  "message.rateLimited": "\u670d\u52a1\u65b9\u6b63\u5728\u9650\u6d41\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+  "message.unreachable": "\u65e0\u6cd5\u8fde\u63a5\u5b9e\u4f8b\u7684\u7528\u91cf\u670d\u52a1\u3002",
+  "message.cancelled": "\u672c\u6b21\u8bfb\u53d6\u5df2\u53d6\u6d88\u3002",
+  "message.badResponse": "\u670d\u52a1\u65b9\u8fd4\u56de\u4e86\u65e0\u6cd5\u89e3\u6790\u7684\u5185\u5bb9\u3002",
+  "message.adapterFailed": "\u8bfb\u53d6\u8fc7\u7a0b\u4e2d\u51fa\u73b0\u610f\u5916\u9519\u8bef\u3002",
+  "message.noHost": "\u6ca1\u6709\u53ef\u7528\u7684\u4e0a\u6e38\u5730\u5740\u3002",
   "unit.glm.5h": "5 \u5c0f\u65f6\u7a97\u53e3",
   "unit.glm.weekly": "\u6bcf\u5468\u7a97\u53e3",
   "unit.hourly": "\u6bcf\u5c0f\u65f6\u7a97\u53e3",
@@ -176,6 +185,15 @@ const en = {
   "status.network-error": "Network error",
   "status.invalid-response": "Invalid response",
   "status.disabled": "Disabled",
+  "message.notConfigured": "No credential is configured for this service. Add the matching key in DSH settings.",
+  "message.authRejected": "The provider rejected this credential; it may be expired or mistyped.",
+  "message.noCodingPlan": "This key has no active Coding Plan subscription.",
+  "message.rateLimited": "The provider is rate limiting; try again shortly.",
+  "message.unreachable": "Cannot reach the host usage service.",
+  "message.cancelled": "This read was cancelled.",
+  "message.badResponse": "The provider returned content that could not be parsed.",
+  "message.adapterFailed": "An unexpected error occurred while reading.",
+  "message.noHost": "No upstream address is available.",
   "unit.glm.5h": "5-hour window",
   "unit.glm.weekly": "Weekly window",
   "unit.hourly": "Hourly window",
@@ -395,6 +413,31 @@ function statusKey(status) {
 }
 
 /**
+ * The explanation a non-ok card shows: a KNOWN `messageKey` first, then the
+ * host's own English sentence, then the status word.
+ *
+ * Both namespaces are tried because the host may send either a semantic key
+ * (`authRejected`) or a bare `status.<status>` one. `noCodingPlan` stays a
+ * separate string from `authRejected`: a key without a subscription is not an
+ * expired credential, and the wording must not imply it is.
+ *
+ * @param {Function} t
+ * @param {object} provider Normalized provider row.
+ * @returns {string}
+ */
+function providerMessage(t, provider) {
+  const key = strOrNull(provider.messageKey);
+  if (key !== null) {
+    for (const candidate of [key, "message." + key]) {
+      const translated = t(candidate);
+      if (typeof translated === "string" && translated !== candidate) return translated;
+    }
+  }
+  if (provider.message !== null) return provider.message;
+  return t(statusKey(provider.status));
+}
+
+/**
  * Coerce one wire window onto the frozen shape; a malformed member becomes a
  * window whose fields are all null rather than a thrown render.
  * @param {object} raw
@@ -419,7 +462,13 @@ function normalizeWindow(raw, index) {
     limit: limit,
     used: used,
     remaining: remaining,
+    // `percent` keeps the provider's declaration verbatim and `derivedPercent`
+    // keeps the fraction its own numbers imply; the two stay separate fields so
+    // the renderer can prefer the arithmetic and the declared value stays
+    // available as the diagnostic that says the upstream rounded. makeWindow
+    // fills derivedPercent from used/limit when an older host omits it.
     percent: percentOf(used, limit, numOrNull(source.percent)),
+    derivedPercent: numOrNull(source.derivedPercent),
     resetAt: numOrNull(source.resetAt),
     note: strOrNull(source.note),
   });
@@ -458,6 +507,7 @@ function normalizeProvider(raw) {
     label: strOrNull(source.label) === null ? (strOrNull(source.id) === null ? "\u2014" : source.id) : source.label,
     status: status,
     message: strOrNull(source.message),
+    messageKey: strOrNull(source.messageKey),
     code: known || code !== null ? code : rawStatus,
     plan: strOrNull(source.plan),
     windows: Array.isArray(source.windows) ? source.windows.map(normalizeWindow) : [],
@@ -836,7 +886,11 @@ function refreshButton(t, board, place) {
 function WindowRow(props) {
   const t = props.t;
   const window = props.window;
-  const percent = window.percent;
+  // The fraction the window's own numbers imply wins over what the provider
+  // declared, so the percentage can never contradict the used/limit printed
+  // beside it. `window.percent` stays the declared diagnostic and is the
+  // fallback only when there is no usable pair (see normalizeWindow).
+  const percent = isNum(window.derivedPercent) ? window.derivedPercent : window.percent;
   const width = isNum(percent) ? clamp(percent, 0, 100) : 0;
   const level = !isNum(percent) ? "unknown" : percent >= 90 ? "danger" : percent >= 70 ? "warn" : "ok";
   const label = windowLabel(t, window);
@@ -878,6 +932,9 @@ function WindowRow(props) {
         children: jsx("span", {
           className: "ub-bar-fill",
           "data-level": level,
+          // A true 0% is data, not an absence: it prints 0.0% and draws an
+          // empty track rather than the minimum-width stub a small share gets.
+          "data-empty": width > 0 ? undefined : "true",
           style: { width: width.toFixed(1) + "%" },
         }),
       }),
@@ -920,7 +977,7 @@ function ProviderCard(props) {
       key: "state",
       className: "ub-state",
       children: compact([
-        jsx("p", { key: "line", className: "ub-state-line", children: provider.message === null ? t(statusKey(provider.status)) : provider.message }),
+        jsx("p", { key: "line", className: "ub-state-line", children: providerMessage(t, provider) }),
         provider.code === null ? null : jsx("code", { key: "code", className: "ub-code", children: provider.code }),
       ]),
     }));

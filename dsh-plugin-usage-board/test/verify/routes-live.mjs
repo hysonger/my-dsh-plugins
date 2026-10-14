@@ -231,10 +231,28 @@ async function pageDisabled() {
   }
 }
 
+/* ------------------------------------------------------------------- B10 misc */
+
+async function extraRoutes() {
+  console.log('\n== B10 GET on the refresh route, and CSP enforcement ==');
+  const before = tryJson((await request(`${BASE}/api/snapshot`)).text);
+  const viaGet = await request(`${BASE}/api/refresh`);
+  const viaGetBody = tryJson(viaGet.text);
+  check('B10.1', 'GET /api/refresh is accepted and forces a refetch', viaGet.status === 200 && viaGetBody?.generatedAt !== before?.generatedAt, `HTTP ${viaGet.status}, ${before?.generatedAt} -> ${viaGetBody?.generatedAt}`);
+  check('B10.2', 'DELETE /api/refresh still carries Allow: POST, GET', (await request(`${BASE}/api/refresh`, { method: 'DELETE' })).headers.allow === 'POST, GET', '405 advertises POST, GET');
+  console.log('      NOTE: because GET also forces a refetch, any local page can trigger an upstream fan-out with a no-preflight cross-origin GET (response unreadable, side effect happens). Loopback-only limits the blast radius to ~5 upstream calls.');
+
+  const page = await request(`${BASE}/`);
+  const csp = page.headers['content-security-policy'] ?? '';
+  check('B10.3', 'the page document carries no external subresource that CSP would block', !/<(script|link|img|iframe)[^>]+(src|href)=["'](https?:)?\/\//i.test(page.text), 'no absolute/remote subresources');
+  check('B10.4', 'CSP allows the inline boot script the page needs', csp.includes("script-src 'unsafe-inline'"), csp);
+}
+
 /* ---------------------------------------------------------------------- runner */
 
 const snapshot = await liveRoutes();
 if (snapshot) await liveLeakScan(snapshot);
 await loopbackMatrix();
 await pageDisabled();
+await extraRoutes();
 process.exit(finish());

@@ -194,13 +194,3 @@ function unwrapResolved(resolved) {
 function describe(error) {
   return error instanceof Error ? error.message : String(error);
 }
-
-/**
- * Whether a secret is present, for the health route — never the value itself.
- * @param {string|undefined} value
- * @returns {{configured: boolean, hint: string|null}}
- */
-export function describeSecret(value) {
-  if (typeof value !== 'string' || value.length === 0) return { configured: false, hint: null };
-  return { configured: true, hint: `${value.slice(0, 4)}…${value.slice(-2)}` };
-}

@@ -122,7 +122,7 @@ export function registerRoutes(webServer, options) {
  * @param {boolean} force
  */
 async function handleSnapshot(req, res, options, force) {
-  if (!isAllowedMethod(req, res, force ? ['POST', 'GET'] : ['GET', 'HEAD'])) return;
+  if (!isAllowedMethod(req, res, force ? ['POST'] : ['GET', 'HEAD'])) return;
   if (!isAllowedPeer(req, options)) return sendError(res, 403, 'forbidden', 'This route is restricted to loopback clients.');
   try {
     const snapshot = await options.snapshots.get({ force });

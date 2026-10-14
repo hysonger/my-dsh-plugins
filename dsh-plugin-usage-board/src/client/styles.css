@@ -380,6 +380,10 @@
   min-width: 0;
 }
 
+.ub-bar-fill[data-empty="true"] {
+  min-width: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ub-bar-fill {
     transition: none;

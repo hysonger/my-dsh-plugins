@@ -368,24 +368,25 @@ async function c7() {
       // compared against a measured baseline instead of a hard-coded count.
       await request(`${server.url}/usage-board/api/refresh`, { method: 'POST' });
       const baseline = fake.calls.length;
+      const baselineUrls = fake.calls.map((call) => call.url).sort();
       fake.calls.length = 0;
       const results = await Promise.all(
         Array.from({ length: 10 }, () => request(`${server.url}/usage-board/api/refresh`, { method: 'POST' })),
       );
       const stormCalls = fake.calls.length;
       const health = tryJson((await request(`${server.url}/usage-board/api/health`)).text);
-      return { results, baseline, stormCalls, calls: fake.calls.slice(), health };
+      return { results, baseline, stormCalls, calls: fake.calls.slice(), baselineUrls, health };
     },
   });
   const envelopes = outcome.results.map((result) => tryJson(result.text));
   const distinctGeneratedAt = new Set(envelopes.map((body) => body.generatedAt));
-  const hosts = outcome.calls.map((call) => new URL(call.url).host);
+  const stormUrls = outcome.calls.map((call) => call.url).sort();
   check('C7.1', 'all 10 refreshes answered 200', outcome.results.every((result) => result.status === 200), outcome.results.map((r) => r.status).join(','));
   check('C7.2', '10 parallel refreshes cost exactly one fan-out', outcome.stormCalls === outcome.baseline, `${outcome.stormCalls} upstream calls vs baseline ${outcome.baseline} per fan-out`);
   check('C7.3', 'all 10 responses share one generatedAt', distinctGeneratedAt.size === 1, `${distinctGeneratedAt.size} distinct values`);
   check('C7.4', 'health.reads advanced by exactly one fan-out (baseline + 1)', outcome.health.reads === 2, `reads=${outcome.health.reads}`);
   check('C7.5', 'fan-out is far below the naive 10x', outcome.stormCalls <= outcome.baseline * 1.5, `${outcome.stormCalls} vs naive ${outcome.baseline * 10}`);
-  check('C7.6', 'every baseline upstream host was hit exactly once in the storm', new Set(hosts).size === hosts.length, hosts.join(', '));
+  check('C7.6', 'the storm hit exactly the same upstream URLs as one baseline fan-out', JSON.stringify(stormUrls) === JSON.stringify(outcome.baselineUrls), `${outcome.stormCalls} calls: ${outcome.calls.map((call) => new URL(call.url).host + new URL(call.url).pathname).join(', ')}`);
 
   // Adversarial variant: cold cache + 10 parallel GETs.
   const cold = await scenario({
@@ -527,10 +528,51 @@ async function c10() {
   checkEqual('C10.10', 'merge reports source "both"', bothSources.row.meta?.source, 'both');
 }
 
+/* ================================================ C11 disposal / plugin unload */
+
+async function c11() {
+  console.log('\n== C11 dispose() during an in-flight fan-out ==');
+  const { PROVIDERS } = await import('../../src/host/providers/index.js');
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const adapter = {
+    id: 'glm',
+    label: 'Slow stub',
+    credentialRefs: [],
+    async read() {
+      calls += 1;
+      await gate;
+      return { id: 'glm', label: 'Slow stub', status: 'ok' };
+    },
+  };
+  const saved = PROVIDERS.slice();
+  PROVIDERS.length = 0;
+  PROVIDERS.push(adapter);
+  try {
+    const service = new SnapshotService({ getSecret: async () => undefined, now: () => Date.now() });
+    const pending = service.get();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    service.dispose();
+    release();
+    const afterDispose = await pending;
+    check('C11.1', 'an in-flight read still resolves after dispose (no hang)', afterDispose?.providers?.length === 1, `${afterDispose?.providers?.length} row(s)`);
+    const second = await service.get();
+    check('C11.2', 'a disposed service does not re-run upstream on the next get()', calls === 1, `${calls} upstream call(s)`);
+    check('C11.3', 'the post-dispose snapshot is the one built before disposal', second.generatedAt === afterDispose.generatedAt, `${afterDispose.generatedAt} / ${second.generatedAt}`);
+    console.log('      NIT: dispose() nulls the cache before the in-flight read finishes, and that read then re-populates it (calls=1, cached row served). No user impact while the route table is gone, but the intent of dispose() is not fully met.');
+  } finally {
+    PROVIDERS.length = 0;
+    PROVIDERS.push(...saved);
+  }
+}
+
 /* ---------------------------------------------------------------------- runner */
 
 const only = process.argv[2];
-const sections = { c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 };
+const sections = { c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11 };
 for (const [name, section] of Object.entries(sections)) {
   if (only && only !== name) continue;
   await section();

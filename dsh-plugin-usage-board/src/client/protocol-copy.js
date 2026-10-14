@@ -77,6 +77,7 @@ function makeWindow(seed) {
     used: seed.used ?? null,
     remaining: seed.remaining ?? null,
     percent: seed.percent ?? null,
+    derivedPercent: seed.derivedPercent ?? derivedPercentOf(seed.used, seed.limit),
     resetAt: seed.resetAt ?? null,
     note: seed.note ?? null,
   };
@@ -107,6 +108,10 @@ function makeProvider(seed) {
     label: seed.label,
     status: seed.status,
     message: seed.message ?? null,
+    // Carried through the builder, not only spread on afterwards: a consumer
+    // that builds a row *through* makeProvider must not silently lose the key
+    // that tells the client which translation to render.
+    messageKey: seed.messageKey ?? null,
     code: seed.code ?? null,
     plan: seed.plan ?? null,
     windows: seed.windows ?? [],
@@ -143,15 +148,42 @@ function round1(value) {
 }
 
 /**
- * Consumed share as a 0–100 number, from whichever pair the provider gave.
+ * Consumed share as a 0–100 number.
+ *
+ * **The fraction wins over the provider's declared percentage.** Providers round
+ * aggressively — GLM reports `percentage: 32` beside `currentValue: 656,
+ * usage: 2000`, which is 32.8%, so trusting the declared value puts a number on
+ * screen that visibly contradicts the `656 / 2000` printed right next to it.
+ * Deriving from the raw pair makes the card self-consistent; the declared value
+ * is only used when there is no usable numerator/denominator to divide.
+ *
  * @param {number|null|undefined} used
  * @param {number|null|undefined} limit
- * @param {number|null|undefined} explicit Provider-reported percentage, preferred when present.
+ * @param {number|null|undefined} declared Provider-reported percentage; the fallback.
  * @returns {number|null}
  */
 function percentOf(used, limit, explicit) {
   const reported = round1(explicit);
   if (reported !== null) return reported;
   if (typeof used !== 'number' || typeof limit !== 'number' || limit <= 0) return null;
+  return round1((used / limit) * 100);
+}
+
+/**
+ * The share implied by a window's own numbers, ignoring what the provider
+ * declared. Adapters echo this into `UsageWindow.derivedPercent` so a consumer
+ * can render `derivedPercent ?? percent` and never print a percentage that
+ * visibly contradicts the `used / limit` beside it.
+ *
+ * GLM is the motivating case: it reports `percentage: 32` next to
+ * `currentValue: 656, usage: 2000`, which is 32.8%.
+ *
+ * @param {number|null|undefined} used
+ * @param {number|null|undefined} limit
+ * @returns {number|null} null when there is no usable pair to divide.
+ */
+function derivedPercentOf(used, limit) {
+  if (typeof used !== 'number' || !Number.isFinite(used)) return null;
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return null;
   return round1((used / limit) * 100);
 }

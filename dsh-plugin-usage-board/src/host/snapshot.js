@@ -48,6 +48,8 @@ export class SnapshotService {
   #inflight = null;
   /** @type {AbortController|null} */
   #controller = null;
+  /** Set by `dispose()`; a read that finishes afterwards must not cache. */
+  #disposed = false;
   /** @type {Map<string, Promise<import('../shared/protocol.js').ProviderSnapshot>>} */
   #perProvider = new Map();
   #reads = 0;
@@ -115,7 +117,9 @@ export class SnapshotService {
       );
       const ttlMs = this.#ttlMs;
       const snapshot = makeSnapshot({ generatedAt: started, ttlMs, providers: rows });
-      this.#cache = { snapshot, expiresAt: this.#now() + ttlMs };
+      // A read that finishes after disposal must not resurrect the cache and
+      // hand a disposed service a fresh snapshot to serve.
+      if (!this.#disposed) this.#cache = { snapshot, expiresAt: this.#now() + ttlMs };
       const failed = rows.filter((row) => row.status !== 'ok').map((row) => `${row.id}:${row.status}`);
       this.#log(
         `usage-board: snapshot built in ${this.#now() - started}ms (${rows.length} providers${failed.length === 0 ? '' : `, ${failed.join(', ')}`})`,
@@ -128,9 +132,11 @@ export class SnapshotService {
   }
 
   /**
-   * Abort an in-flight fan-out. Called on plugin disposal; a no-op when idle.
+   * Release the service: abort any in-flight fan-out and refuse to cache again.
+   * Called on plugin disposal; idempotent, and a no-op when idle.
    */
   dispose() {
+    this.#disposed = true;
     this.#controller?.abort();
     this.#controller = null;
     this.#cache = null;
@@ -160,6 +166,43 @@ export class SnapshotService {
 }
 
 /**
+ * Attach a localization key to a provider row.
+ *
+ * Provider diagnostics are written by the host in English. A `messageKey` lets
+ * the browser half translate the common failures without re-deriving them from
+ * prose, while `message` stays the untranslatable fallback for anything the
+ * mapping does not recognise — a provider's own error text, for instance.
+ *
+ * @param {import('../shared/protocol.js').ProviderSnapshot} row
+ * @returns {import('../shared/protocol.js').ProviderSnapshot}
+ */
+function withMessageKey(row) {
+  if (row.status === 'ok' || row.message === null) return row;
+  return { ...row, messageKey: classifyMessage(row.status, row.message) };
+}
+
+/**
+ * Map a row's status and diagnostic text onto a stable key.
+ * @param {string} status ProviderStatus.
+ * @param {string} message Host-written English diagnostic.
+ * @returns {string}
+ */
+export function classifyMessage(status, message) {
+  const text = String(message).toLowerCase();
+  if (text.includes('coding plan')) return 'noCodingPlan';
+  if (status === 'not-configured') return 'notConfigured';
+  if (status === 'unauthorized') return 'authRejected';
+  if (status === 'rate-limited') return 'rateLimited';
+  if (status === 'network-error') return text.includes('cancel') ? 'cancelled' : 'unreachable';
+  if (status === 'invalid-response') return 'badResponse';
+  if (status === 'upstream-error') {
+    if (text.includes('could not complete')) return 'adapterFailed';
+    if (text.includes('no upstream')) return 'noHost';
+  }
+  return `status.${status}`;
+}
+
+/**
  * Run one adapter and repair a rejected or malformed result into a protocol row.
  * @param {import('./providers/index.js').ProviderAdapter} adapter
  * @param {(context: object) => Promise<import('../shared/protocol.js').ProviderSnapshot>} read
@@ -176,17 +219,23 @@ async function runAdapter(adapter, read, context) {
       now: context.now,
       timeoutMs: context.timeoutMs,
     });
-    return { ...makeProvider({ ...row, id: adapter.id, label: row?.label ?? adapter.label }), latencyMs: row?.latencyMs ?? context.now() - started };
-  } catch (error) {
-    return makeProvider({
-      id: adapter.id,
-      label: adapter.label,
-      status: 'upstream-error',
-      message: `The ${adapter.label} adapter failed: ${error instanceof Error ? error.message : String(error)}`,
-      code: 'ADAPTER_THROW',
-      meta: { via: SNAPSHOT_PATH },
-      latencyMs: context.now() - started,
+    const repaired = makeProvider({ ...row, id: adapter.id, label: row?.label ?? adapter.label });
+    return withMessageKey({
+      ...repaired,
+      latencyMs: row?.latencyMs ?? context.now() - started,
     });
+  } catch (error) {
+    return withMessageKey(
+      makeProvider({
+        id: adapter.id,
+        label: adapter.label,
+        status: 'upstream-error',
+        message: `The ${adapter.label} adapter failed: ${error instanceof Error ? error.message : String(error)}`,
+        code: 'ADAPTER_THROW',
+        meta: { via: SNAPSHOT_PATH },
+        latencyMs: context.now() - started,
+      }),
+    );
   }
 }
 

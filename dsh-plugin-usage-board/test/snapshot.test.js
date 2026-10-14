@@ -14,6 +14,7 @@ import {
   PROTOCOL_VERSION,
   PROVIDER_IDS,
   SNAPSHOT_PATH,
+  derivedPercentOf,
   makeBalance,
   makeDailyUsage,
   makeProvider,
@@ -35,12 +36,25 @@ test('protocol exposes one id per provider in display order', () => {
 test('makeWindow fills every key so a consumer never sees undefined', () => {
   const win = makeWindow({ id: 'glm.5h', unit: 3, limit: 2000, used: 656 });
   assert.deepEqual(Object.keys(win).sort(), [
-    'id', 'labelKey', 'limit', 'note', 'number', 'percent', 'remaining', 'resetAt', 'unit', 'used',
+    'derivedPercent', 'id', 'labelKey', 'limit', 'note', 'number', 'percent', 'remaining', 'resetAt', 'unit', 'used',
   ]);
   for (const [key, value] of Object.entries(win)) {
     assert.notEqual(value, undefined, `window.${key} must never be undefined`);
   }
   assert.equal(win.labelKey, 'glm.5h', 'labelKey falls back to the window id');
+});
+
+test('makeProvider carries a messageKey through the builder, not just by spread', () => {
+  // Regression guard: a consumer that builds a row *through* makeProvider must
+  // not silently lose the key the client translates. `withMessageKey` in the
+  // snapshot service spreads over the built row, which used to mask this.
+  const carried = makeProvider({
+    id: 'glm', label: 'GLM', status: 'unauthorized',
+    message: 'The stored credential was rejected by the provider.',
+    messageKey: 'authRejected',
+  });
+  assert.equal(carried.messageKey, 'authRejected');
+  assert.equal(makeProvider({ id: 'glm', label: 'GLM', status: 'ok' }).messageKey, null);
 });
 
 test('makeProvider fills every key including empty collections', () => {
@@ -50,6 +64,7 @@ test('makeProvider fills every key including empty collections', () => {
   assert.deepEqual(row.meta, {});
   assert.equal(row.plan, null);
   assert.equal(row.message, null);
+  assert.equal(row.messageKey, null);
   assert.equal(row.code, null);
   assert.equal(row.account, null);
   assert.equal(row.fetchedAt, null);
@@ -84,7 +99,7 @@ test('makeSnapshot stamps the generated time and ttl verbatim', () => {
 });
 
 test('percentOf prefers a provider-reported percentage and tolerates gaps', () => {
-  assert.equal(percentOf(656, 2000, 32), 32, 'explicit value wins');
+  assert.equal(percentOf(656, 2000, 32), 32, 'the declared value is kept verbatim');
   assert.equal(percentOf(656, 2000), 32.8);
   assert.equal(percentOf(1, 3), 33.3);
   assert.equal(percentOf(null, 2000), null);
@@ -383,4 +398,115 @@ test('clampTtl keeps a misconfiguration inside the supported window', () => {
   assert.equal(clampTtl(10 ** 9), MAX_TTL_MS);
   assert.equal(clampTtl(45_000), 45_000);
   assert.equal(clampTtl(45_000.6), 45_001);
+});
+
+/* ------------------------------------------------- provider diagnostics (D-5) */
+
+test('a failed provider row carries a stable messageKey beside its English text', async () => {
+  const { classifyMessage } = await import('../src/host/snapshot.js');
+  assert.equal(classifyMessage('not-configured', 'Set ZAI_CODING_CN_API_KEY to enable this provider.'), 'notConfigured');
+  assert.equal(classifyMessage('unauthorized', 'The stored credential was rejected by the provider.'), 'authRejected');
+  assert.equal(classifyMessage('rate-limited', 'The provider is rate limiting this account; retry later.'), 'rateLimited');
+  assert.equal(classifyMessage('network-error', 'The provider could not be reached.'), 'unreachable');
+  assert.equal(classifyMessage('network-error', 'The read was cancelled.'), 'cancelled');
+  assert.equal(classifyMessage('invalid-response', 'The provider returned a body that is not valid JSON.'), 'badResponse');
+  assert.equal(classifyMessage('upstream-error', 'The adapter could not complete the upstream read.'), 'adapterFailed');
+  assert.equal(classifyMessage('upstream-error', 'No upstream host was attempted.'), 'noHost');
+  // The "no Coding Plan" case is not an auth failure and must not read like one.
+  assert.equal(classifyMessage('upstream-error', 'This key has no active Coding Plan.'), 'noCodingPlan');
+  // An unrecognized diagnostic still yields a usable key.
+  assert.equal(classifyMessage('upstream-error', 'The provider returned HTTP 503.'), 'status.upstream-error');
+});
+
+test('a successful row carries no messageKey', async () => {
+  const { adapter } = stubAdapter('glm');
+  await withProviders([adapter], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    const snapshot = await service.get();
+    assert.equal(snapshot.providers[0].message, null);
+    assert.equal(snapshot.providers[0].messageKey, null);
+  });
+});
+
+test('a failing provider row is surfaced with a messageKey through the real service', async () => {
+  const failing = {
+    id: 'kimi',
+    label: 'Kimi Code',
+    credentialRefs: [],
+    async read() {
+      return { id: 'kimi', label: 'Kimi Code', status: 'unauthorized', message: 'The stored credential was rejected by the provider.' };
+    },
+  };
+  await withProviders([failing], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    const row = (await service.get()).providers[0];
+    assert.equal(row.status, 'unauthorized');
+    assert.equal(row.messageKey, 'authRejected');
+    assert.match(row.message, /rejected/, 'the English fallback survives');
+  });
+});
+
+/* ------------------------------------------------------ provider percent (D-3) */
+
+test('derivedPercent exposes the fraction a provider-rounded percent hides', () => {
+  // GLM reports percentage: 32 beside 656/2000, which is 32.8%.
+  assert.equal(derivedPercentOf(656, 2000), 32.8);
+  assert.equal(derivedPercentOf(5831, 10000), 58.3);
+  assert.equal(percentOf(656, 2000, 32), 32, 'the declared value is preserved, not overwritten');
+  // 0/limit is a real zero, not "unknown".
+  assert.equal(derivedPercentOf(0, 100), 0);
+  // No usable pair means no derived value — and no invented one.
+  assert.equal(derivedPercentOf(null, 2000), null);
+  assert.equal(derivedPercentOf(5, 0), null);
+  assert.equal(derivedPercentOf(undefined, undefined), null);
+});
+
+test('makeWindow derives the percentage from the pair it was given', () => {
+  const win = makeWindow({ id: 'glm.5h', unit: 3, used: 656, limit: 2000, remaining: 1343, percent: 32 });
+  assert.equal(win.percent, 32, 'the provider value is kept');
+  assert.equal(win.derivedPercent, 32.8, 'and the honest fraction is available beside it');
+  const noPair = makeWindow({ id: 'kimi.weekly', percent: 42.7 });
+  assert.equal(noPair.derivedPercent, null);
+});
+
+test('a window without a usable pair never fabricates a derived percentage', () => {
+  const windows = [
+    makeWindow({ id: 'deepseek.balance', percent: null }),
+    makeWindow({ id: 'glm.5h', percent: 32, used: 656 }),
+    makeWindow({ id: 'kimi.weekly', percent: 42.7, limit: 100 }),
+  ];
+  for (const win of windows) {
+    assert.equal(win.derivedPercent, null, `${win.id} has no usable used+limit pair`);
+  }
+});
+
+/* -------------------------------------------------------- dispose and refresh */
+
+test('a read finishing after dispose does not repopulate the cache', async () => {
+  let release = () => {};
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const adapter = {
+    id: 'glm',
+    label: 'GLM',
+    credentialRefs: [],
+    async read() {
+      await gate;
+      return makeProvider({ id: 'glm', label: 'GLM', status: 'ok' });
+    },
+  };
+  await withProviders([adapter], async () => {
+    let clock = 0;
+    const service = new SnapshotService({ getSecret: async () => undefined, now: () => clock });
+    const pending = service.get();
+    await Promise.resolve();
+    service.dispose();
+    release();
+    await pending;
+    clock += 1_000;
+    // A disposed service must not answer from a cache the finishing read rebuilt.
+    await service.get();
+    assert.equal(service.readCount, 2, 'the second get re-read instead of serving the resurrected cache');
+  });
 });

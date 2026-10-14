@@ -224,6 +224,7 @@ function loadPanelUnit() {
     "  normalizeWindow, normalizeBalance, normalizeProvider, normalizeSnapshot,",
     "  describeFailure, collectHosts, translateOf, bindPanelTranslate,",
     "  providerTrend, trendScale, asErrorLike, DAILY_TREND_POINTS,",
+    "  providerMessage, derivedPercentOf,",
     "  UsageBoardPanel, UsageBoardPanelIcon, zh, en,",
     "};",
   ].join("\n");
@@ -583,6 +584,7 @@ test("normalizeProvider fills a window's derived fields exactly once", () => {
   assert.equal(row.plan, "lite");
   assert.equal(row.windows.length, 1);
   assert.equal(row.windows[0].percent, 35);
+  assert.equal(row.windows[0].derivedPercent, 35);
   assert.equal(row.windows[0].remaining, 6.5);
   assert.equal(row.windows[0].labelKey, "glm.5h");
   assert.equal(row.balances[0].currency, "USD");
@@ -801,6 +803,173 @@ test("a non-2xx answer is reported with its status code and the retry control", 
   assert.ok(findByClass(tree, "ub-retry") !== null);
 });
 
+// ------------------------------------------- declared vs derived percentage ---
+
+test("a window keeps the declared percent and the derived percent apart", () => {
+  const unit = loadPanelUnit();
+  const row = unit.normalizeProvider({
+    id: "glm",
+    label: "GLM",
+    status: "ok",
+    windows: [{ id: "glm.5h", limit: 2000, used: 656, percent: 32 }],
+  });
+  // GLM declares 32 next to 656/2000, which is 32.8%: both survive normalization.
+  assert.equal(row.windows[0].percent, 32, "the provider's declaration must stay available as a diagnostic");
+  assert.equal(row.windows[0].derivedPercent, 32.8, "the arithmetic must win for display");
+
+  // An older host that omits derivedPercent still gets the arithmetic, because
+  // makeWindow computes it from the pair.
+  const legacy = unit.normalizeProvider({
+    id: "kimi",
+    label: "Kimi",
+    status: "ok",
+    windows: [{ id: "kimi.5h", limit: 100, used: 36, percent: 35.7 }],
+  });
+  assert.equal(legacy.windows[0].percent, 35.7);
+  assert.equal(legacy.windows[0].derivedPercent, 36);
+
+  // No usable pair at all: the declaration is all there is, so it is used.
+  const solo = unit.normalizeProvider({
+    id: "x",
+    label: "X",
+    status: "ok",
+    windows: [{ id: "x.w", limit: null, used: null, percent: 12.5 }],
+  });
+  assert.equal(solo.windows[0].derivedPercent, null);
+  assert.equal(solo.windows[0].percent, 12.5);
+  assert.equal(unit.derivedPercentOf(0, 0), null);
+  assert.equal(unit.derivedPercentOf(1, 3), 33.3);
+});
+
+test("the printed percentage matches the fraction beside it (D-3)", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [{
+        id: "glm",
+        label: "GLM Coding Plan",
+        status: "ok",
+        windows: [
+          { id: "glm.5h", labelKey: "glm.5h", unit: 3, number: 5, limit: 2000, used: 656, remaining: 1343, percent: 32, derivedPercent: 32.8 },
+          { id: "glm.weekly", labelKey: "glm.weekly", unit: 6, number: 1, limit: 10000, used: 5831, remaining: 4168, percent: 58, derivedPercent: 58.3 },
+        ],
+        balances: [],
+      }, {
+        id: "kimi",
+        label: "Kimi Code",
+        status: "ok",
+        windows: [
+          { id: "kimi.5h", labelKey: "kimi.5h", limit: 100, used: 36, remaining: 64, percent: 35.7, derivedPercent: 36 },
+          { id: "kimi.weekly", labelKey: "kimi.weekly", limit: 100, used: 43, remaining: 57, percent: 42.7, derivedPercent: 43 },
+        ],
+        balances: [],
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /32\.8%/, "GLM 5h must print the fraction its own numbers imply");
+  assert.match(text, /58\.3%/);
+  assert.match(text, /36\.0%/, "Kimi 5h declares 35.7 beside 36/100");
+  assert.match(text, /43\.0%/);
+  assert.ok(!text.includes("32.0%"), "the declared 32 must not be printed beside 656 / 2,000");
+  assert.ok(!text.includes("35.7%"), "the declared 35.7 must not be printed beside 36 / 100");
+  const fills = [];
+  walk(tree, (node) => {
+    const className = node.props.className;
+    if (typeof className === "string" && className.split(" ").includes("ub-bar-fill")) fills.push(node.props.style.width);
+  });
+  assert.deepEqual(fills, ["32.8%", "58.3%", "36.0%", "43.0%"], "the bar width must follow the same figure");
+});
+
+// ------------------------------------------------------------ message keys ---
+
+test("every messageKey the host can emit has copy in both languages", () => {
+  const unit = loadPanelUnit();
+  // Mirrors classifyMessage() in src/host/snapshot.js.
+  const hostKeys = [
+    "notConfigured",
+    "authRejected",
+    "noCodingPlan",
+    "rateLimited",
+    "cancelled",
+    "unreachable",
+    "badResponse",
+    "adapterFailed",
+    "noHost",
+  ];
+  // Mirrors the `status.<status>` fallback and every ProviderStatus.
+  const statuses = [
+    "ok",
+    "not-configured",
+    "unauthorized",
+    "rate-limited",
+    "upstream-error",
+    "network-error",
+    "invalid-response",
+    "disabled",
+  ];
+  const required = [...hostKeys.map((key) => "message." + key), ...statuses.map((status) => "status." + status)];
+  for (const locale of ["zh", "en"]) {
+    for (const key of required) {
+      assert.ok(
+        Object.prototype.hasOwnProperty.call(unit[locale], key),
+        `${locale} dictionary is missing ${key}, which the host can send`,
+      );
+      assert.ok(unit[locale][key].length > 0, `${locale}.${key} is empty`);
+    }
+  }
+  // The two failure modes must never collapse into one string.
+  assert.notEqual(unit.zh["message.authRejected"], unit.zh["message.noCodingPlan"]);
+  assert.notEqual(unit.en["message.authRejected"], unit.en["message.noCodingPlan"]);
+});
+
+test("a known messageKey is translated, an unknown one falls back to the host prose", () => {
+  const unit = loadPanelUnit();
+  const t = translateSeat(unit.zh);
+  const withKey = (key) => unit.normalizeProvider({
+    id: "glm",
+    label: "GLM",
+    status: "unauthorized",
+    messageKey: key,
+    message: "The GLM credential was rejected by the provider.",
+  });
+  assert.equal(unit.providerMessage(t, withKey("authRejected")), "凭据被服务方拒绝，可能已过期或填错。");
+  assert.equal(unit.providerMessage(t, withKey("noCodingPlan")), "这个密钥没有有效的 Coding Plan 套餐。");
+  assert.equal(unit.providerMessage(t, withKey("notConfigured")), "尚未配置这家服务的凭据，请在 DSH 设置里填写对应密钥。");
+  assert.equal(unit.providerMessage(t, withKey("rateLimited")), "服务方正在限流，请稍后重试。");
+  assert.equal(unit.providerMessage(t, withKey("unreachable")), "无法连接实例的用量服务。");
+  assert.equal(unit.providerMessage(t, withKey("cancelled")), "本次读取已取消。");
+  assert.equal(unit.providerMessage(t, withKey("badResponse")), "服务方返回了无法解析的内容。");
+  assert.equal(unit.providerMessage(t, withKey("adapterFailed")), "读取过程中出现意外错误。");
+  assert.equal(unit.providerMessage(t, withKey("noHost")), "没有可用的上游地址。");
+  // The bare `status.<status>` form the host may also send.
+  assert.equal(unit.providerMessage(t, withKey("status.unauthorized")), "未授权");
+  // Unrecognised key: the host's own sentence survives untranslated.
+  assert.equal(unit.providerMessage(t, withKey("somethingBrandNew")), "The GLM credential was rejected by the provider.");
+  // Nothing at all: the status word.
+  const bare = unit.normalizeProvider({ id: "glm", label: "GLM", status: "unauthorized" });
+  assert.equal(unit.providerMessage(t, bare), "未授权");
+  // Missing messageKey entirely with an English message still shows that message.
+  const noKey = unit.normalizeProvider({ id: "glm", label: "GLM", status: "upstream-error", message: "Upstream said 500." });
+  assert.equal(unit.providerMessage(t, noKey), "Upstream said 500.");
+});
+
+test("messageKey survives normalization and noCodingPlan never reads as an expired credential", () => {
+  const unit = loadPanelUnit();
+  const row = unit.normalizeProvider({ id: "glm", label: "GLM", status: "not-configured", messageKey: "noCodingPlan" });
+  assert.equal(row.messageKey, "noCodingPlan");
+  const t = translateSeat(unit.zh);
+  const plan = unit.providerMessage(t, row);
+  const auth = unit.providerMessage(t, unit.normalizeProvider({ id: "g", label: "G", status: "unauthorized", messageKey: "authRejected" }));
+  assert.notEqual(plan, auth, "a missing subscription must not share the rejected-credential wording");
+  assert.ok(!/过期|填错/.test(plan), "noCodingPlan must not imply the key is expired or mistyped");
+  assert.match(plan, /Coding Plan/);
+  assert.equal(unit.normalizeProvider({ id: "x", label: "X", status: "ok" }).messageKey, null);
+});
+
 test("a non-ok provider renders its explanation and diagnostic code", async () => {
   const renderer = createRenderer({
     body: {
@@ -854,16 +1023,106 @@ test("quota windows render a labelled bar, used/limit, remainder and reset count
   const tree = await renderer.render();
   const text = treeText(tree);
   assert.match(text, /5 小时窗口 ×5/);
-  assert.match(text, /32\.0%/);
+  // 656/2000 is 32.8%, so the card must not print the declared 32.0%.
+  assert.match(text, /32\.8%/);
   assert.match(text, /656 \/ 2,000/);
   assert.match(text, /剩余 1,343/);
   assert.match(text, /3 小时后重置/);
   assert.match(text, /GLM Coding Lite/);
   const bar = findByClass(tree, "ub-bar");
   assert.equal(bar.props.role, "progressbar");
-  assert.equal(bar.props["aria-valuenow"], 32);
-  assert.equal(findByClass(tree, "ub-bar-fill").props.style.width, "32.0%");
+  assert.equal(bar.props["aria-valuenow"], 33);
+  assert.equal(findByClass(tree, "ub-bar-fill").props.style.width, "32.8%");
   assert.equal(findByClass(tree, "ub-bar-fill").props["data-level"], "ok");
+});
+
+test("a true 0% is data, not an absence: it prints 0.0% and draws an empty bar", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [{
+        id: "kimi",
+        label: "Kimi Code",
+        status: "ok",
+        windows: [{ id: "kimi.5h", labelKey: "kimi.5h", limit: 100, used: 0, remaining: 100, percent: 0, derivedPercent: 0 }],
+        balances: [],
+      }, {
+        id: "glm",
+        label: "GLM Coding Plan",
+        status: "ok",
+        // No usable pair at all: the em dash is the only honest answer here.
+        windows: [{ id: "glm.5h", labelKey: "glm.5h", limit: null, used: null, percent: null, derivedPercent: null }],
+        balances: [],
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /0\.0%/, "a zero share must print 0.0%, not fall through to no-data");
+  assert.match(text, /0 \/ 100/);
+  assert.match(text, /剩余 100/);
+
+  const fills = [];
+  walk(tree, (node) => {
+    const className = node.props.className;
+    if (typeof className === "string" && className.split(" ").includes("ub-bar-fill")) fills.push(node.props);
+  });
+  assert.equal(fills.length, 2);
+  assert.equal(fills[0].style.width, "0.0%");
+  assert.equal(fills[0]["data-empty"], "true", "a 0% bar must collapse, not show the minimum-width stub");
+  assert.equal(fills[0]["data-level"], "ok", "0% used is healthy, not unknown");
+  const bars = [];
+  walk(tree, (node) => {
+    if (node.props.role === "progressbar") bars.push(node.props);
+  });
+  assert.equal(bars[0]["aria-valuenow"], 0);
+  assert.equal(bars[0]["aria-valuetext"], "0.0%");
+  // The genuinely unknown window still renders the em dash and carries no value.
+  assert.match(text, /—/);
+  assert.equal(fills[1]["data-level"], "unknown");
+  assert.equal(fills[1]["data-empty"], "true");
+  assert.equal(bars[1]["aria-valuenow"], undefined);
+  assert.equal(bars[1]["aria-valuetext"], "—");
+});
+
+test("a non-ok card shows Chinese copy for a known messageKey (D-5)", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: false,
+      ttlMs: 60_000,
+      providers: [{
+        id: "glm",
+        label: "GLM Coding Plan",
+        status: "unauthorized",
+        messageKey: "authRejected",
+        message: "The GLM credential was rejected by the provider.",
+        code: "401",
+        windows: [],
+        balances: [],
+      }, {
+        id: "kimi",
+        label: "Kimi Code",
+        status: "not-configured",
+        messageKey: "noCodingPlan",
+        message: "The Kimi key has no Coding Plan subscription.",
+        windows: [],
+        balances: [],
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /凭据被服务方拒绝/);
+  assert.match(text, /这个密钥没有有效的 Coding Plan 套餐/);
+  assert.ok(
+    !text.includes("The GLM credential was rejected"),
+    "the host's English sentence must not reach a Chinese UI when the key is known",
+  );
+  assert.ok(!text.includes("The Kimi key has no Coding Plan"));
+  assert.ok(!/凭据被服务方拒绝[^|]*Kimi/.test(text), "the two keys must not share wording");
 });
 
 test("a fourteen-point trend is labelled as a fourteen-day window", async () => {
