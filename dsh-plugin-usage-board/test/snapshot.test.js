@@ -418,6 +418,34 @@ test('a failed provider row carries a stable messageKey beside its English text'
   assert.equal(classifyMessage('upstream-error', 'The provider returned HTTP 503.'), 'status.upstream-error');
 });
 
+test('classifyMessage is not fooled by a provider name that contains "coding plan" (D-10)', async () => {
+  const { classifyMessage } = await import('../src/host/snapshot.js');
+  // GLM's own diagnostics all mention "GLM Coding Plan". A phrase test that ran
+  // before the status branches relabelled every GLM failure as "noCodingPlan".
+  const glmRejected = classifyMessage('unauthorized', 'The stored credential was rejected by the provider. (GLM Coding Plan)');
+  assert.equal(glmRejected, 'authRejected', 'a rejected GLM key must not read as a subscription problem');
+  const glmUnset = classifyMessage('not-configured', 'Set ZAI_CODING_CN_API_KEY to enable GLM Coding Plan.');
+  assert.equal(glmUnset, 'notConfigured');
+  const glmAdapterCrash = classifyMessage('upstream-error', 'The GLM Coding Plan adapter failed: boom');
+  assert.equal(glmAdapterCrash, 'adapterFailed');
+  const glmRateLimited = classifyMessage('rate-limited', 'GLM Coding Plan is rate limiting this account.');
+  assert.equal(glmRateLimited, 'rateLimited');
+  // The genuine no-subscription case still maps to its own key.
+  assert.equal(classifyMessage('upstream-error', 'You have no active coding plan for GLM Coding Plan.'), 'noCodingPlan');
+});
+
+test('every GLM failure mode reaches a distinct key', async () => {
+  const { classifyMessage } = await import('../src/host/snapshot.js');
+  const keys = [
+    classifyMessage('not-configured', 'Set ZAI_CODING_CN_API_KEY to enable GLM Coding Plan.'),
+    classifyMessage('unauthorized', 'The stored credential was rejected by the provider.'),
+    classifyMessage('upstream-error', 'You have no active coding plan.'),
+    classifyMessage('upstream-error', 'The adapter could not complete the upstream read.'),
+  ];
+  assert.equal(new Set(keys).size, keys.length, `GLM failure modes must not collide: ${keys.join(', ')}`);
+  assert.deepEqual(keys, ['notConfigured', 'authRejected', 'noCodingPlan', 'adapterFailed']);
+});
+
 test('a successful row carries no messageKey', async () => {
   const { adapter } = stubAdapter('glm');
   await withProviders([adapter], async () => {

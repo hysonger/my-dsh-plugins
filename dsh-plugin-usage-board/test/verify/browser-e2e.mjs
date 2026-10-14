@@ -61,6 +61,16 @@ async function main() {
   const panelSession = 'qa-e2e-panel';
   const pageSession = 'qa-e2e-page';
 
+  // Start from a clean browser session: a crashed earlier run can leave a stale
+  // tab behind, and `find` would then act on the wrong page.
+  for (const session of [panelSession, pageSession]) {
+    try {
+      ab(session, ['close']);
+    } catch {
+      /* nothing to close */
+    }
+  }
+
   /* ---------------------------------------------------------- console channel */
 
   ab(panelSession, ['open', `${BASE}/?token=${TOKEN}`]);
@@ -110,15 +120,21 @@ async function main() {
   check('D3.1', 'both renderers read the same cached snapshot (generatedAt stable)', before.generatedAt === after.generatedAt, `${before.generatedAt} / ${after.generatedAt}`);
 
   const expected = [];
+  const percentPreference = [];
   for (const row of before.providers) {
     for (const balance of row.balances) {
       if (typeof balance.available === 'number') expected.push({ label: `${row.id} available`, text: balance.available.toFixed(2) });
       if (typeof balance.totalSpent === 'number') expected.push({ label: `${row.id} totalSpent`, text: balance.totalSpent.toFixed(2) });
     }
     for (const win of row.windows) {
-      if (typeof win.percent === 'number') expected.push({ label: `${row.id}/${win.id} percent`, text: `${win.percent.toFixed(1)}%` });
+      // v2: the displayed share is `derivedPercent ?? percent` (D-3).
+      const display = typeof win.derivedPercent === 'number' ? win.derivedPercent : win.percent;
+      if (typeof display === 'number') expected.push({ label: `${row.id}/${win.id} percent`, text: `${display.toFixed(1)}%` });
       if (typeof win.used === 'number') expected.push({ label: `${row.id}/${win.id} used`, text: String(Math.round(win.used)) });
       if (typeof win.remaining === 'number') expected.push({ label: `${row.id}/${win.id} remaining`, text: String(Math.round(win.remaining)) });
+      if (typeof win.percent === 'number' && typeof win.derivedPercent === 'number' && win.percent !== win.derivedPercent) {
+        percentPreference.push({ id: `${row.id}/${win.id}`, declared: `${win.percent.toFixed(1)}%`, derived: `${win.derivedPercent.toFixed(1)}%` });
+      }
     }
   }
   const missingPanel = expected.filter((entry) => !ungroup(panelText).includes(entry.text)).map((entry) => `${entry.label}=${entry.text}`);
@@ -126,6 +142,15 @@ async function main() {
   check('D3.2', 'panel text agrees with the raw snapshot for every number', missingPanel.length === 0, missingPanel.join(', ') || `${expected.length} values matched`);
   check('D3.3', 'standalone text agrees with the raw snapshot for every number', missingStandalone.length === 0, missingStandalone.join(', ') || `${expected.length} values matched`);
   check('D3.4', 'the two renderers agree on provider order and status', ['DeepSeek', 'GLM Coding Plan', 'Kimi Code'].every((name) => standaloneSessionText.includes(name)), 'both show three provider cards');
+  console.log(`      declared vs derived: ${percentPreference.map((entry) => `${entry.id} ${entry.declared}->${entry.derived}`).join(', ') || 'none differ on this snapshot'}`);
+  for (const entry of percentPreference) {
+    check(
+      `D3.5.${entry.id}`,
+      `${entry.id} renders the derived share ${entry.derived}, not the declared ${entry.declared}`,
+      ungroup(panelText).includes(entry.derived) && !ungroup(panelText).includes(entry.declared),
+      `panel contains derived=${ungroup(panelText).includes(entry.derived)}, contains declared=${ungroup(panelText).includes(entry.declared)}`,
+    );
+  }
 
   /* ------------------------------------------------- countdown consistency check */
 
@@ -166,9 +191,16 @@ async function main() {
   check('D6.1', 'panel states the snapshot age', freshness !== null, `panel says "${freshness}"`);
   const beforeRefresh = await snapshot();
   ab(pageSession, ['find', 'role', 'button', 'click', '--name', '刷新']);
-  await sleep(2500);
+  let afterRefresh = beforeRefresh;
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    await sleep(1000);
+    afterRefresh = await snapshot();
+    if (afterRefresh.generatedAt !== beforeRefresh.generatedAt) break;
+    // The page disables the button while a load is in flight, so a click can
+    // land on a disabled control. Retry once through the DOM id.
+    if (attempt === 6) ab(pageSession, ['click', '#refresh']);
+  }
   const afterRefreshText = strip(ab(pageSession, ['get', 'text', 'body']));
-  const afterRefresh = await snapshot();
   check('D6.2', 'the page 刷新 button forces a real refetch', afterRefresh.generatedAt !== beforeRefresh.generatedAt, `${beforeRefresh.generatedAt} -> ${afterRefresh.generatedAt}`);
   check('D6.3', 'the page still renders providers after a manual refresh', ['DeepSeek', 'GLM Coding Plan', 'Kimi Code'].every((name) => afterRefreshText.includes(name)), 'three cards after refresh');
 

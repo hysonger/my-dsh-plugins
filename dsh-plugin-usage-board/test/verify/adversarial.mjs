@@ -492,6 +492,18 @@ async function c0() {
   checkEqual('C0.18', 'Kimi 5h percent uses the precise ratio (35.7), not 36/100', kimi.row.windows[0].percent, 35.7);
   checkEqual('C0.19', 'Kimi has no balances and no account', [kimi.row.balances.length, kimi.row.account], [0, null]);
   checkEqual('C0.20', 'Kimi makes one call per fan-out (no identity request)', kimi.calls.length, 1);
+
+  // ---- v2: derivedPercent must contradict the declared percent exactly where
+  // the providers round, and the declared value must survive beside it.
+  const glm5h = glm.row.windows[0];
+  const glmWeekly = glm.row.windows[1];
+  const kimi5h = kimi.row.windows[0];
+  const kimiWeekly = kimi.row.windows[1];
+  check('C0.21', 'GLM 5h keeps the declared 32 and derives 32.8', glm5h.percent === 32 && glm5h.derivedPercent === 32.8, `declared=${glm5h.percent} derived=${glm5h.derivedPercent}`);
+  check('C0.22', 'GLM weekly keeps the declared 58 and derives 58.3', glmWeekly.percent === 58 && glmWeekly.derivedPercent === 58.3, `declared=${glmWeekly.percent} derived=${glmWeekly.derivedPercent}`);
+  check('C0.23', 'Kimi 5h keeps the ratio 35.7 and derives 36 (36/100)', kimi5h.percent === 35.7 && kimi5h.derivedPercent === 36, `declared=${kimi5h.percent} derived=${kimi5h.derivedPercent}`);
+  check('C0.24', 'Kimi weekly keeps the ratio 42.7 and derives 43 (43/100)', kimiWeekly.percent === 42.7 && kimiWeekly.derivedPercent === 43, `declared=${kimiWeekly.percent} derived=${kimiWeekly.derivedPercent}`);
+  check('C0.25', 'every ok row carries messageKey null', [ds.row, glm.row, kimi.row].every((row) => row.messageKey === null), JSON.stringify([ds.row.messageKey, glm.row.messageKey, kimi.row.messageKey]));
 }
 
 /* ============================================== C10 best-effort secondary sources */
@@ -560,19 +572,269 @@ async function c11() {
     const afterDispose = await pending;
     check('C11.1', 'an in-flight read still resolves after dispose (no hang)', afterDispose?.providers?.length === 1, `${afterDispose?.providers?.length} row(s)`);
     const second = await service.get();
-    check('C11.2', 'a disposed service does not re-run upstream on the next get()', calls === 1, `${calls} upstream call(s)`);
-    check('C11.3', 'the post-dispose snapshot is the one built before disposal', second.generatedAt === afterDispose.generatedAt, `${afterDispose.generatedAt} / ${second.generatedAt}`);
-    console.log('      NIT: dispose() nulls the cache before the in-flight read finishes, and that read then re-populates it (calls=1, cached row served). No user impact while the route table is gone, but the intent of dispose() is not fully met.');
+    check('C11.2', 'v2: the disposed service refuses to serve the pre-dispose snapshot from cache', calls === 2, `${calls} upstream call(s) — 2 means the finishing read was not cached, 1 would mean it was`);
+    check('C11.3', 'the next get() after dispose is a fresh read, not the stale snapshot', second.generatedAt >= afterDispose.generatedAt, `${afterDispose.generatedAt} / ${second.generatedAt}`);
+    console.log('      v2: `#disposed` blocks the finishing read from re-caching, so a disposed service cannot hand out the snapshot built before disposal.');
   } finally {
     PROVIDERS.length = 0;
     PROVIDERS.push(...saved);
   }
 }
 
+/* ================================== C12 hostile window inputs / derivedPercent */
+
+async function c12() {
+  console.log('\n== C12 derivedPercent under hostile window inputs (makeWindow is the funnel) ==');
+  const { makeWindow, derivedPercentOf } = await import('../../src/shared/protocol.js');
+  const cases = [
+    ['limit 0', { used: 5, limit: 0 }, null],
+    ['negative limit', { used: 5, limit: -100 }, null],
+    ['limit NaN', { used: 5, limit: Number.NaN }, null],
+    ['limit Infinity', { used: 5, limit: Number.POSITIVE_INFINITY }, null],
+    ['limit string "100"', { used: '5', limit: '100' }, null],
+    ['limit null', { used: 5, limit: null }, null],
+    ['used NaN', { used: Number.NaN, limit: 100 }, null],
+    ['used null', { used: null, limit: 100 }, null],
+    ['zero usage', { used: 0, limit: 100 }, 0],
+    ['over quota (150/100)', { used: 150, limit: 100 }, 150],
+    ['normal', { used: 1, limit: 3 }, 33.3],
+    ['both null', { used: null, limit: null }, null],
+  ];
+  for (const [label, seed, expected] of cases) {
+    const win = makeWindow({ id: 'qa.window', ...seed });
+    const ok = win.derivedPercent === expected && (win.derivedPercent === null || Number.isFinite(win.derivedPercent));
+    check(`C12.${label}`, `makeWindow(${label}) -> derivedPercent ${JSON.stringify(expected)}`, ok, `got ${JSON.stringify(win.derivedPercent)}`);
+  }
+
+  const nasty = makeWindow({
+    id: 'qa.nasty',
+    used: Number.MAX_VALUE,
+    limit: Number.MIN_VALUE,
+    percent: Number.NaN,
+    unit: { toString: () => 'sneaky' },
+  });
+  check('C12.huge', 'extreme values never reach the payload as NaN/Infinity (round1 rejects non-finite)', nasty.derivedPercent === null || Number.isFinite(nasty.derivedPercent), `derivedPercent=${nasty.derivedPercent} (null is the safe answer for MAX_VALUE/MIN_VALUE)`);
+  check('C12.serialize', 'a hostile window still serializes as valid JSON', (() => { try { JSON.parse(JSON.stringify(nasty)); return true; } catch { return false; } })(), 'JSON round-trip');
+  checkEqual('C12.pure', 'derivedPercentOf is a pure function of its two arguments', derivedPercentOf(656, 2000), 32.8);
+  check('C12.explicit-wins', 'an explicit derivedPercent seed is not overwritten', makeWindow({ id: 'qa.explicit', used: 1, limit: 4, derivedPercent: 99 }).derivedPercent === 99, 'seed honoured');
+}
+
+/* ============================================== C13 messageKey coverage by status */
+
+async function c13() {
+  console.log('\n== C13 messageKey: HTTP rows the client sees, plus the classifier matrix (D-5) ==');
+  const { classifyMessage } = await import('../../src/host/snapshot.js');
+
+  /**
+   * Fetch one HTTPS-served snapshot under a controlled upstream + credential set.
+   * This is what the browser half actually consumes; raw `adapter.read()` rows
+   * do not carry `messageKey` because the host attaches it in `runAdapter`.
+   * @param {{plan: any, getSecret?: Function}} options
+   */
+  async function httpRows({ plan, getSecret = allSecrets }) {
+    const fake = fakeUpstream(plan);
+    const server = await startPluginServer({ getSecret });
+    try {
+      return await withGlobalFetch(fake.fetchImpl, async () => {
+        const body = tryJson((await request(`${server.url}/usage-board/api/snapshot`)).text);
+        return body.providers;
+      });
+    } finally {
+      await server.close();
+    }
+  }
+  const rowFrom = (rows, id) => rows.find((row) => row.id === id);
+
+  // --- semantically correct key per failure mode, over HTTP ------------------
+  const cases = [
+    ['glm not-configured', { plan: healthyPlan, getSecret: platformOnly }, 'glm', 'notConfigured'],
+    ['kimi not-configured', { plan: healthyPlan, getSecret: platformOnly }, 'kimi', 'notConfigured'],
+    ['deepseek not-configured', { plan: healthyPlan, getSecret: async () => undefined }, 'deepseek', 'notConfigured'],
+    ['glm unauthorized (body code 1000)', { plan: { default: { status: 200, body: { code: 1000, success: false } } } }, 'glm', 'authRejected'],
+    ['glm unauthorized (http 401)', { plan: { default: { status: 401, body: {} } } }, 'glm', 'authRejected'],
+    ['kimi unauthorized (http 401)', { plan: { default: { status: 401, body: {} } } }, 'kimi', 'authRejected'],
+    ['deepseek unauthorized (code 40003)', { plan: { [DS_SUMMARY]: { status: 200, body: { code: 40003 } } } }, 'deepseek', 'authRejected'],
+    ['glm rate-limited', { plan: { default: { status: 429, body: {} } } }, 'glm', 'rateLimited'],
+    ['kimi rate-limited', { plan: { default: { status: 429, body: {} } } }, 'kimi', 'rateLimited'],
+    ['kimi invalid-response (html)', { plan: { default: { status: 200, body: '<html>oops</html>', contentType: 'text/html' } } }, 'kimi', 'badResponse'],
+    ['kimi unreachable (transport throw)', { plan: {}, getSecret: allSecrets }, 'kimi', 'unreachable'],
+    ['deepseek unreachable (transport throw)', { plan: {}, getSecret: allSecrets }, 'deepseek', 'unreachable'],
+  ];
+  const observed = {};
+  for (const [label, options, id, expected] of cases) {
+    const rows = await httpRows(options);
+    const row = rowFrom(rows, id);
+    observed[label] = { status: row.status, key: row.messageKey, message: row.message };
+    check(
+      `C13.http:${label}`,
+      `${label} -> ${expected} (status ${row.status})`,
+      row.messageKey === expected,
+      `messageKey=${JSON.stringify(row.messageKey)}, message=${JSON.stringify((row.message ?? '').slice(0, 70))}`,
+    );
+  }
+
+  // --- ok rows carry no key --------------------------------------------------
+  const healthy = await httpRows({ plan: healthyPlan });
+  check('C13.ok-null', 'ok rows carry messageKey null', healthy.every((row) => row.messageKey === null), JSON.stringify(healthy.map((row) => [row.id, row.messageKey])));
+
+  // --- the adapter-throw path, with the REAL GLM label -----------------------
+  const { PROVIDERS } = await import('../../src/host/providers/index.js');
+  const saved = PROVIDERS.slice();
+  PROVIDERS.length = 0;
+  PROVIDERS.push({
+    id: 'glm',
+    label: 'GLM Coding Plan',
+    credentialRefs: [],
+    async read() {
+      throw new Error('qa explosion');
+    },
+  });
+  try {
+    const rows = await httpRows({ plan: healthyPlan });
+    check('C13.adapter-throw', 'GLM adapter throw -> adapterFailed', rows[0].messageKey === 'adapterFailed', `messageKey=${JSON.stringify(rows[0].messageKey)}, message=${JSON.stringify(rows[0].message.slice(0, 70))}`);
+  } finally {
+    PROVIDERS.length = 0;
+    PROVIDERS.push(...saved);
+  }
+
+  // --- the classifier matrix, including the phrase-ordering hazard -----------
+  const matrix = [
+    ['not-configured', 'Set ZAI_CODING_CN_API_KEY to show the GLM Coding Plan quota.', 'notConfigured'],
+    ['unauthorized', 'The GLM Coding Plan credential was rejected; check ZAI_CODING_CN_API_KEY.', 'authRejected'],
+    ['not-configured', 'Set KIMI_CODING_API_KEY to show the Kimi Code quota.', 'notConfigured'],
+    ['unauthorized', 'The stored credential was rejected by the provider.', 'authRejected'],
+    ['rate-limited', 'The provider is rate limiting this account; retry later.', 'rateLimited'],
+    ['network-error', 'The read was cancelled.', 'cancelled'],
+    ['network-error', 'The provider could not be reached.', 'unreachable'],
+    ['invalid-response', 'The provider returned a body that is not valid JSON.', 'badResponse'],
+    ['upstream-error', 'The GLM Coding Plan adapter failed: boom', 'adapterFailed'],
+    ['upstream-error', 'No upstream host was attempted.', 'noHost'],
+  ];
+  for (const [status, message, expected] of matrix) {
+    const actual = classifyMessage(status, message);
+    check(`C13.classify:${expected}`, `classifyMessage(${status}, ${JSON.stringify(message.slice(0, 40))}…) -> ${expected}`, actual === expected, `got ${JSON.stringify(actual)}`);
+  }
+
+  const keysSeen = new Set([...Object.values(observed).map((entry) => entry.key), ...healthy.map((row) => row.messageKey)].filter(Boolean));
+  console.log(`      keys observed over HTTP: ${[...keysSeen].sort().join(', ')}`);
+  console.log('      NOTE: `cancelled` and `noHost` have no HTTP trigger in this build (the fan-out controller only aborts after every adapter has settled); they are covered by the classifyMessage matrix above and by both client dictionaries, not by a live render.');
+}
+
+/* ============================================ C14 body cap + memory exhaustion */
+
+async function c14() {
+  console.log('\n== C14 512 KiB body cap: truncation, cancellation, memory ==');
+  const { fetchJson } = await import('../../src/host/fetch-json.js');
+
+  // (a) an unbounded stream must stop at the cap and be cancelled.
+  let pulled = 0;
+  let cancelled = false;
+  const chunk = new Uint8Array(64 * 1024).fill(65);
+  const stream = new ReadableStream({
+    pull(controller) {
+      pulled += 1;
+      if (pulled > 1000) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const fakeFetch = async () => new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } });
+  const capped = await fetchJson('https://qa.invalid/huge', { fetchImpl: fakeFetch, maxBodyBytes: 512 * 1024 });
+  check('C14.1', 'an unbounded 200 response is cut at the cap', capped.truncated === true && capped.text.length <= 512 * 1024 && capped.text.length > 512 * 1024 - 2 * 64 * 1024, `text=${capped.text.length} bytes, truncated=${capped.truncated}`);
+  check('C14.2', 'the reader stopped pulling instead of draining the stream', pulled <= 10, `${pulled} chunk(s) pulled (64 KiB each)`);
+  check('C14.3', 'the stream was cancelled (socket released)', cancelled === true, `cancelled=${cancelled}`);
+  check('C14.4', 'a truncated JSON body reports BodyTooLargeError, not a bare parse failure', capped.error?.name === 'BodyTooLargeError', `error=${JSON.stringify(capped.error)}`);
+
+  // (b) the same attack through the real undici fetch against a local server.
+  const http = await import('node:http');
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    const block = 'x'.repeat(64 * 1024);
+    let sent = 0;
+    const timer = setInterval(() => {
+      if (sent >= 512) {
+        clearInterval(timer);
+        res.end();
+        return;
+      }
+      sent += 1;
+      res.write(block);
+    }, 0);
+    req.on('close', () => clearInterval(timer));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const before = process.memoryUsage().rss;
+  const started = Date.now();
+  const real = await fetchJson(`http://127.0.0.1:${port}/flood`);
+  const elapsed = Date.now() - started;
+  const rssDelta = process.memoryUsage().rss - before;
+  await new Promise((resolve) => server.close(resolve));
+  check('C14.5', 'a real 32 MiB flood body is bounded at the cap', real.truncated === true && real.text.length <= 512 * 1024, `text=${real.text.length}, truncated=${real.truncated}`);
+  check('C14.6', 'the flood does not stall the event loop (returns promptly)', elapsed < 5000, `${elapsed} ms`);
+  check('C14.7', 'hostile-body memory growth stays far below the flood size', rssDelta < 64 * 1024 * 1024, `RSS delta ${(rssDelta / 1024 / 1024).toFixed(1)} MiB for a 32 MiB flood`);
+  check('C14.8', 'the flood body is reported as BodyTooLargeError too', real.error?.name === 'BodyTooLargeError', `error=${JSON.stringify(real.error)}`);
+
+  // (c) a valid JSON body under the cap still parses.
+  const small = await fetchJson('https://qa.invalid/small', { fetchImpl: async () => new Response(JSON.stringify({ ok: 1 }), { status: 200 }) });
+  check('C14.9', 'a normal body under the cap still parses and is not marked truncated', small.ok === true && small.truncated === false && small.json?.ok === 1, `ok=${small.ok} truncated=${small.truncated}`);
+
+  // (c2) a gzip bomb: undici decompresses transparently, so the cap has to
+  // apply to the *decompressed* bytes or a 64 KiB body could balloon.
+  const zlib = await import('node:zlib');
+  const bombServer = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' });
+    const gzip = zlib.createGzip();
+    gzip.pipe(res);
+    const block = Buffer.alloc(64 * 1024);
+    let written = 0;
+    const timer = setInterval(() => {
+      if (written >= 1024) {
+        clearInterval(timer);
+        gzip.end();
+        return;
+      }
+      written += 1;
+      gzip.write(block);
+    }, 0);
+    req.on('close', () => {
+      clearInterval(timer);
+      gzip.destroy();
+    });
+  });
+  await new Promise((resolve) => bombServer.listen(0, '127.0.0.1', resolve));
+  const bombPort = bombServer.address().port;
+  const bombBefore = process.memoryUsage().rss;
+  const bombStarted = Date.now();
+  const bomb = await fetchJson(`http://127.0.0.1:${bombPort}/bomb`);
+  const bombElapsed = Date.now() - bombStarted;
+  const bombRss = process.memoryUsage().rss - bombBefore;
+  await new Promise((resolve) => bombServer.close(resolve));
+  check('C14.11', 'a gzip bomb is cut at the decompressed cap', bomb.truncated === true && bomb.text.length <= 512 * 1024, `text=${bomb.text.length}, truncated=${bomb.truncated}`);
+  check('C14.12', 'the gzip bomb does not balloon memory or stall', bombRss < 64 * 1024 * 1024 && bombElapsed < 5000, `RSS delta ${(bombRss / 1024 / 1024).toFixed(1)} MiB, ${bombElapsed} ms for a 64 MiB expansion`);
+
+  // (d) an adapter must map the oversized body onto a protocol status, not throw.
+  const glmHuge = await direct('glm', {
+    plan: {
+      default: {
+        status: 200,
+        body: `{"code":200,"success":true,"data":{"level":"lite","limits":[]},"pad":"${'x'.repeat(600 * 1024)}"}`,
+        contentType: 'application/json',
+      },
+    },
+  });
+  check('C14.10', 'an over-cap upstream body becomes invalid-response, never a throw or a fake ok row', glmHuge.row.status === 'invalid-response', brief(glmHuge.row));
+}
+
 /* ---------------------------------------------------------------------- runner */
 
 const only = process.argv[2];
-const sections = { c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11 };
+const sections = { c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14 };
 for (const [name, section] of Object.entries(sections)) {
   if (only && only !== name) continue;
   await section();

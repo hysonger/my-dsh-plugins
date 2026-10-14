@@ -59,14 +59,14 @@ async function liveRoutes() {
 
   const shapeProblems = [];
   for (const row of snapshot?.providers ?? []) {
-    for (const key of ['id', 'label', 'status', 'message', 'code', 'plan', 'windows', 'balances', 'account', 'meta', 'fetchedAt', 'latencyMs']) {
+    for (const key of ['id', 'label', 'status', 'message', 'messageKey', 'code', 'plan', 'windows', 'balances', 'account', 'meta', 'fetchedAt', 'latencyMs']) {
       if (!(key in row)) shapeProblems.push(`${row.id}.${key} missing`);
     }
     if (!Array.isArray(row.windows)) shapeProblems.push(`${row.id}.windows not an array`);
     if (!Array.isArray(row.balances)) shapeProblems.push(`${row.id}.balances not an array`);
     if (row.meta === null || typeof row.meta !== 'object') shapeProblems.push(`${row.id}.meta not an object`);
     for (const win of row.windows) {
-      for (const key of ['id', 'labelKey', 'unit', 'number', 'limit', 'used', 'remaining', 'percent', 'resetAt', 'note']) {
+      for (const key of ['id', 'labelKey', 'unit', 'number', 'limit', 'used', 'remaining', 'percent', 'derivedPercent', 'resetAt', 'note']) {
         if (!(key in win)) shapeProblems.push(`${row.id}.${win.id}.${key} missing`);
       }
     }
@@ -75,6 +75,38 @@ async function liveRoutes() {
 
   const percentages = (snapshot?.providers ?? []).flatMap((row) => row.windows.map((win) => ({ id: win.id, percent: win.percent })));
   check('B2.7', 'no window reports a percent without either a limit or an upstream percentage', percentages.every((entry) => entry.percent === null || entry.percent >= 0), JSON.stringify(percentages));
+
+  // v2: derivedPercent is additive and must agree with used/limit where usable.
+  const derivedProblems = [];
+  for (const row of snapshot?.providers ?? []) {
+    for (const win of row.windows) {
+      if (!('derivedPercent' in win)) {
+        derivedProblems.push(`${row.id}/${win.id}: field missing`);
+        continue;
+      }
+      const usable = typeof win.used === 'number' && typeof win.limit === 'number' && win.limit > 0;
+      if (!usable) {
+        if (win.derivedPercent !== null) derivedProblems.push(`${row.id}/${win.id}: derivedPercent=${win.derivedPercent} without a usable pair`);
+        continue;
+      }
+      const expected = Math.round((win.used / win.limit) * 1000) / 10;
+      if (win.derivedPercent !== expected) derivedProblems.push(`${row.id}/${win.id}: derivedPercent=${win.derivedPercent} expected ${expected}`);
+    }
+  }
+  check('B2.8', 'every window carries derivedPercent that matches used/limit exactly', derivedProblems.length === 0, derivedProblems.join('; ') || 'all windows consistent');
+
+  const declaredPreserved = (snapshot?.providers ?? [])
+    .flatMap((row) => row.windows.map((win) => ({ id: `${row.id}/${win.id}`, declared: win.percent, derived: win.derivedPercent })))
+    .filter((entry) => entry.declared !== null && entry.derived !== null);
+  check(
+    'B2.9',
+    'the provider-declared percent is still recoverable verbatim beside derivedPercent',
+    declaredPreserved.every((entry) => typeof entry.declared === 'number'),
+    declaredPreserved.map((entry) => `${entry.id}: declared=${entry.declared} derived=${entry.derived}`).join(', ') || 'no declared values on the wire',
+  );
+
+  const messageKeys = (snapshot?.providers ?? []).map((row) => ({ id: row.id, status: row.status, messageKey: row.messageKey }));
+  check('B2.10', 'messageKey is null on ok rows and never undefined', messageKeys.every((entry) => entry.messageKey === null || typeof entry.messageKey === 'string'), JSON.stringify(messageKeys));
 
   // ---- refresh really refetches
   const before = tryJson((await request(`${BASE}/api/snapshot`)).text);
@@ -234,13 +266,15 @@ async function pageDisabled() {
 /* ------------------------------------------------------------------- B10 misc */
 
 async function extraRoutes() {
-  console.log('\n== B10 GET on the refresh route, and CSP enforcement ==');
+  console.log('\n== B10 refresh is POST-only (D-7) and CSP enforcement ==');
   const before = tryJson((await request(`${BASE}/api/snapshot`)).text);
   const viaGet = await request(`${BASE}/api/refresh`);
-  const viaGetBody = tryJson(viaGet.text);
-  check('B10.1', 'GET /api/refresh is accepted and forces a refetch', viaGet.status === 200 && viaGetBody?.generatedAt !== before?.generatedAt, `HTTP ${viaGet.status}, ${before?.generatedAt} -> ${viaGetBody?.generatedAt}`);
-  check('B10.2', 'DELETE /api/refresh still carries Allow: POST, GET', (await request(`${BASE}/api/refresh`, { method: 'DELETE' })).headers.allow === 'POST, GET', '405 advertises POST, GET');
-  console.log('      NOTE: because GET also forces a refetch, any local page can trigger an upstream fan-out with a no-preflight cross-origin GET (response unreadable, side effect happens). Loopback-only limits the blast radius to ~5 upstream calls.');
+  check('B10.1', 'GET /api/refresh -> 405 with Allow: POST (D-7 fix)', viaGet.status === 405 && viaGet.headers.allow === 'POST', `HTTP ${viaGet.status}, allow: ${viaGet.headers.allow}`);
+  const viaPost = await request(`${BASE}/api/refresh`, { method: 'POST' });
+  const viaPostBody = tryJson(viaPost.text);
+  check('B10.2', 'POST /api/refresh still forces a real refetch', viaPost.status === 200 && viaPostBody?.generatedAt !== before?.generatedAt, `HTTP ${viaPost.status}, ${before?.generatedAt} -> ${viaPostBody?.generatedAt}`);
+  const viaHead = await request(`${BASE}/api/refresh`, { method: 'HEAD' });
+  check('B10.2b', 'HEAD /api/refresh is also refused (405), so a GET-shaped prefetch cannot force work', viaHead.status === 405, `HTTP ${viaHead.status}, allow: ${viaHead.headers.allow}`);
 
   const page = await request(`${BASE}/`);
   const csp = page.headers['content-security-policy'] ?? '';
