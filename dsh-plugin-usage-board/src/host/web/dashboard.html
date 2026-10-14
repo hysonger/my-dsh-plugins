@@ -104,6 +104,8 @@
   const refreshBtn = document.getElementById('refresh');
   let ttlMs = 60000;
   let timer = null;
+  let lastGeneratedAt = null;
+  let staleFollowUpPending = false;
 
   const LABELS = {
     'glm.5h': '5 小时窗口',
@@ -323,9 +325,20 @@
     for (let index = 0; index < count; index += 1) grid.appendChild(el('div', { class: 'skeleton' }));
   }
 
+  /**
+   * Load the snapshot and paint it.
+   *
+   * Refresh never blanks the board: whatever is already on screen stays there
+   * (with the freshness line saying it is being refreshed) until the new body
+   * replaces it. Skeletons are for a genuinely empty board only — the first
+   * load ever — because showing them over known numbers is exactly the latency
+   * this page is supposed to avoid.
+   */
   async function load(force) {
     refreshBtn.disabled = true;
-    if (grid.childElementCount === 0) skeletons(3);
+    const wasEmpty = grid.childElementCount === 0;
+    if (wasEmpty) skeletons(3);
+    else updatedEl.textContent = relative(lastGeneratedAt) + ' · 正在刷新…';
     try {
       const response = await fetch(force ? boot.refreshPath : boot.snapshotPath, {
         method: force ? 'POST' : 'GET',
@@ -335,16 +348,34 @@
       const body = await response.json();
       if (!response.ok || !Array.isArray(body.providers)) throw new Error('HTTP ' + response.status);
       ttlMs = typeof body.ttlMs === 'number' ? body.ttlMs : 60000;
+      lastGeneratedAt = body.generatedAt;
       grid.replaceChildren();
       for (const row of body.providers) grid.appendChild(card(row));
-      updatedEl.textContent = relative(body.generatedAt) + (body.ok ? '' : ' · 部分服务异常');
+      const staleNote = body.stale === true ? ' · 后台刷新中' : '';
+      updatedEl.textContent = relative(body.generatedAt) + (body.ok ? '' : ' · 部分服务异常') + staleNote;
       footerEl.textContent = '插件 v' + boot.version + ' · 缓存 ' + Math.round(ttlMs / 1000) + ' 秒 · 协议 v' + body.protocolVersion;
+      // A stale body means the host is already refreshing behind us; read once
+      // more shortly so the fresh numbers land without the user acting.
+      if (body.stale === true && !staleFollowUpPending) {
+        staleFollowUpPending = true;
+        setTimeout(function () {
+          staleFollowUpPending = false;
+          load(false);
+        }, 1500);
+      }
     } catch (error) {
-      grid.replaceChildren(el('section', { class: 'card' }, [
-        el('h2', { text: '无法读取用量数据' }),
-        el('div', { class: 'err-box', text: String(error && error.message ? error.message : error) }),
-      ]));
-      updatedEl.textContent = '读取失败';
+      const reason = String(error && error.message ? error.message : error);
+      if (wasEmpty) {
+        // Nothing to keep: the failure is the whole page.
+        grid.replaceChildren(el('section', { class: 'card' }, [
+          el('h2', { text: '无法读取用量数据' }),
+          el('div', { class: 'err-box', text: reason }),
+        ]));
+        updatedEl.textContent = '读取失败';
+      } else {
+        // Numbers are already on screen; keep them and report the refresh.
+        updatedEl.textContent = relative(lastGeneratedAt) + ' · 刷新失败：' + reason;
+      }
     } finally {
       refreshBtn.disabled = false;
       schedule();

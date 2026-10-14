@@ -125,7 +125,12 @@ async function handleSnapshot(req, res, options, force) {
   if (!isAllowedMethod(req, res, force ? ['POST'] : ['GET', 'HEAD'])) return;
   if (!isAllowedPeer(req, options)) return sendError(res, 403, 'forbidden', 'This route is restricted to loopback clients.');
   try {
-    const snapshot = await options.snapshots.get({ force });
+    // GET is the "show me the dashboard" read: it must not sit on the slowest
+    // provider when a usable cached snapshot exists. POST /refresh is the
+    // explicit "go ask the providers" read, so that one waits.
+    const snapshot = force
+      ? await options.snapshots.get({ force: true })
+      : await options.snapshots.getServing();
     sendJson(res, 200, snapshot, req);
   } catch (error) {
     options.log(`usage-board: snapshot route failed (${describe(error)})`);
@@ -152,6 +157,8 @@ async function handleHealth(req, res, options) {
       protocolVersion: 1,
       ttlMs: options.snapshots.ttlMs,
       reads: options.snapshots.readCount,
+      backgroundReads: options.snapshots.backgroundReadCount,
+      fresh: options.snapshots.isFresh(),
       credentials: options.credentialsHint ?? null,
     },
     req,

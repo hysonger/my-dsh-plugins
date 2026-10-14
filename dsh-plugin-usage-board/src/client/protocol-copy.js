@@ -134,6 +134,8 @@ function makeSnapshot(seed) {
     generatedAt: seed.generatedAt ?? Date.now(),
     ok: seed.providers.length > 0 && seed.providers.every((row) => row.status === 'ok'),
     ttlMs: seed.ttlMs,
+    ...(seed.stale === true ? { stale: true } : {}),
+    ...(seed.refreshing === true ? { refreshing: true } : {}),
     providers: seed.providers,
   };
 }

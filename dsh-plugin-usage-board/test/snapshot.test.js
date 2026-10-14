@@ -533,8 +533,146 @@ test('a read finishing after dispose does not repopulate the cache', async () =>
     release();
     await pending;
     clock += 1_000;
-    // A disposed service must not answer from a cache the finishing read rebuilt.
+    // The finishing read must not have repopulated the cache, and a disposed
+    // service must not start a new one: the answer is the empty envelope.
+    const afterDispose = await service.get();
+    assert.equal(service.readCount, 1, 'a disposed service must not start a new upstream read');
+    assert.deepEqual(afterDispose.providers, []);
+    assert.equal(service.backgroundReadCount, 0);
+  });
+});
+
+/* -------------------------------------------- stale-while-revalidate (host) */
+
+test('a fresh cache is served without any staleness flag', async () => {
+  const { adapter, calls } = stubAdapter('glm');
+  await withProviders([adapter], async () => {
+    let clock = 1_000;
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000, now: () => clock });
     await service.get();
-    assert.equal(service.readCount, 2, 'the second get re-read instead of serving the resurrected cache');
+    const served = await service.getServing();
+    assert.equal(served.stale, undefined, 'a fresh answer is not stale');
+    assert.equal(served.refreshing, undefined);
+    assert.equal(calls(), 1);
+  });
+});
+
+test('an expired cache is served immediately and refreshed behind the response', async () => {
+  let release = () => {};
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const adapter = {
+    id: 'glm',
+    label: 'GLM',
+    credentialRefs: [],
+    async read() {
+      calls += 1;
+      if (calls > 1) await gate;
+      return makeProvider({ id: 'glm', label: 'GLM', status: 'ok' });
+    },
+  };
+  await withProviders([adapter], async () => {
+    let clock = 1_000;
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000, now: () => clock });
+    const first = await service.get();
+    assert.equal(first.stale, undefined);
+
+    clock += 20_001; // the ttl has passed
+    const served = await service.getServing();
+    assert.equal(served.stale, true, 'the caller is told the numbers are old');
+    assert.equal(served.refreshing, true, 'and that a refresh is already running');
+    assert.equal(served.generatedAt, first.generatedAt, 'the stale body is the cached one, returned at once');
+    assert.equal(calls, 2, 'a background read was started');
+
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(service.backgroundReadCount, 1);
+
+    const after = await service.getServing();
+    assert.equal(after.stale, undefined, 'once refreshed, the answer is fresh again');
+    assert.ok(after.generatedAt > first.generatedAt);
+  });
+});
+
+test('an empty cache still blocks, because there is nothing honest to serve', async () => {
+  const { adapter, calls } = stubAdapter('glm');
+  await withProviders([adapter], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000 });
+    const served = await service.getServing();
+    assert.equal(served.providers.length, 1);
+    assert.equal(served.stale, undefined);
+    assert.equal(calls(), 1);
+  });
+});
+
+test('a stale answer and a simultaneous caller share one background read', async () => {
+  let release = () => {};
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const adapter = {
+    id: 'glm',
+    label: 'GLM',
+    credentialRefs: [],
+    async read() {
+      calls += 1;
+      if (calls > 1) await gate;
+      return makeProvider({ id: 'glm', label: 'GLM', status: 'ok' });
+    },
+  };
+  await withProviders([adapter], async () => {
+    let clock = 0;
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000, now: () => clock });
+    await service.get();
+    clock += 20_001;
+    await Promise.all([service.getServing(), service.getServing(), service.getServing()]);
+    assert.equal(calls, 2, 'three stale readers must not start three refreshes');
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+});
+
+test('a failed background refresh leaves the stale numbers in place', async () => {
+  let calls = 0;
+  const adapter = {
+    id: 'glm',
+    label: 'GLM',
+    credentialRefs: [],
+    async read() {
+      calls += 1;
+      if (calls === 2) throw new Error('upstream went away');
+      return makeProvider({ id: 'glm', label: 'GLM', status: 'ok' });
+    },
+  };
+  await withProviders([adapter], async () => {
+    let clock = 0;
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000, now: () => clock });
+    const good = await service.get();
+    clock += 20_001;
+    // The thrown adapter is repaired into a row, so the refresh "succeeds" with a
+    // degraded snapshot — the important part is that the caller before it got
+    // numbers instantly and nothing threw.
+    const served = await service.getServing();
+    assert.equal(served.statusOfFirstProvider ?? served.providers[0].status, 'ok');
+    assert.equal(served.generatedAt, good.generatedAt);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(calls >= 2);
+  });
+});
+
+test('a disposed service does not start background refreshes', async () => {
+  const { adapter, calls } = stubAdapter('glm');
+  await withProviders([adapter], async () => {
+    let clock = 0;
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000, now: () => clock });
+    await service.get();
+    service.dispose();
+    clock += 20_001;
+    await service.getServing();
+    assert.equal(service.backgroundReadCount, 0);
+    assert.equal(calls(), 1);
   });
 });

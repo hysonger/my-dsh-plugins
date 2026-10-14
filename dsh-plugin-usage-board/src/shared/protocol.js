@@ -107,6 +107,11 @@ export const QUOTA_PROVIDER_IDS = ['glm', 'kimi'];
  * @property {boolean} ok True when EVERY enabled provider reported `ok`.
  * @property {number} ttlMs How long the host will serve this snapshot before refetching.
  * @property {ProviderSnapshot[]} providers PROVIDER_IDS order, one row per configured provider.
+ * @property {boolean} [stale] Additive. True when this body came from a cache the host is
+ *   refreshing behind the response, so the numbers may be older than `ttlMs`. A consumer that
+ *   does not know this field renders the body normally; one that does can schedule its own
+ *   follow-up read instead of waiting a whole TTL for the fresh numbers.
+ * @property {boolean} [refreshing] Additive. True while a background read is in flight.
  */
 
 /** HTTP path the host half serves the snapshot on (GET). */
@@ -242,7 +247,32 @@ export function makeSnapshot(seed) {
     generatedAt: seed.generatedAt ?? Date.now(),
     ok: seed.providers.length > 0 && seed.providers.every((row) => row.status === 'ok'),
     ttlMs: seed.ttlMs,
+    ...(seed.stale === true ? { stale: true } : {}),
+    ...(seed.refreshing === true ? { refreshing: true } : {}),
     providers: seed.providers,
+  };
+}
+
+/**
+ * Re-stamp an already-built envelope for one response.
+ *
+ * The cached snapshot stays pristine; each response gets its own shallow copy
+ * carrying the freshness of *that* answer. Provider rows are shared by
+ * reference because nothing mutates them after a read.
+ *
+ * @param {UsageSnapshot} snapshot A previously built envelope.
+ * @param {{ stale?: boolean, refreshing?: boolean }} [flags]
+ * @returns {UsageSnapshot}
+ */
+export function projectSnapshot(snapshot, flags = {}) {
+  return {
+    protocolVersion: snapshot.protocolVersion,
+    generatedAt: snapshot.generatedAt,
+    ok: snapshot.ok,
+    ttlMs: snapshot.ttlMs,
+    ...(flags.stale === true ? { stale: true } : {}),
+    ...(flags.refreshing === true ? { refreshing: true } : {}),
+    providers: snapshot.providers,
   };
 }
 

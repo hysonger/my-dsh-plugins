@@ -42,6 +42,16 @@ const TTL_MAX_MS = 5 * 60 * 1000;
 /** How long a single request may hang before it is reported as a timeout. */
 const REQUEST_TIMEOUT_MS = 20 * 1000;
 
+/** sessionStorage key holding the last successful envelope, for the first paint. */
+const SNAPSHOT_STORE_KEY = "usage-board:snapshot:v1";
+
+/**
+ * How long to wait before the one bounded follow-up read a `stale: true` answer
+ * earns. Short enough to beat the eye, long enough for the host's background
+ * refresh to have landed.
+ */
+const STALE_FOLLOW_UP_MS = 1500;
+
 /** Longest diagnostic string rendered next to a failure. */
 const DIAGNOSTIC_MAX = 140;
 
@@ -91,6 +101,7 @@ const zh = {
   "state.balanceOnly": "\u8be5\u670d\u52a1\u6309\u4f59\u989d\u8ba1\u8d39\uff0c\u4e0d\u63d0\u4f9b\u7528\u91cf\u7a97\u53e3",
   "state.refreshFailed": "\u5237\u65b0\u5931\u8d25\uff1a{reason}",
   "updated.none": "\u5c1a\u672a\u540c\u6b65",
+  "updated.refreshing": "\u6b63\u5728\u5237\u65b0\u2026",
   "updated.justNow": "\u521a\u521a\u66f4\u65b0",
   "updated.seconds": "{n} \u79d2\u524d\u66f4\u65b0",
   "updated.minutes": "{n} \u5206\u949f\u524d\u66f4\u65b0",
@@ -157,6 +168,7 @@ const en = {
   "state.balanceOnly": "This service bills by balance and exposes no usage window.",
   "state.refreshFailed": "Refresh failed: {reason}",
   "updated.none": "Not synced yet",
+  "updated.refreshing": "refreshing\u2026",
   "updated.justNow": "Updated just now",
   "updated.seconds": "Updated {n}s ago",
   "updated.minutes": "Updated {n} min ago",
@@ -535,6 +547,61 @@ function normalizeSnapshot(body) {
 }
 
 /**
+ * The transport-level check for a snapshot envelope: an object whose `providers`
+ * is an array. Shared by the live request path and the restored-from-storage
+ * path so a payload that came off disk is held to the same bar as one off the
+ * wire.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function isSnapshotBody(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.providers);
+}
+
+/**
+ * Persist the last successful envelope so the next mount can paint before its
+ * first request lands.
+ *
+ * sessionStorage may be absent (server render, hardened browsers), disabled
+ * (private modes), or full. A cache write is an optimisation, never a
+ * requirement, so every access is wrapped and a failure is silently dropped.
+ * @param {object} body The envelope exactly as the host sent it, so its
+ *   `protocolVersion` survives for the read-side check.
+ */
+function writeStoredSnapshot(body) {
+  try {
+    if (typeof sessionStorage === "undefined" || sessionStorage === null) return;
+    sessionStorage.setItem(SNAPSHOT_STORE_KEY, JSON.stringify(body));
+  } catch (error) {
+    // Deliberately ignored: the panel works without a cache.
+  }
+}
+
+/**
+ * The stored envelope as a normalized snapshot, or null when there is none or
+ * it cannot be trusted.
+ *
+ * Rejected on purpose: unparseable JSON, a payload that is not an envelope, and
+ * a payload written under a different PROTOCOL_VERSION — a snapshot from
+ * another protocol revision may carry fields whose meaning changed, and showing
+ * it would be worse than showing nothing.
+ * @returns {object|null}
+ */
+function readStoredSnapshot() {
+  try {
+    if (typeof sessionStorage === "undefined" || sessionStorage === null) return null;
+    const raw = sessionStorage.getItem(SNAPSHOT_STORE_KEY);
+    if (typeof raw !== "string" || raw.length === 0) return null;
+    const body = JSON.parse(raw);
+    if (!isSnapshotBody(body)) return null;
+    if (body.protocolVersion !== PROTOCOL_VERSION) return null;
+    return normalizeSnapshot(body);
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
  * Fetch JSON from a host route, enforcing the transport contract: a non-2xx
  * answer or a body whose `providers` is not an array is a failure.
  * @param {string} url
@@ -583,7 +650,7 @@ function requestJson(url, options) {
       throw failure;
     },
   ).then(function (body) {
-    if (body === null || typeof body !== "object" || Array.isArray(body) || !Array.isArray(body.providers)) {
+    if (!isSnapshotBody(body)) {
       const failure = new Error("payload has no providers array");
       failure.kind = "shape";
       throw failure;
@@ -743,21 +810,38 @@ function DailyTrend(props) {
 /**
  * The panel's data source: one snapshot, one in-flight request at a time,
  * auto-refresh on the host ttl, and a refetch whenever the page becomes visible.
+ *
+ * Stale-while-revalidate: the last successful envelope is restored from
+ * sessionStorage synchronously, so the first render already has numbers, and no
+ * in-flight request ever blanks them. A `stale: true` answer (the host served a
+ * cache it is refreshing behind) earns exactly one bounded follow-up read.
+ *
  * @returns {object} state, busy flag, `refresh` action and the ticking `now`.
  */
 function useUsageBoard() {
-  const [state, setState] = useState({ phase: "loading", snapshot: null, failure: null });
+  const [state, setState] = useState(function () {
+    // Runs during the first render, before any effect: a stored snapshot paints
+    // in the very first frame instead of after a round trip.
+    const restored = readStoredSnapshot();
+    if (restored === null) return { phase: "loading", snapshot: null, failure: null };
+    return { phase: "ready", snapshot: restored, failure: null };
+  });
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(function () {
     return Date.now();
   });
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
+  const followUpRef = useRef(null);
 
   useEffect(function () {
     mountedRef.current = true;
     return function () {
       mountedRef.current = false;
+      if (followUpRef.current !== null) {
+        clearTimeout(followUpRef.current);
+        followUpRef.current = null;
+      }
     };
   }, []);
 
@@ -778,7 +862,19 @@ function useUsageBoard() {
         if (!mountedRef.current) return;
         setBusy(false);
         setNow(Date.now());
+        writeStoredSnapshot(body);
         setState({ phase: "ready", snapshot: normalizeSnapshot(body), failure: null });
+        // A stale answer means the host handed us a cache it is refreshing
+        // behind. One short follow-up picks up the fresh numbers without the
+        // user acting. A follow-up that is *itself* stale schedules nothing, so
+        // a host that keeps answering from cache cannot turn this into a poll —
+        // the ordinary ttl schedule takes over from there.
+        if (body.stale === true && kind !== "followup" && followUpRef.current === null) {
+          followUpRef.current = setTimeout(function () {
+            followUpRef.current = null;
+            run("followup");
+          }, STALE_FOLLOW_UP_MS);
+        }
       },
       function (error) {
         busyRef.current = false;
@@ -1049,6 +1145,11 @@ function UsageBoardPanel(props) {
   const failure = board.state.failure;
   const hosts = collectHosts(providers);
   const updated = relativeTime(t, snapshot === null ? null : snapshot.generatedAt, board.now);
+  // While a snapshot is on screen, being busy is said here and on the refresh
+  // button — never by emptying the body the user is reading.
+  const freshness = snapshot !== null && board.busy
+    ? (updated === null ? t("updated.none") : updated) + " \u00b7 " + t("updated.refreshing")
+    : (updated === null ? t("updated.none") : updated);
 
   const body = [];
   if (board.state.phase === "loading") {
@@ -1103,7 +1204,7 @@ function UsageBoardPanel(props) {
               jsx("h1", { className: "ub-title", children: t("panel") }),
               jsx("p", {
                 className: "ub-updated",
-                children: updated === null ? t("updated.none") : updated,
+                children: freshness,
               }),
             ],
           }),

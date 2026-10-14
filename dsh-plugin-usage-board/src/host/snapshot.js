@@ -12,7 +12,7 @@
 
 import { PROVIDERS } from './providers/index.js';
 import { fetchJson } from './fetch-json.js';
-import { makeProvider, makeSnapshot, SNAPSHOT_PATH } from '../shared/protocol.js';
+import { makeProvider, makeSnapshot, projectSnapshot, SNAPSHOT_PATH } from '../shared/protocol.js';
 
 /** Default cache lifetime. */
 export const DEFAULT_TTL_MS = 60_000;
@@ -50,6 +50,8 @@ export class SnapshotService {
   #controller = null;
   /** Set by `dispose()`; a read that finishes afterwards must not cache. */
   #disposed = false;
+  /** Background refreshes started, for diagnostics. */
+  #backgroundReads = 0;
   /** @type {Map<string, Promise<import('../shared/protocol.js').ProviderSnapshot>>} */
   #perProvider = new Map();
   #reads = 0;
@@ -75,6 +77,11 @@ export class SnapshotService {
     return this.#reads;
   }
 
+  /** How many of those were background refreshes behind a served response. */
+  get backgroundReadCount() {
+    return this.#backgroundReads;
+  }
+
   /**
    * Return the cached snapshot when it is still fresh, otherwise read upstream.
    * @param {{ force?: boolean }} [options]
@@ -83,17 +90,89 @@ export class SnapshotService {
   async get(options = {}) {
     const { force = false } = options;
     if (!force && this.#cache !== null && this.#cache.expiresAt > this.#now()) return this.#cache.snapshot;
-    if (this.#inflight !== null) return this.#inflight;
-    const pending = this.#read().finally(() => {
-      this.#inflight = null;
-    });
-    this.#inflight = pending;
-    return pending;
+    // Keep awaiting a read that was already running when disposal happened
+    // (the caller asked for it before the plugin went away); only refuse a new one.
+    if (this.#disposed && this.#inflight === null) {
+      return this.#cache === null ? this.#disposedEnvelope() : this.#cache.snapshot;
+    }
+    return this.#beginRead({ blocking: true });
   }
 
   /** Drop the cache so the next `get()` reads upstream. */
   invalidate() {
     this.#cache = null;
+  }
+
+  /**
+   * Answer without waiting on any provider whenever the cache can carry the
+   * response.
+   *
+   * This is what makes entering the panel feel instant. When a cached snapshot
+   * exists but its TTL has passed, the stale copy is returned immediately and a
+   * background read is started to replace it — the caller gets numbers now and
+   * the freshness of the next answer, instead of blocking on the slowest
+   * provider. Only a genuinely empty cache blocks, because there is nothing
+   * honest to serve.
+   *
+   * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
+   */
+  async getServing() {
+    if (this.#disposed) return this.#cache === null ? this.#disposedEnvelope() : this.#cache.snapshot;
+    if (this.#cache === null) {
+      // Cold start: no numbers exist yet, so this caller waits for the first read.
+      return await this.#beginRead({ blocking: true });
+    }
+    const fresh = this.#cache.expiresAt > this.#now();
+    if (!fresh) this.#startBackgroundRefresh();
+    return projectSnapshot(this.#cache.snapshot, {
+      stale: !fresh,
+      refreshing: this.#controller !== null && !fresh,
+    });
+  }
+
+  /**
+   * A last-resort envelope for a disposed service with no cache: an explicit,
+   * empty answer rather than a read that a disposed plugin has no business
+   * starting.
+   * @returns {import('../shared/protocol.js').UsageSnapshot}
+   */
+  #disposedEnvelope() {
+    return makeSnapshot({ ttlMs: this.#ttlMs, providers: [] });
+  }
+
+  /**
+   * Whether a cached snapshot exists and is still inside its TTL.
+   * @returns {boolean}
+   */
+  isFresh() {
+    return this.#cache !== null && this.#cache.expiresAt > this.#now();
+  }
+
+  /**
+   * Refresh behind an already-delivered response, at most one at a time.
+   * A failed background read leaves the stale cache in place: the next caller
+   * still gets numbers, and the read that failed is reported through the rows.
+   */
+  #startBackgroundRefresh() {
+    if (this.#controller !== null || this.#disposed) return;
+    void this.#beginRead({ blocking: false }).catch(() => undefined);
+  }
+
+  /**
+   * Start one shared read. All callers of a single fan-out await the same
+   * promise, so a background refresh and a caller that arrived at the same
+   * moment cannot double the upstream traffic.
+   *
+   * @param {{ blocking: boolean }} options
+   * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
+   */
+  #beginRead({ blocking }) {
+    if (this.#inflight !== null) return this.#inflight;
+    const pending = this.#read({ blocking }).finally(() => {
+      this.#inflight = null;
+    });
+    this.#inflight = pending;
+    return pending;
   }
 
   /**
@@ -104,11 +183,14 @@ export class SnapshotService {
    * instead of holding a listener until process exit. Disposal mid-read is
    * bounded by the same signal.
    *
+   * @param {{ blocking?: boolean }} [options]
    * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
    */
-  async #read() {
+  async #read(options = {}) {
+    const { blocking = true } = options;
     this.#reads += 1;
     const started = this.#now();
+    if (!blocking) this.#backgroundReads += 1;
     const controller = new AbortController();
     this.#controller = controller;
     try {

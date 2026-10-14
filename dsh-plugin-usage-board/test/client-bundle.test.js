@@ -280,21 +280,50 @@ function findByClass(tree, className) {
 }
 
 /**
- * A thirty-line stand-in for React: enough of the hook contract to mount
- * UsageBoardPanel, resolve one fetch, and hand back the element tree it renders.
- * The point is to exercise the branches a live host cannot produce on demand —
- * an empty card, a non-ok provider, a failed request.
- * @param {{ ok?: boolean, status?: number, body?: object, reject?: boolean }} [options]
- * @returns {object} render(), requests, and the payload setter.
+ * A stand-in for React: enough of the hook contract to mount UsageBoardPanel,
+ * resolve fetches, advance fake timers, and hand back the element tree it
+ * renders. The point is to exercise the branches a live host cannot produce on
+ * demand — an empty card, a non-ok provider, a failed request, a stale answer,
+ * a restored cache, a broken sessionStorage.
+ * @param {object} [options] ok/status/body/reject for the fetch stub, `hold` to
+ *   leave the request pending, `storage` to install a sessionStorage stand-in
+ *   (pass `null` for "no storage at all", or a throwing stub).
+ * @returns {object} mount/settle/advance plus the request log and the storage.
  */
 function createRenderer(options = {}) {
   const slots = {};
   const effects = {};
   const requests = [];
+  const store = new Map();
   let hookIndex = 0;
   let dirty = false;
   let mounted = false;
-  let payload = { ok: options.ok !== false, status: options.status ?? 200, body: options.body, reject: options.reject === true };
+  let tree = null;
+  let nowMs = 0;
+  let timerSeq = 0;
+  const timers = new Map();
+  let pending = null;
+  let payload = {
+    ok: options.ok !== false,
+    status: options.status ?? 200,
+    body: options.body,
+    reject: options.reject === true,
+    hold: options.hold === true,
+  };
+
+  // A real-enough sessionStorage: the panel must work with one, without one,
+  // and with one that throws.
+  const storage = options.storage === undefined
+    ? {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => {
+        store.set(key, String(value));
+      },
+      removeItem: (key) => {
+        store.delete(key);
+      },
+    }
+    : options.storage;
 
   const react = {
     useState(initial) {
@@ -329,6 +358,15 @@ function createRenderer(options = {}) {
     fetch(url, init) {
       requests.push({ url: String(url), method: init !== undefined && init.method ? init.method : "GET" });
       if (payload.reject === true) return Promise.reject(new TypeError("Failed to fetch"));
+      if (payload.hold === true) {
+        return new Promise((resolve) => {
+          pending = () => resolve({
+            ok: payload.ok,
+            status: payload.status,
+            json: () => Promise.resolve(payload.body),
+          });
+        });
+      }
       return Promise.resolve({
         ok: payload.ok,
         status: payload.status,
@@ -339,38 +377,91 @@ function createRenderer(options = {}) {
       this.signal = {};
       this.abort = () => {};
     },
-    setTimeout: () => 0,
-    clearTimeout: () => {},
+    // A deterministic timer queue: the panel's stale follow-up can be fired by
+    // advancing time instead of waiting on it.
+    setTimeout: (callback, delay) => {
+      const id = ++timerSeq;
+      timers.set(id, { callback, at: nowMs + (typeof delay === "number" ? delay : 0) });
+      return id;
+    },
+    clearTimeout: (id) => {
+      timers.delete(id);
+    },
     setInterval: () => 0,
     clearInterval: () => {},
     console,
   });
+  if (options.storage === null) {
+    // Deliberately leave `sessionStorage` undefined in the VM global.
+  } else {
+    context.sessionStorage = storage;
+  }
   new vm.Script(copySource + "\n" + panelSource + "\n;globalThis.__ub = { UsageBoardPanel, zh, en };", {
     filename: "panel-render.js",
   }).runInContext(context);
   const translate = translateSeat(context.__ub.zh);
 
+  const draw = () => {
+    hookIndex = 0;
+    dirty = false;
+    tree = context.__ub.UsageBoardPanel({ t: translate });
+    return tree;
+  };
+
   return {
     requests,
+    storage,
+    /** The key the panel is expected to use; asserted rather than hard-coded twice. */
+    storeKey: "usage-board:snapshot:v1",
     setPayload(next) {
       payload = { ...payload, ...next };
     },
-    /** Mount once, let the fetch settle, and render again with the resulting state. */
-    async render() {
-      hookIndex = 0;
-      dirty = false;
-      let tree = context.__ub.UsageBoardPanel({ t: translate });
+    /** Release a request started with `hold: true`. */
+    release() {
+      const resolve = pending;
+      pending = null;
+      if (resolve !== undefined) resolve();
+    },
+    /** Mount without letting anything settle: this is the first painted frame. */
+    mount() {
+      const first = draw();
       if (!mounted) {
         mounted = true;
         for (const key of Object.keys(effects)) effects[key]();
       }
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      if (dirty) {
-        hookIndex = 0;
-        dirty = false;
-        tree = context.__ub.UsageBoardPanel({ t: translate });
+      return first;
+    },
+    /** Flush microtasks and re-render until the tree stops changing. */
+    async settle(passes = 6) {
+      for (let pass = 0; pass < passes; pass += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (dirty) draw();
       }
       return tree;
+    },
+    /** Fire every fake timer due within `ms`, then settle. */
+    async advance(ms) {
+      const until = nowMs + ms;
+      let guard = 0;
+      for (;;) {
+        const due = [...timers.entries()]
+          .filter(([, timer]) => timer.at <= until)
+          .sort((a, b) => a[1].at - b[1].at);
+        if (due.length === 0 || guard > 50) break;
+        guard += 1;
+        const [id, timer] = due[0];
+        timers.delete(id);
+        nowMs = timer.at;
+        timer.callback();
+        await this.settle(3);
+      }
+      nowMs = until;
+      return this.settle(3);
+    },
+    /** Mount, let the fetch settle, and render again with the resulting state. */
+    async render() {
+      this.mount();
+      return this.settle();
     },
   };
 }
@@ -699,6 +790,212 @@ test("failures describe themselves without a stack trace", () => {  const unit =
   assert.ok(!off.detail.includes("\n    at "), "a stack trace leaked into the diagnostic");
   const long = unit.describeFailure(Object.assign(new Error("x".repeat(500)), { kind: "shape" }));
   assert.ok(long.detail.length <= 140);
+});
+
+// ------------------------------------------- stale-while-revalidate (task-5) ---
+
+/** A minimal valid envelope for the storage tests. */
+function storedEnvelope(overrides = {}) {
+  return {
+    protocolVersion: 1,
+    generatedAt: Date.now(),
+    ok: true,
+    ttlMs: 60_000,
+    providers: [{
+      id: "glm",
+      label: "GLM Coding Plan",
+      status: "ok",
+      plan: "GLM Coding Lite",
+      windows: [{ id: "glm.5h", labelKey: "glm.5h", unit: 3, limit: 2000, used: 656, remaining: 1343, percent: 32, derivedPercent: 32.8 }],
+      balances: [],
+    }],
+    ...overrides,
+  };
+}
+
+test("(a) a snapshot restored from sessionStorage paints in the FIRST frame, with no loading state", async () => {
+  const renderer = createRenderer({ hold: true, body: storedEnvelope({ providers: [] }) });
+  // Prime the cache the way a previous visit would have.
+  renderer.storage.setItem(renderer.storeKey, JSON.stringify(storedEnvelope()));
+
+  const first = renderer.mount();
+  const firstText = treeText(first);
+  assert.match(firstText, /32\.8%/, "the cached numbers must be on screen before any request settles");
+  assert.match(firstText, /656 \/ 2,000/);
+  assert.match(firstText, /GLM Coding Lite/);
+  assert.ok(!firstText.includes("正在读取用量数据"), "a restored snapshot must not show the loading copy");
+  assert.equal(findByClass(first, "ub-root").props["data-phase"], "ready");
+  // The mount fetch is still allowed to be in flight — the cache is a head
+  // start, not a substitute for revalidating.
+  assert.equal(renderer.requests.length, 1, "the panel must still revalidate on mount");
+});
+
+test("(a2) a genuinely empty visit is the only thing that shows the loading copy", async () => {
+  const renderer = createRenderer({ hold: true });
+  const first = renderer.mount();
+  const text = treeText(first);
+  assert.match(text, /正在读取用量数据/);
+  assert.equal(findByClass(first, "ub-root").props["data-phase"], "loading");
+});
+
+test("(b) a corrupt or wrong-version stored payload falls back to loading without throwing", async () => {
+  for (const [label, raw] of [
+    ["unparseable JSON", "{not json at all"],
+    ["not an envelope", JSON.stringify({ hello: "world" })],
+    ["providers is not an array", JSON.stringify({ protocolVersion: 1, providers: "nope" })],
+    ["a JSON scalar", JSON.stringify(42)],
+    ["null", "null"],
+    ["empty string", ""],
+    ["a different protocol version", JSON.stringify(storedEnvelope({ protocolVersion: 99 }))],
+  ]) {
+    const renderer = createRenderer({ hold: true });
+    renderer.storage.setItem(renderer.storeKey, raw);
+    const first = renderer.mount();
+    assert.equal(findByClass(first, "ub-root").props["data-phase"], "loading", `${label} must not be trusted`);
+    assert.match(treeText(first), /正在读取用量数据/, label);
+  }
+});
+
+test("(b2) a corrupt stored payload is replaced once a real answer arrives", async () => {
+  const renderer = createRenderer({ body: storedEnvelope() });
+  renderer.storage.setItem(renderer.storeKey, "{{{");
+  const tree = await renderer.render();
+  assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
+  assert.match(treeText(tree), /32\.8%/);
+  // The good answer is written back for the next visit.
+  assert.equal(JSON.parse(renderer.storage.getItem(renderer.storeKey)).protocolVersion, 1);
+});
+
+test("(c) an in-flight refresh keeps the previous numbers on screen", async () => {
+  const renderer = createRenderer({ hold: true });
+  renderer.storage.setItem(renderer.storeKey, JSON.stringify(storedEnvelope()));
+  renderer.mount();
+
+  const whileBusy = treeText(renderer.mount());
+  assert.match(whileBusy, /32\.8%/, "the previous numbers must survive an in-flight request");
+  assert.ok(!whileBusy.includes("正在读取用量数据"));
+  assert.match(whileBusy, /正在刷新…/, "busy is expressed on the freshness line, not by blanking the body");
+  const button = findByClass(renderer.mount(), "ub-refresh");
+  assert.equal(button.props.disabled, true, "the busy state lives on the header control");
+  assert.equal(button.props["aria-busy"], "true");
+});
+
+test("(c2) a failing background refresh keeps the restored numbers and adds the note", async () => {
+  const renderer = createRenderer({ reject: true });
+  renderer.storage.setItem(renderer.storeKey, JSON.stringify(storedEnvelope()));
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /32\.8%/, "a failed refresh must not throw away good cached numbers");
+  assert.ok(!text.includes("重试"));
+  assert.match(text, /刷新失败/);
+  assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
+});
+
+test("(d) a stale answer earns exactly one follow-up read, and never becomes a poll", async () => {
+  const renderer = createRenderer({ hold: true });
+  renderer.mount();
+  await renderer.settle();
+  assert.equal(renderer.requests.length, 1);
+
+  // The host answers from a cache it is refreshing behind.
+  renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true, refreshing: true }) });
+  renderer.release();
+  await renderer.settle();
+  assert.equal(renderer.requests.length, 1, "the stale body itself is already the first read");
+
+  await renderer.advance(1400);
+  assert.equal(renderer.requests.length, 1, "the follow-up must wait for its delay, not fire immediately");
+
+  // The follow-up fires, and the host answers stale AGAIN: no second follow-up.
+  renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true, refreshing: true }) });
+  await renderer.advance(200);
+  assert.equal(renderer.requests.length, 2, "exactly one follow-up per stale answer");
+  await renderer.advance(30_000);
+  assert.equal(renderer.requests.length, 2, "a still-stale host must not turn the follow-up into a busy loop");
+});
+
+test("(d2) a fresh answer after the follow-up replaces the cached numbers in place", async () => {
+  const renderer = createRenderer({ hold: true });
+  renderer.mount();
+  await renderer.settle();
+  renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true }) });
+  renderer.release();
+  await renderer.settle();
+  assert.match(treeText(renderer.mount()), /32\.8%/);
+
+  renderer.setPayload({
+    hold: false,
+    body: storedEnvelope({
+      stale: false,
+      providers: [{
+        id: "glm",
+        label: "GLM Coding Plan",
+        status: "ok",
+        windows: [{ id: "glm.5h", labelKey: "glm.5h", limit: 2000, used: 1000, remaining: 1000, percent: 50, derivedPercent: 50 }],
+        balances: [],
+      }],
+    }),
+  });
+  const tree = await renderer.advance(1600);
+  const text = treeText(tree);
+  assert.match(text, /50\.0%/, "the follow-up must land the fresh numbers");
+  assert.match(text, /1,000 \/ 2,000/);
+  assert.ok(!text.includes("32.8%"), "the stale reading must be replaced, not merged");
+});
+
+test("(d3) a manual refresh that answers stale still earns its one follow-up", async () => {
+  const renderer = createRenderer({ hold: true });
+  renderer.mount();
+  await renderer.settle();
+  renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true }) });
+  renderer.release();
+  await renderer.settle();
+  await renderer.advance(2000);
+  const afterStaleCycle = renderer.requests.length;
+  assert.equal(afterStaleCycle, 2);
+
+  // Now the user presses refresh; the POST waits server-side, so a stale flag
+  // there is unusual, but the follow-up contract still holds.
+  renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true }) });
+  const tree = renderer.mount();
+  findByClass(tree, "ub-refresh").props.onClick();
+  await renderer.settle();
+  assert.equal(renderer.requests.length, 3);
+  assert.equal(renderer.requests[2].url, "/usage-board/api/refresh");
+  assert.equal(renderer.requests[2].method, "POST");
+});
+
+test("(e) storage being unavailable never breaks the panel", async () => {
+  const throwing = {
+    getItem() {
+      throw new Error("SecurityError: storage is disabled");
+    },
+    setItem() {
+      throw new Error("QuotaExceededError: storage is full");
+    },
+    removeItem() {
+      throw new Error("nope");
+    },
+  };
+  for (const [label, storage] of [["no sessionStorage at all", null], ["a throwing sessionStorage", throwing]]) {
+    const renderer = createRenderer({ storage, body: storedEnvelope() });
+    const tree = await renderer.render();
+    assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready", label);
+    assert.match(treeText(tree), /32\.8%/, label);
+  }
+  // A read that finds nothing but a write that throws (storage full) must still
+  // leave a working panel.
+  const fullStorage = {
+    getItem: () => null,
+    setItem() {
+      throw new Error("QuotaExceededError: storage is full");
+    },
+    removeItem: () => {},
+  };
+  const renderer = createRenderer({ storage: fullStorage, body: storedEnvelope() });
+  const tree = await renderer.render();
+  assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
+  assert.match(treeText(tree), /32\.8%/);
 });
 
 // ------------------------------------------------------------- rendering ---
