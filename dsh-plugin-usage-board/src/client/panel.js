@@ -1,0 +1,1071 @@
+/* ------------------------------------------------------------------------- *
+ * dsh-plugin-usage-board — DSH Web client panel body.
+ *
+ * This file is a PLAIN-JS BODY FRAGMENT, not a module: it is embedded verbatim
+ * inside the `__ModuleLoader__` factory in lib/client.js.
+ * test/client-bundle.test.js asserts the byte-identical embedding, so edit this
+ * file and regenerate the bundle rather than editing the copy inside it.
+ *
+ * Free variables the embedding factory provides:
+ *   react                 the "react" module
+ *   jsxRuntime            the "react/jsx-runtime" module
+ *   ROUTE_PREFIX, SNAPSHOT_PATH, REFRESH_PATH, PROVIDER_IDS, PROTOCOL_VERSION
+ *   makeWindow, makeBalance, makeProvider, makeSnapshot, round1, percentOf
+ *     — from src/client/protocol-copy.js, itself a verbatim copy of
+ *       src/shared/protocol.js.
+ *
+ * No JSX (there is no compiler in this package), no `require` outside the two
+ * aliases above, and no dependency on anything the host half serves other than
+ * the three documented JSON routes.
+ * ------------------------------------------------------------------------- */
+
+const { useState, useEffect, useRef, useCallback } = react;
+const { jsx, jsxs } = jsxRuntime;
+
+/** Locale namespace registered through `ctx.locale.register`. */
+const NS = "usageBoard";
+
+/** Panel id shared by the `sidebar.panellist` entry and the `main` keyed slot. */
+const PANEL_ID = "usage-board";
+
+/** Sidebar position; plugin-manager uses 0, so 20 sits just below it. */
+const PANEL_ORDER = 20;
+
+/** Host-served JSON routes (see src/shared/protocol.js). */
+const SNAPSHOT_URL = ROUTE_PREFIX + "/api/snapshot";
+const REFRESH_URL = ROUTE_PREFIX + "/api/refresh";
+
+/** Auto-refresh bounds: the host's ttl is honoured inside 60s … 5min. */
+const TTL_MIN_MS = 60 * 1000;
+const TTL_MAX_MS = 5 * 60 * 1000;
+
+/** How long a single request may hang before it is reported as a timeout. */
+const REQUEST_TIMEOUT_MS = 20 * 1000;
+
+/** Longest diagnostic string rendered next to a failure. */
+const DIAGNOSTIC_MAX = 140;
+
+/** How many trailing days of `meta.dailyUsage` the trend chart draws. */
+const DAILY_TREND_POINTS = 14;
+
+/** Currency symbol per ISO-4217 code; unknown codes render the code itself. */
+const CURRENCY_SYMBOLS = {
+  CNY: "\u00a5",
+  USD: "$",
+  JPY: "\u00a5",
+  EUR: "\u20ac",
+  GBP: "\u00a3",
+  HKD: "HK$",
+};
+
+/** Diagnostic pill tone per protocol status. */
+const STATUS_TONES = {
+  ok: "ok",
+  "not-configured": "idle",
+  disabled: "idle",
+  "rate-limited": "warn",
+  unauthorized: "danger",
+  "upstream-error": "danger",
+  "network-error": "danger",
+  "invalid-response": "danger",
+};
+
+/** Provider unit codes whose windows get a generic label when labelKey is unknown. */
+const UNIT_LABEL_KEYS = {
+  "3": "unit.glm.5h",
+  "5": "unit.glm.5h",
+  "6": "unit.glm.weekly",
+  weekly: "unit.weekly",
+  monthly: "unit.monthly",
+  hourly: "unit.hourly",
+};
+
+const zh = {
+  panel: "\u7528\u91cf\u770b\u677f",
+  "action.refresh": "\u5237\u65b0",
+  "action.refreshing": "\u5237\u65b0\u4e2d\u2026",
+  "action.retry": "\u91cd\u8bd5",
+  "state.loading": "\u6b63\u5728\u8bfb\u53d6\u7528\u91cf\u6570\u636e\u2026",
+  "state.empty": "\u5b9f\u4f8b\u8fd8\u6ca1\u6709\u914d\u7f6e\u4efb\u4f55\u670d\u52a1\u3002",
+  "state.noWindows": "\u8be5\u670d\u52a1\u4e0d\u63d0\u4f9b\u7528\u91cf\u7a97\u53e3",
+  "state.balanceOnly": "\u8be5\u670d\u52a1\u6309\u4f59\u989d\u8ba1\u8d39\uff0c\u4e0d\u63d0\u4f9b\u7528\u91cf\u7a97\u53e3",
+  "state.refreshFailed": "\u5237\u65b0\u5931\u8d25\uff1a{reason}",
+  "updated.none": "\u5c1a\u672a\u540c\u6b65",
+  "updated.justNow": "\u521a\u521a\u66f4\u65b0",
+  "updated.seconds": "{n} \u79d2\u524d\u66f4\u65b0",
+  "updated.minutes": "{n} \u5206\u949f\u524d\u66f4\u65b0",
+  "updated.hours": "{n} \u5c0f\u65f6\u524d\u66f4\u65b0",
+  "updated.days": "{n} \u5929\u524d\u66f4\u65b0",
+  "window.usage": "{used} / {limit}",
+  "window.remaining": "\u5269\u4f59 {value}",
+  "window.reset.due": "\u5373\u5c06\u91cd\u7f6e",
+  "window.reset.seconds": "{n} \u79d2\u540e\u91cd\u7f6e",
+  "window.reset.minutes": "{n} \u5206\u949f\u540e\u91cd\u7f6e",
+  "window.reset.hours": "{n} \u5c0f\u65f6\u540e\u91cd\u7f6e",
+  "window.reset.days": "{n} \u5929\u540e\u91cd\u7f6e",
+  "balance.bonus": "\u8d60\u9001 {value}",
+  "balance.spent": "\u603b\u6d88\u8017 {value}",
+  "source.host": "\u6570\u636e\u6765\u6e90\uff1a{host}",
+  "source.none": "\u6570\u636e\u6765\u6e90\uff1a\u672c\u673a\u5b9f\u4f8b",
+  "error.network": "\u65e0\u6cd5\u8fde\u63a5\u5b9f\u4f8b\u7684\u7528\u91cf\u670d\u52a1",
+  "error.http": "\u5b9f\u4f8b\u8fd4\u56de\u4e86 HTTP {code}",
+  "error.invalid": "\u5b9f\u4f8b\u8fd4\u56de\u7684\u6570\u636e\u683c\u5f0f\u4e0d\u6b63\u786e",
+  "error.timeout": "\u8bf7\u6c42\u8d85\u65f6",
+  "status.ok": "\u6b63\u5e38",
+  "status.not-configured": "\u672a\u914d\u7f6e",
+  "status.unauthorized": "\u672a\u6388\u6743",
+  "status.rate-limited": "\u9650\u6d41",
+  "status.upstream-error": "\u4e0a\u6e38\u9519\u8bef",
+  "status.network-error": "\u7f51\u7edc\u9519\u8bef",
+  "status.invalid-response": "\u54cd\u5e94\u5f02\u5e38",
+  "status.disabled": "\u5df2\u505c\u7528",
+  "unit.glm.5h": "5 \u5c0f\u65f6\u7a97\u53e3",
+  "unit.glm.weekly": "\u6bcf\u5468\u7a97\u53e3",
+  "unit.hourly": "\u6bcf\u5c0f\u65f6\u7a97\u53e3",
+  "unit.weekly": "\u6bcf\u5468\u7a97\u53e3",
+  "unit.monthly": "\u6bcf\u6708\u7a97\u53e3",
+  "glm.5h": "5 \u5c0f\u65f6\u7a97\u53e3",
+  "glm.weekly": "\u6bcf\u5468\u7a97\u53e3",
+  "glm.monthly": "\u6bcf\u6708\u7a97\u53e3",
+  "kimi.5h": "5 \u5c0f\u65f6\u7a97\u53e3",
+  "kimi.weekly": "\u6bcf\u5468\u7a97\u53e3",
+  "kimi.monthly": "\u6bcf\u6708\u7a97\u53e3",
+  "deepseek.balance": "\u4f59\u989d",
+  "daily.title": "\u8fd1 {n} \u5929\u6d88\u8017",
+  "daily.pointTip": "{date} \u00b7 {cost}",
+  "daily.tokens": "{value} tokens",
+};
+
+const en = {
+  panel: "Usage Board",
+  "action.refresh": "Refresh",
+  "action.refreshing": "Refreshing\u2026",
+  "action.retry": "Retry",
+  "state.loading": "Reading usage data\u2026",
+  "state.empty": "The host reports no configured provider.",
+  "state.noWindows": "This service exposes no usage window.",
+  "state.balanceOnly": "This service bills by balance and exposes no usage window.",
+  "state.refreshFailed": "Refresh failed: {reason}",
+  "updated.none": "Not synced yet",
+  "updated.justNow": "Updated just now",
+  "updated.seconds": "Updated {n}s ago",
+  "updated.minutes": "Updated {n} min ago",
+  "updated.hours": "Updated {n} h ago",
+  "updated.days": "Updated {n} d ago",
+  "window.usage": "{used} / {limit}",
+  "window.remaining": "{value} left",
+  "window.reset.due": "Resets shortly",
+  "window.reset.seconds": "Resets in {n}s",
+  "window.reset.minutes": "Resets in {n} min",
+  "window.reset.hours": "Resets in {n} h",
+  "window.reset.days": "Resets in {n} d",
+  "balance.bonus": "Bonus {value}",
+  "balance.spent": "Spent {value}",
+  "source.host": "Source: {host}",
+  "source.none": "Source: local host",
+  "error.network": "Cannot reach the host usage service",
+  "error.http": "The host answered HTTP {code}",
+  "error.invalid": "The host returned an unexpected payload",
+  "error.timeout": "The request timed out",
+  "status.ok": "OK",
+  "status.not-configured": "Not configured",
+  "status.unauthorized": "Unauthorized",
+  "status.rate-limited": "Rate limited",
+  "status.upstream-error": "Upstream error",
+  "status.network-error": "Network error",
+  "status.invalid-response": "Invalid response",
+  "status.disabled": "Disabled",
+  "unit.glm.5h": "5-hour window",
+  "unit.glm.weekly": "Weekly window",
+  "unit.hourly": "Hourly window",
+  "unit.weekly": "Weekly window",
+  "unit.monthly": "Monthly window",
+  "glm.5h": "5-hour window",
+  "glm.weekly": "Weekly window",
+  "glm.monthly": "Monthly window",
+  "kimi.5h": "5-hour window",
+  "kimi.weekly": "Weekly window",
+  "kimi.monthly": "Monthly window",
+  "deepseek.balance": "Balance",
+  "daily.title": "Spend, last {n} days",
+  "daily.pointTip": "{date} \u00b7 {cost}",
+  "daily.tokens": "{value} tokens",
+};
+
+/** Translate seat bound in `apply`, used when the slot renderer passes no `t`. */
+let boundTranslate = null;
+
+/**
+ * Bind the namespace translate seat that `apply` obtains from the locale service.
+ * @param {Function} translate Bound `t` for {@link NS}.
+ */
+function bindPanelTranslate(translate) {
+  boundTranslate = typeof translate === "function" ? translate : null;
+}
+
+/** Identity translate, the last-resort seat when neither `props.t` nor apply ran. */
+function identityTranslate(key) {
+  return key;
+}
+
+/**
+ * Resolve the translate seat a rendering component should use.
+ * @param {object} props Slot props.
+ * @returns {Function}
+ */
+function translateOf(props) {
+  if (props !== null && props !== undefined && typeof props.t === "function") return props.t;
+  return boundTranslate === null ? identityTranslate : boundTranslate;
+}
+
+/** @param {unknown} value @returns {boolean} whether `value` is a usable finite number. */
+function isNum(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/** @param {unknown} value @returns {string|null} `value` when it is a non-empty string. */
+function strOrNull(value) {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** @param {unknown} value @returns {number|null} `value` when it is a finite number. */
+function numOrNull(value) {
+  return isNum(value) ? value : null;
+}
+
+/**
+ * Drop null/undefined/false entries so element arrays never carry holes.
+ * @param {Array<unknown>} list
+ * @returns {Array<unknown>}
+ */
+function compact(list) {
+  return list.filter(function (entry) {
+    return entry !== null && entry !== undefined && entry !== false;
+  });
+}
+
+/** Group the integer part of a numeric string in threes. */
+function groupDigits(text) {
+  const dot = text.indexOf(".");
+  const head = dot === -1 ? text : text.slice(0, dot);
+  const tail = dot === -1 ? "" : text.slice(dot);
+  return head.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + tail;
+}
+
+/**
+ * Money with exactly two decimals and the currency symbol; null renders as an em dash.
+ * @param {number|null} value
+ * @param {string|null} currency ISO-4217 code.
+ * @returns {string}
+ */
+function formatMoney(value, currency) {
+  if (!isNum(value)) return "\u2014";
+  const code = typeof currency === "string" ? currency.trim().toUpperCase() : "";
+  const symbol = Object.prototype.hasOwnProperty.call(CURRENCY_SYMBOLS, code) ? CURRENCY_SYMBOLS[code] : null;
+  const sign = value < 0 ? "-" : "";
+  const amount = groupDigits(Math.abs(value).toFixed(2));
+  if (symbol !== null) return sign + symbol + amount;
+  return code === "" ? sign + amount : sign + amount + " " + code;
+}
+
+/**
+ * Percent with one decimal; null renders as an em dash so a missing field never
+ * becomes NaN.
+ * @param {number|null} value
+ * @returns {string}
+ */
+function formatPercent(value) {
+  return isNum(value) ? value.toFixed(1) + "%" : "\u2014";
+}
+
+/**
+ * A window quantity: integers stay integral, fractions keep at most two decimals.
+ * @param {number|null} value
+ * @returns {string}
+ */
+function formatAmount(value) {
+  if (!isNum(value)) return "\u2014";
+  if (Number.isInteger(value)) return groupDigits(String(value));
+  return groupDigits(String(Math.round(value * 100) / 100));
+}
+
+/** Clamp `value` into [min, max]. */
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Clamp the host ttl into the supported auto-refresh band.
+ * @param {number|null} ttlMs
+ * @returns {number}
+ */
+function clampTtl(ttlMs) {
+  if (!isNum(ttlMs) || ttlMs <= 0) return TTL_MIN_MS;
+  return clamp(Math.round(ttlMs), TTL_MIN_MS, TTL_MAX_MS);
+}
+
+/** Truncate a diagnostic so a pathological message cannot dominate the card. */
+function truncate(text) {
+  const value = typeof text === "string" ? text : String(text);
+  return value.length <= DIAGNOSTIC_MAX ? value : value.slice(0, DIAGNOSTIC_MAX - 1) + "\u2026";
+}
+
+/**
+ * Relative "last updated" sentence in the active language.
+ * @param {Function} t
+ * @param {number|null} then Epoch ms.
+ * @param {number} now Epoch ms.
+ * @returns {string|null}
+ */
+function relativeTime(t, then, now) {
+  if (!isNum(then)) return null;
+  const diff = now - then;
+  if (diff < 5000) return t("updated.justNow");
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return t("updated.seconds", { n: String(seconds) });
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return t("updated.minutes", { n: String(minutes) });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("updated.hours", { n: String(hours) });
+  return t("updated.days", { n: String(Math.floor(hours / 24)) });
+}
+
+/**
+ * Reset countdown sentence, or null when the provider reports no reset.
+ * @param {Function} t
+ * @param {number|null} resetAt Epoch ms.
+ * @param {number} now Epoch ms.
+ * @returns {string|null}
+ */
+function resetText(t, resetAt, now) {
+  if (!isNum(resetAt)) return null;
+  const diff = resetAt - now;
+  if (diff <= 0) return t("window.reset.due");
+  const seconds = Math.ceil(diff / 1000);
+  if (seconds < 60) return t("window.reset.seconds", { n: String(seconds) });
+  const minutes = Math.round(diff / 60000);
+  if (minutes < 60) return t("window.reset.minutes", { n: String(minutes) });
+  const hours = Math.round(diff / 3600000);
+  if (hours < 24) return t("window.reset.hours", { n: String(hours) });
+  return t("window.reset.days", { n: String(Math.round(diff / 86400000)) });
+}
+
+/**
+ * Localized window title: the protocol's `labelKey` first, then the provider
+ * unit code, then a humanized id. `ctx.locale` echoes an unknown key, which is
+ * how a missing translation is detected here.
+ * @param {Function} t
+ * @param {object} window Normalized UsageWindow.
+ * @returns {string}
+ */
+function windowLabel(t, window) {
+  const candidates = [strOrNull(window.labelKey), strOrNull(window.id)];
+  for (const candidate of candidates) {
+    if (candidate === null) continue;
+    const translated = t(candidate);
+    if (typeof translated === "string" && translated !== candidate) return translated;
+  }
+  const unitKey = Object.prototype.hasOwnProperty.call(UNIT_LABEL_KEYS, String(window.unit))
+    ? UNIT_LABEL_KEYS[String(window.unit)]
+    : null;
+  if (unitKey !== null) {
+    const byUnit = t(unitKey);
+    if (typeof byUnit === "string" && byUnit !== unitKey) return byUnit;
+  }
+  const fallback = candidates[1] === null ? candidates[0] : candidates[1];
+  return String(fallback === null ? window.id : fallback).replace(/[._-]+/g, " ");
+}
+
+/** @returns {string} pill tone for a protocol status. */
+function statusTone(status) {
+  return Object.prototype.hasOwnProperty.call(STATUS_TONES, status) ? STATUS_TONES[status] : "idle";
+}
+
+/** @returns {string} locale key for a protocol status. */
+function statusKey(status) {
+  return Object.prototype.hasOwnProperty.call(STATUS_TONES, status) ? "status." + status : "status.invalid-response";
+}
+
+/**
+ * Coerce one wire window onto the frozen shape; a malformed member becomes a
+ * window whose fields are all null rather than a thrown render.
+ * @param {object} raw
+ * @param {number} index
+ * @returns {object}
+ */
+function normalizeWindow(raw, index) {
+  const source = raw !== null && typeof raw === "object" ? raw : {};
+  const used = numOrNull(source.used);
+  const limit = numOrNull(source.limit);
+  const reportedRemaining = numOrNull(source.remaining);
+  const remaining = reportedRemaining !== null
+    ? reportedRemaining
+    : used !== null && limit !== null
+      ? limit - used
+      : null;
+  return makeWindow({
+    id: strOrNull(source.id) === null ? "window-" + String(index) : source.id,
+    labelKey: strOrNull(source.labelKey),
+    unit: source.unit === null || source.unit === undefined ? null : String(source.unit),
+    number: numOrNull(source.number),
+    limit: limit,
+    used: used,
+    remaining: remaining,
+    percent: percentOf(used, limit, numOrNull(source.percent)),
+    resetAt: numOrNull(source.resetAt),
+    note: strOrNull(source.note),
+  });
+}
+
+/**
+ * Coerce one wire balance onto the frozen shape.
+ * @param {object} raw
+ * @returns {object}
+ */
+function normalizeBalance(raw) {
+  const source = raw !== null && typeof raw === "object" ? raw : {};
+  return makeBalance({
+    currency: strOrNull(source.currency) === null ? "CNY" : source.currency,
+    available: numOrNull(source.available),
+    bonus: numOrNull(source.bonus),
+    totalSpent: numOrNull(source.totalSpent),
+  });
+}
+
+/**
+ * Coerce one wire provider row onto the frozen shape. An unknown status is
+ * surfaced as `invalid-response` with the raw value kept in `code` so the card
+ * still explains itself instead of rendering nothing.
+ * @param {object} raw
+ * @returns {object}
+ */
+function normalizeProvider(raw) {
+  const source = raw !== null && typeof raw === "object" ? raw : {};
+  const rawStatus = strOrNull(source.status);
+  const known = rawStatus !== null && Object.prototype.hasOwnProperty.call(STATUS_TONES, rawStatus);
+  const status = known ? rawStatus : "invalid-response";
+  const code = source.code === null || source.code === undefined ? null : String(source.code);
+  return makeProvider({
+    id: strOrNull(source.id) === null ? "unknown" : source.id,
+    label: strOrNull(source.label) === null ? (strOrNull(source.id) === null ? "\u2014" : source.id) : source.label,
+    status: status,
+    message: strOrNull(source.message),
+    code: known || code !== null ? code : rawStatus,
+    plan: strOrNull(source.plan),
+    windows: Array.isArray(source.windows) ? source.windows.map(normalizeWindow) : [],
+    balances: Array.isArray(source.balances) ? source.balances.map(normalizeBalance) : [],
+    account: source.account !== null && typeof source.account === "object" && !Array.isArray(source.account)
+      ? source.account
+      : null,
+    meta: source.meta !== null && typeof source.meta === "object" && !Array.isArray(source.meta) ? source.meta : {},
+    fetchedAt: numOrNull(source.fetchedAt),
+    latencyMs: numOrNull(source.latencyMs),
+  });
+}
+
+/**
+ * Coerce a whole snapshot; the caller has already checked `providers` is an array.
+ * @param {object} body
+ * @returns {object}
+ */
+function normalizeSnapshot(body) {
+  return makeSnapshot({
+    generatedAt: numOrNull(body.generatedAt) === null ? Date.now() : body.generatedAt,
+    ttlMs: numOrNull(body.ttlMs) === null ? TTL_MIN_MS : body.ttlMs,
+    providers: body.providers.map(normalizeProvider),
+  });
+}
+
+/**
+ * Fetch JSON from a host route, enforcing the transport contract: a non-2xx
+ * answer or a body whose `providers` is not an array is a failure.
+ * @param {string} url
+ * @param {object} [options] Extra fetch init merged over the defaults.
+ * @returns {Promise<object>}
+ */
+function requestJson(url, options) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = controller === null ? null : setTimeout(function () {
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+  const init = Object.assign(
+    {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    },
+    options === undefined ? {} : options,
+  );
+  if (controller !== null) init.signal = controller.signal;
+  const settle = function () {
+    if (timer !== null) clearTimeout(timer);
+  };
+  return fetch(url, init).then(
+    function (response) {
+      if (response.ok !== true) {
+        const failure = new Error("HTTP " + String(response.status));
+        failure.kind = "http";
+        failure.httpStatus = String(response.status);
+        throw failure;
+      }
+      return response.json().then(
+        function (body) {
+          return body;
+        },
+        function () {
+          const failure = new Error("response body is not valid JSON");
+          failure.kind = "shape";
+          throw failure;
+        },
+      );
+    },
+    function (error) {
+      const failure = asErrorLike(error);
+      if (failure.name === "AbortError") failure.kind = "timeout";
+      throw failure;
+    },
+  ).then(function (body) {
+    if (body === null || typeof body !== "object" || Array.isArray(body) || !Array.isArray(body.providers)) {
+      const failure = new Error("payload has no providers array");
+      failure.kind = "shape";
+      throw failure;
+    }
+    return body;
+  }).then(
+    function (body) {
+      settle();
+      return body;
+    },
+    function (error) {
+      settle();
+      throw error;
+    },
+  );
+}
+
+/**
+ * Anything throwable reduced to an error-like object with a `message`. Duck
+ * typing rather than `instanceof Error`, which is false for a value crossing a
+ * realm boundary and would silently misreport a real failure.
+ * @param {unknown} error
+ * @returns {object}
+ */
+function asErrorLike(error) {
+  if (error !== null && typeof error === "object" && typeof error.message === "string") return error;
+  return new Error(String(error));
+}
+
+/**
+ * Turn a thrown failure into renderable copy: a locale key plus a short
+ * diagnostic string. Never a stack trace, never a credential.
+ * @param {unknown} error
+ * @returns {{ key: string, params: object, detail: string|null }}
+ */
+function describeFailure(error) {
+  const failure = asErrorLike(error);
+  const kind = typeof failure.kind === "string" ? failure.kind : null;
+  if (kind === "http") {
+    return {
+      key: "error.http",
+      params: { code: failure.httpStatus === undefined ? "?" : failure.httpStatus },
+      detail: truncate(failure.message),
+    };
+  }
+  if (kind === "shape") return { key: "error.invalid", params: {}, detail: truncate(failure.message) };
+  if (kind === "timeout") return { key: "error.timeout", params: {}, detail: null };
+  return { key: "error.network", params: {}, detail: truncate(failure.message) };
+}
+
+/** Distinct non-empty `meta.host` values across the snapshot, in provider order. */
+function collectHosts(providers) {
+  const hosts = [];
+  for (const provider of providers) {
+    const host = provider.meta !== null && typeof provider.meta === "object" ? strOrNull(provider.meta.host) : null;
+    if (host !== null && hosts.indexOf(host) === -1) hosts.push(host);
+  }
+  return hosts;
+}
+
+/**
+ * The trailing daily-spend series a provider may attach to `meta.dailyUsage`.
+ * This is HISTORY, never allowance: it is drawn as a trend and is never labelled
+ * as a quota or a remainder.
+ * @param {object} provider Normalized provider row.
+ * @returns {object|null} series with at least one point, else null.
+ */
+function providerTrend(provider) {
+  const meta = provider.meta !== null && typeof provider.meta === "object" ? provider.meta : null;
+  const raw = meta === null ? null : meta.dailyUsage;
+  if (raw === null || typeof raw !== "object" || !Array.isArray(raw.points) || raw.points.length === 0) return null;
+  const series = makeDailyUsage({
+    currency: strOrNull(raw.currency) === null ? "CNY" : raw.currency,
+    days: numOrNull(raw.days) === null ? raw.points.length : raw.days,
+    points: raw.points,
+  });
+  return series.points.length === 0 ? null : series;
+}
+
+/**
+ * The trend's scale and total: the tallest bar is the scale, a series of zeros
+ * or nulls collapses to a flat baseline instead of an empty chart.
+ * @param {object} series
+ * @returns {{ bars: Array<{date: string, cost: number, tokens: number|null}>, max: number, total: number, currency: string }}
+ */
+function trendScale(series) {
+  const points = series.points.slice(-DAILY_TREND_POINTS);
+  const bars = points.map(function (point) {
+    return {
+      date: strOrNull(point.date) === null ? "" : point.date,
+      cost: isNum(point.cost) ? point.cost : 0,
+      tokens: numOrNull(point.tokens),
+    };
+  });
+  let max = 0;
+  let total = 0;
+  for (const bar of bars) {
+    if (bar.cost > max) max = bar.cost;
+    total += bar.cost;
+  }
+  return { bars: bars, max: max, total: total, currency: series.currency };
+}
+
+/**
+ * A compact bar chart of recent daily spend, with the window total beside it.
+ * @param {object} props series, t
+ */
+function DailyTrend(props) {
+  const t = props.t;
+  const series = props.series;
+  const scale = trendScale(series);
+  const bars = scale.bars.map(function (bar, index) {
+    const ratio = scale.max > 0 ? bar.cost / scale.max : 0;
+    // A zero day keeps a visible stub, so an all-zero series reads as a flat
+    // baseline rather than as a chart that failed to load.
+    const height = scale.max > 0 ? Math.max(3, Math.round(ratio * 100)) : 3;
+    const tip = t("daily.pointTip", { date: bar.date, cost: formatMoney(bar.cost, scale.currency) }) +
+      (bar.tokens === null ? "" : " \u00b7 " + t("daily.tokens", { value: formatAmount(bar.tokens) }));
+    return jsx("span", {
+      className: "ub-trend-bar",
+      "data-empty": bar.cost > 0 ? undefined : "true",
+      style: { height: String(height) + "%" },
+      title: tip,
+    }, bar.date + "-" + String(index));
+  });
+  return jsxs("div", {
+    className: "ub-trend",
+    children: [
+      jsxs("div", {
+        key: "head",
+        className: "ub-trend-head",
+        children: [
+          jsx("span", { className: "ub-trend-title", children: t("daily.title", { n: String(bars.length) }) }),
+          jsx("span", { className: "ub-trend-total", children: formatMoney(scale.total, scale.currency) }),
+        ],
+      }),
+      jsx("div", {
+        key: "bars",
+        className: "ub-trend-bars",
+        role: "img",
+        "aria-label": t("daily.title", { n: String(bars.length) }) + " " + formatMoney(scale.total, scale.currency),
+        children: bars,
+      }),
+    ],
+  });
+}
+
+/**
+ * The panel's data source: one snapshot, one in-flight request at a time,
+ * auto-refresh on the host ttl, and a refetch whenever the page becomes visible.
+ * @returns {object} state, busy flag, `refresh` action and the ticking `now`.
+ */
+function useUsageBoard() {
+  const [state, setState] = useState({ phase: "loading", snapshot: null, failure: null });
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(function () {
+    return Date.now();
+  });
+  const busyRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(function () {
+    mountedRef.current = true;
+    return function () {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const run = useCallback(function (kind) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const manual = kind === "manual";
+    let settled;
+    try {
+      settled = requestJson(manual ? REFRESH_URL : SNAPSHOT_URL, manual ? { method: "POST" } : undefined);
+    } catch (error) {
+      settled = Promise.reject(error);
+    }
+    settled.then(
+      function (body) {
+        busyRef.current = false;
+        if (!mountedRef.current) return;
+        setBusy(false);
+        setNow(Date.now());
+        setState({ phase: "ready", snapshot: normalizeSnapshot(body), failure: null });
+      },
+      function (error) {
+        busyRef.current = false;
+        if (!mountedRef.current) return;
+        setBusy(false);
+        const failure = describeFailure(error);
+        setState(function (previous) {
+          // A failed refresh keeps the last good numbers on screen; only a
+          // failure with nothing to show becomes the panel's whole state.
+          if (previous.snapshot === null) return { phase: "error", snapshot: null, failure: failure };
+          return { phase: previous.phase, snapshot: previous.snapshot, failure: failure };
+        });
+      },
+    );
+  }, []);
+
+  const ttlMs = clampTtl(state.snapshot === null ? null : state.snapshot.ttlMs);
+
+  useEffect(function () {
+    const timer = setInterval(function () {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      run("auto");
+    }, ttlMs);
+    return function () {
+      clearInterval(timer);
+    };
+  }, [ttlMs, run]);
+
+  useEffect(function () {
+    run("auto");
+    if (typeof document === "undefined") return undefined;
+    const onVisibility = function () {
+      if (document.visibilityState === "visible") run("auto");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return function () {
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [run]);
+
+  useEffect(function () {
+    const timer = setInterval(function () {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      setNow(Date.now());
+    }, 1000);
+    return function () {
+      clearInterval(timer);
+    };
+  }, []);
+
+  const refresh = useCallback(function () {
+    run("manual");
+  }, [run]);
+
+  return { state: state, busy: busy, now: now, refresh: refresh };
+}
+
+/** Circular-arrow glyph shared by both refresh affordances. */
+function RefreshGlyph() {
+  return jsxs("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    children: [
+      jsx("path", { key: "arc", d: "M13.2 8a5.2 5.2 0 1 1-1.9-4" }),
+      jsx("path", { key: "head", d: "M13.6 1.6v3.2h-3.2" }),
+    ],
+  });
+}
+
+/**
+ * One refresh button; `place` only selects the compact footer styling.
+ * @param {Function} t
+ * @param {object} board
+ * @param {string} place "head" | "foot"
+ */
+function refreshButton(t, board, place) {
+  return jsxs("button", {
+    type: "button",
+    className: place === "foot" ? "ub-refresh ub-refresh--foot" : "ub-refresh",
+    onClick: board.refresh,
+    disabled: board.busy,
+    "aria-busy": board.busy ? "true" : undefined,
+    "aria-label": t("action.refresh"),
+    children: [
+      jsx("span", {
+        key: "glyph",
+        className: board.busy ? "ub-spin is-on" : "ub-spin",
+        "aria-hidden": "true",
+        children: jsx(RefreshGlyph, {}),
+      }),
+      jsx("span", { key: "label", children: board.busy ? t("action.refreshing") : t("action.refresh") }),
+    ],
+  });
+}
+
+/** One quota window: label, progress bar, used/limit, remaining, reset countdown. */
+function WindowRow(props) {
+  const t = props.t;
+  const window = props.window;
+  const percent = window.percent;
+  const width = isNum(percent) ? clamp(percent, 0, 100) : 0;
+  const level = !isNum(percent) ? "unknown" : percent >= 90 ? "danger" : percent >= 70 ? "warn" : "ok";
+  const label = windowLabel(t, window);
+  const count = isNum(window.number) && window.number > 1 ? " \u00d7" + String(window.number) : "";
+  const reset = resetText(t, window.resetAt, props.now);
+  const foot = compact([
+    jsx("span", { key: "usage", className: "ub-nums", children: t("window.usage", {
+      used: formatAmount(window.used),
+      limit: formatAmount(window.limit),
+    }) }),
+    window.remaining === null
+      ? null
+      : jsx("span", { key: "rest", className: "ub-rest", children: t("window.remaining", {
+        value: formatAmount(window.remaining),
+      }) }),
+    reset === null ? null : jsx("span", { key: "reset", className: "ub-reset", children: reset }),
+    window.note === null ? null : jsx("span", { key: "note", className: "ub-hint", children: window.note }),
+  ]);
+  return jsxs("div", {
+    className: "ub-metric",
+    children: [
+      jsxs("div", {
+        key: "head",
+        className: "ub-metric-head",
+        children: [
+          jsx("span", { className: "ub-metric-label", title: label, children: label + count }),
+          jsx("span", { className: "ub-metric-value", children: formatPercent(percent) }),
+        ],
+      }),
+      jsx("div", {
+        key: "bar",
+        className: "ub-bar",
+        role: "progressbar",
+        "aria-label": label,
+        "aria-valuemin": 0,
+        "aria-valuemax": 100,
+        "aria-valuenow": isNum(percent) ? Math.round(width) : undefined,
+        "aria-valuetext": formatPercent(percent),
+        children: jsx("span", {
+          className: "ub-bar-fill",
+          "data-level": level,
+          style: { width: width.toFixed(1) + "%" },
+        }),
+      }),
+      jsx("div", { key: "foot", className: "ub-metric-foot", children: foot }),
+    ],
+  });
+}
+
+/** One money balance: amount, bonus portion and lifetime spend when reported. */
+function BalanceRow(props) {
+  const t = props.t;
+  const balance = props.balance;
+  const meta = compact([
+    isNum(balance.bonus) && balance.bonus !== 0
+      ? t("balance.bonus", { value: formatMoney(balance.bonus, balance.currency) })
+      : null,
+    balance.totalSpent === null ? null : t("balance.spent", { value: formatMoney(balance.totalSpent, balance.currency) }),
+  ]);
+  return jsxs("div", {
+    className: "ub-balance",
+    children: [
+      jsx("span", { key: "value", className: "ub-balance-value", children: formatMoney(balance.available, balance.currency) }),
+      meta.length === 0 ? null : jsx("span", { key: "meta", className: "ub-balance-meta", children: meta.join(" \u00b7 ") }),
+    ],
+  });
+}
+
+/** One provider card, in protocol order. */
+function ProviderCard(props) {
+  const t = props.t;
+  const provider = props.provider;
+  const ok = provider.status === "ok";
+  const trend = ok ? providerTrend(provider) : null;
+  const masked = provider.account !== null && typeof provider.account === "object"
+    ? strOrNull(provider.account.masked)
+    : null;
+  const body = [];
+  if (!ok) {
+    body.push(jsxs("div", {
+      key: "state",
+      className: "ub-state",
+      children: compact([
+        jsx("p", { key: "line", className: "ub-state-line", children: provider.message === null ? t(statusKey(provider.status)) : provider.message }),
+        provider.code === null ? null : jsx("code", { key: "code", className: "ub-code", children: provider.code }),
+      ]),
+    }));
+  } else {
+    for (const window of provider.windows) {
+      body.push(jsx(WindowRow, { window: window, t: t, now: props.now }, window.id));
+    }
+    if (provider.balances.length > 0) {
+      body.push(jsx("div", {
+        key: "balances",
+        className: "ub-balances",
+        children: provider.balances.map(function (balance, index) {
+          return jsx(BalanceRow, { balance: balance, t: t }, balance.currency + "-" + String(index));
+        }),
+      }));
+    }
+    if (trend !== null) {
+      body.push(jsx(DailyTrend, { series: trend, t: t }, "trend"));
+    }
+    if (provider.windows.length === 0 && trend === null) {
+      // A quota-less provider is not a failure. A wallet-only service explains
+      // itself; a card with nothing at all uses the protocol's own wording.
+      body.push(jsx("p", {
+        key: "no-windows",
+        className: "ub-note",
+        children: provider.balances.length === 0 ? t("state.noWindows") : t("state.balanceOnly"),
+      }));
+    }
+  }
+  return jsxs("article", {
+    className: "ub-card",
+    "data-status": provider.status,
+    "data-provider": provider.id,
+    children: [
+      jsxs("div", {
+        key: "head",
+        className: "ub-card-head",
+        children: [
+          jsxs("div", {
+            className: "ub-card-title-row",
+            children: compact([
+              jsx("h2", { key: "title", className: "ub-card-title", children: provider.label }),
+              provider.plan === null ? null : jsx("span", { key: "plan", className: "ub-plan", children: provider.plan }),
+              masked === null ? null : jsx("span", { key: "account", className: "ub-account", title: masked, children: masked }),
+            ]),
+          }),
+          jsxs("span", {
+            key: "pill",
+            className: "ub-pill",
+            "data-tone": statusTone(provider.status),
+            children: [
+              jsx("i", { key: "dot", className: "ub-dot", "aria-hidden": "true" }),
+              jsx("span", { key: "text", children: t(statusKey(provider.status)) }),
+            ],
+          }),
+        ],
+      }),
+      jsx("div", { key: "body", className: "ub-card-body", children: body }),
+    ],
+  });
+}
+
+/** The whole panel: header, provider cards, footer. */
+function UsageBoardPanel(props) {
+  const t = translateOf(props);
+  const board = useUsageBoard();
+  const snapshot = board.state.snapshot;
+  const providers = snapshot === null ? [] : snapshot.providers;
+  const failure = board.state.failure;
+  const hosts = collectHosts(providers);
+  const updated = relativeTime(t, snapshot === null ? null : snapshot.generatedAt, board.now);
+
+  const body = [];
+  if (board.state.phase === "loading") {
+    body.push(jsx("p", { key: "loading", className: "ub-note", children: t("state.loading") }));
+  } else if (board.state.phase === "error") {
+    body.push(jsxs("div", {
+      key: "failure",
+      className: "ub-failure",
+      children: compact([
+        jsx("p", { key: "line", className: "ub-failure-line", children: failure === null ? t("error.network") : t(failure.key, failure.params) }),
+        failure === null || failure.detail === null ? null : jsx("code", { key: "detail", className: "ub-code", children: failure.detail }),
+        jsx("button", {
+          key: "retry",
+          type: "button",
+          className: "ub-retry",
+          onClick: board.refresh,
+          disabled: board.busy,
+          children: t("action.retry"),
+        }),
+      ]),
+    }));
+  } else {
+    if (failure !== null) {
+      const reason = failure.detail === null ? t(failure.key, failure.params) : failure.detail;
+      body.push(jsx("p", {
+        key: "refresh-failure",
+        className: "ub-note",
+        role: "status",
+        children: t("state.refreshFailed", { reason: reason }),
+      }));
+    }
+    if (providers.length === 0) {
+      body.push(jsx("p", { key: "empty", className: "ub-note", children: t("state.empty") }));
+    }
+    for (const provider of providers) {
+      body.push(jsx(ProviderCard, { provider: provider, t: t, now: board.now }, provider.id));
+    }
+  }
+
+  return jsxs("section", {
+    className: "ub-root",
+    "data-phase": board.state.phase,
+    "aria-label": t("panel"),
+    children: [
+      jsxs("header", {
+        key: "head",
+        className: "ub-head",
+        children: [
+          jsxs("div", {
+            className: "ub-head-text",
+            children: [
+              jsx("h1", { className: "ub-title", children: t("panel") }),
+              jsx("p", {
+                className: "ub-updated",
+                children: updated === null ? t("updated.none") : updated,
+              }),
+            ],
+          }),
+          refreshButton(t, board, "head"),
+        ],
+      }),
+      jsx("div", { key: "body", className: "ub-body", children: body }),
+      jsxs("footer", {
+        key: "foot",
+        className: "ub-foot",
+        children: [
+          jsx("span", {
+            className: "ub-source",
+            children: hosts.length === 0 ? t("source.none") : t("source.host", { host: hosts.join(" \u00b7 ") }),
+          }),
+          refreshButton(t, board, "foot"),
+        ],
+      }),
+    ],
+  });
+}
+
+/** Sidebar glyph: three rising bars, the usage-board mark. */
+function UsageBoardPanelIcon(props) {
+  const size = isNum(props === null || props === undefined ? null : props.size) ? props.size : 16;
+  return jsxs("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    "aria-hidden": "true",
+    focusable: "false",
+    children: [
+      jsx("rect", { key: "a", x: 1.5, y: 8.5, width: 3.2, height: 6, rx: 1, fill: "currentColor", opacity: 0.55 }),
+      jsx("rect", { key: "b", x: 6.4, y: 5, width: 3.2, height: 9.5, rx: 1, fill: "currentColor", opacity: 0.8 }),
+      jsx("rect", { key: "c", x: 11.3, y: 1.5, width: 3.2, height: 13, rx: 1, fill: "currentColor" }),
+    ],
+  });
+}

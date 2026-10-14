@@ -1,0 +1,595 @@
+/**
+ * Static and behavioural checks for the browser half of dsh-plugin-usage-board.
+ *
+ * Run with `node --test test/client-bundle.test.js` (or `npm test`).
+ *
+ * There is no bundler in this package, so `lib/client.js` is assembled by
+ * hand from `src/client/protocol-copy.js`, `src/client/panel.js` and
+ * `src/client/styles.css`. These tests are what keeps that assembly honest:
+ * they re-derive the shared protocol declarations and assert the copy and the
+ * bundle still carry them verbatim, then execute the bundle in a VM to check
+ * the DSH client-module contract and the registration it performs.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import vm from "node:vm";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (relative) => readFileSync(join(ROOT, relative), "utf8");
+
+const sharedSource = read("src/shared/protocol.js");
+const copySource = read("src/client/protocol-copy.js");
+const panelSource = read("src/client/panel.js");
+const styleSource = read("src/client/styles.css");
+const bundleSource = read("lib/client.js");
+const manifest = JSON.parse(read("package.json"));
+
+const BUNDLE_ID = "dsh-plugin-usage-board";
+const NS = "usageBoard";
+const PANEL_ID = "usage-board";
+
+/** Module aliases the shell's frozen platform table answers for every bundle. */
+const PLATFORM_ALIASES = [
+  "react",
+  "react-dom",
+  "react/jsx-runtime",
+  "@deepseek-ai/dsh-client-store",
+  "@deepseek-ai/dsh-client-ui-slots",
+  "@deepseek-ai/dsh-client-ui-primitives",
+];
+
+/** Every alias this bundle may legally require: platform seed + manifest entries. */
+function allowedAliases() {
+  const client = manifest.dsh?.client ?? {};
+  return new Set([...PLATFORM_ALIASES, ...(client.inject ?? []), ...(client.external ?? [])]);
+}
+
+/**
+ * Pull one declaration (with the JSDoc block directly above it) out of a module
+ * and drop the `export` keyword, which is the only difference the browser copy
+ * is allowed to have.
+ * @param {string[]} lines
+ * @param {string} name
+ * @returns {string}
+ */
+function extractDeclaration(lines, name) {
+  const head = new RegExp(`^export (const|function) ${name}\\b`);
+  const index = lines.findIndex((line) => head.test(line));
+  assert.notEqual(index, -1, `src/shared/protocol.js no longer declares ${name}`);
+  let start = index;
+  let above = index - 1;
+  while (above >= 0 && lines[above].trim() === "") above--;
+  if (above >= 0 && lines[above].trim().endsWith("*/")) {
+    let cursor = above;
+    while (cursor >= 0 && !lines[cursor].trim().startsWith("/**")) cursor--;
+    if (cursor >= 0) start = cursor;
+  }
+  let end = index;
+  if (lines[index].startsWith("export function")) {
+    let cursor = index + 1;
+    while (cursor < lines.length && lines[cursor] !== "}") cursor++;
+    assert.ok(cursor < lines.length, `unterminated declaration ${name}`);
+    end = cursor;
+  }
+  const block = lines.slice(start, end + 1);
+  block[index - start] = block[index - start].replace(/^export /, "");
+  return block.join("\n");
+}
+
+/** Names the browser copy must mirror, in the shared module's own order. */
+const SHARED_DECLARATIONS = [
+  "PROTOCOL_VERSION",
+  "PROVIDER_IDS",
+  "QUOTA_PROVIDER_IDS",
+  "SNAPSHOT_PATH",
+  "REFRESH_PATH",
+  "ROUTE_PREFIX",
+  "MAX_DAILY_USAGE_DAYS",
+  "makeDailyUsage",
+  "makeWindow",
+  "makeBalance",
+  "makeProvider",
+  "makeSnapshot",
+  "round1",
+  "percentOf",
+];
+
+/**
+ * Stub modules for the two aliases the bundle requires; the factory only needs
+ * their shape, since components are defined rather than rendered here.
+ */
+function stubModules() {
+  const neverCalled = (name) => () => {
+    throw new Error(`${name} was called while loading the bundle`);
+  };
+  return {
+    react: {
+      useState: neverCalled("useState"),
+      useEffect: neverCalled("useEffect"),
+      useRef: neverCalled("useRef"),
+      useCallback: neverCalled("useCallback"),
+    },
+    "react/jsx-runtime": {
+      jsx: neverCalled("jsx"),
+      jsxs: neverCalled("jsxs"),
+      Fragment: Symbol("Fragment"),
+    },
+  };
+}
+
+/**
+ * Execute lib/client.js in a VM the way DSH's module loader does, and hand back
+ * the registration plus the materialized module exports.
+ * @returns {{ registration: object, exports: object, requires: string[] }}
+ */
+function loadBundle() {
+  let registration = null;
+  const window = {
+    __ModuleLoader__: {
+      load(entry) {
+        assert.equal(registration, null, "the bundle registered twice");
+        registration = entry;
+      },
+    },
+  };
+  const context = vm.createContext({ window, console });
+  new vm.Script(bundleSource, { filename: "lib/client.js" }).runInContext(context);
+  assert.ok(registration !== null, "the bundle never called window.__ModuleLoader__.load");
+  assert.equal(typeof registration.factory, "function", "factory must be a function");
+  const modules = stubModules();
+  const requires = [];
+  const exports = registration.factory((specifier) => {
+    requires.push(specifier);
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(modules, specifier),
+      `the bundle required an unexpected alias: ${specifier}`,
+    );
+    return modules[specifier];
+  });
+  return { registration, exports, requires };
+}
+
+/**
+ * Minimal stand-in for the Cordis context: `effect` runs its callback
+ * immediately (as Cordis does), and the locale service really translates, so a
+ * wrong namespace or a one-language dictionary fails the test.
+ * @returns {object} ctx plus test handles.
+ */
+function makeContext() {
+  const state = { locale: "zh", dictionaries: new Map(), effects: [], injects: [], registrations: [] };
+  const interpolate = (text, params) =>
+    text.replace(/\{(\w+)\}/g, (match, key) =>
+      params !== undefined && Object.prototype.hasOwnProperty.call(params, key) ? String(params[key]) : match);
+  const translate = (ns, key, params) => {
+    const dictionary = state.dictionaries.get(ns);
+    const table = dictionary === undefined ? undefined : dictionary[state.locale];
+    const value = table !== undefined && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : key;
+    return interpolate(String(value), params);
+  };
+  const ctx = {
+    state,
+    effect(callback, label) {
+      const disposer = callback();
+      state.effects.push({ disposer, label });
+      return () => {
+        if (typeof disposer === "function") disposer();
+      };
+    },
+    locale: {
+      register(ns, dictionary) {
+        state.dictionaries.set(ns, dictionary);
+        return () => {};
+      },
+      bind(ns) {
+        return (key, params) => translate(ns, key, params);
+      },
+    },
+    slots: {
+      inject(name, register) {
+        const entry = { name, register };
+        state.injects.push(entry);
+        return () => {};
+      },
+      register(options, component) {
+        const entry = { options, component };
+        state.registrations.push(entry);
+        return entry;
+      },
+    },
+  };
+  return ctx;
+}
+
+/**
+ * Load the panel body in its own VM scope with the protocol helpers beside it,
+ * so the pure formatting and normalization functions become testable.
+ * @returns {object} the panel's internal helpers.
+ */
+function loadPanelUnit() {
+  const context = vm.createContext({
+    react: stubModules().react,
+    "react/jsx-runtime": undefined,
+    jsxRuntime: stubModules()["react/jsx-runtime"],
+    console,
+  });
+  const exposure = [
+    "\n;globalThis.__ub = {",
+    "  formatMoney, formatPercent, formatAmount, clamp, clampTtl, truncate,",
+    "  relativeTime, resetText, windowLabel, statusTone, statusKey,",
+    "  normalizeWindow, normalizeBalance, normalizeProvider, normalizeSnapshot,",
+    "  describeFailure, collectHosts, translateOf, bindPanelTranslate,",
+    "  providerTrend, trendScale, asErrorLike, DAILY_TREND_POINTS,",
+    "  UsageBoardPanel, UsageBoardPanelIcon, zh, en,",
+    "};",
+  ].join("\n");
+  new vm.Script(copySource + "\n" + panelSource + exposure, { filename: "panel-body.js" }).runInContext(context);
+  return context.__ub;
+}
+
+/** A `t` seat over one flat dictionary, matching ctx.locale's echo-the-key fallback. */
+function translateSeat(table) {
+  return (key, params) =>
+    String(
+      Object.prototype.hasOwnProperty.call(table, key) ? table[key] : key,
+    ).replace(/\{(\w+)\}/g, (match, name) =>
+      params !== undefined && Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match);
+}
+
+/** Deep-copy a value out of the VM realm so strict deep-equality compares shapes, not realms. */
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+// --------------------------------------------------------------- assembly ---
+
+test("lib/client.js is assembled from the client sources, byte for byte", () => {
+  assert.ok(bundleSource.includes(panelSource), "lib/client.js no longer embeds src/client/panel.js verbatim");
+  assert.ok(
+    bundleSource.includes(copySource),
+    "lib/client.js no longer embeds src/client/protocol-copy.js verbatim",
+  );
+  assert.ok(bundleSource.includes(styleSource), "lib/client.js no longer embeds src/client/styles.css verbatim");
+});
+
+test("the bundle is a valid DSH client-module combo script", () => {
+  const { registration, exports } = loadBundle();
+  assert.equal(registration.id, BUNDLE_ID);
+  assert.equal(typeof exports.apply, "function", "client exports must include apply");
+  assert.ok(Array.isArray(exports.inject), "client exports must include an inject array");
+  assert.deepEqual([...exports.inject], ["slots", "locale"]);
+  assert.equal(exports.NS, NS);
+  assert.equal(exports.PANEL_ID, PANEL_ID);
+});
+
+test("the bundle requires only aliases the loader can answer", () => {
+  const allowed = allowedAliases();
+  const { requires } = loadBundle();
+  assert.ok(requires.length > 0, "expected the bundle to require its aliases up front");
+  for (const specifier of requires) {
+    assert.ok(allowed.has(specifier), `require("${specifier}") is not in the client allow-list`);
+  }
+  const called = [...bundleSource.matchAll(/require\(\s*"([^"]+)"\s*\)/g)].map((match) => match[1]);
+  assert.deepEqual([...new Set(called)].sort(), ["react", "react/jsx-runtime"]);
+});
+
+test("package.json declares the client half the bundle needs", () => {
+  assert.equal(manifest.dsh?.client?.platform, "web");
+  assert.equal(manifest.exports?.["./client"]?.default, "./lib/client.js");
+  assert.equal(manifest.exports?.["."]?.default, "./lib/index.js");
+});
+
+// ------------------------------------------------------- protocol copying ---
+
+test("protocol-copy.js and lib/client.js carry every shared declaration verbatim", () => {
+  const lines = sharedSource.split("\n");
+  for (const name of SHARED_DECLARATIONS) {
+    const expected = extractDeclaration(lines, name);
+    assert.ok(
+      copySource.includes(expected),
+      `src/client/protocol-copy.js drifted from src/shared/protocol.js at ${name}`,
+    );
+    assert.ok(
+      bundleSource.includes(expected),
+      `lib/client.js drifted from src/shared/protocol.js at ${name}`,
+    );
+  }
+});
+
+test("the copied constants keep their shared values", () => {
+  const line = (source, prefix) => source.split("\n").find((entry) => entry.trim().startsWith(prefix));
+  for (const name of ["PROTOCOL_VERSION", "PROVIDER_IDS", "QUOTA_PROVIDER_IDS", "SNAPSHOT_PATH", "REFRESH_PATH", "ROUTE_PREFIX"]) {
+    assert.equal(
+      line(copySource, `const ${name} =`),
+      line(sharedSource, `export const ${name} =`).replace(/^export /, ""),
+      `${name} differs between the copy and the shared module`,
+    );
+  }
+});
+
+// ------------------------------------------------------------ registration ---
+
+test("apply() registers the usageBoard dictionaries in both languages", () => {
+  const { exports } = loadBundle();
+  const ctx = makeContext();
+  exports.apply(ctx);
+  const dictionaries = ctx.state.dictionaries.get(NS);
+  assert.ok(dictionaries !== undefined, `ctx.locale.register("${NS}") was not called`);
+  assert.deepEqual(Object.keys(dictionaries).sort(), ["en", "zh"]);
+  const zhKeys = Object.keys(dictionaries.zh).sort();
+  const enKeys = Object.keys(dictionaries.en).sort();
+  assert.deepEqual(enKeys, zhKeys, "zh and en dictionaries must define the same keys");
+  assert.ok(zhKeys.includes("panel"));
+  assert.ok(zhKeys.length >= 30, "the Chinese dictionary is the primary one and must stay complete");
+  assert.ok(ctx.state.effects.some((entry) => entry.label === "usage-board: dictionaries"));
+});
+
+test("apply() contributes the sidebar entry and the main panel under one id", () => {
+  const { exports } = loadBundle();
+  const ctx = makeContext();
+  exports.apply(ctx);
+
+  const sidebar = ctx.state.injects.find((entry) => entry.name === "sidebar.panellist");
+  assert.ok(sidebar !== undefined, "no sidebar.panellist injection");
+  const icon = sidebar.register();
+  assert.equal(icon.options.name, "sidebar.panellist");
+  assert.equal(icon.options.id, PANEL_ID);
+  assert.equal(icon.options.order, 20);
+  assert.equal(icon.options.locale, NS);
+  assert.equal(typeof icon.options.label, "function");
+  assert.equal(typeof icon.component, "function");
+
+  const main = ctx.state.injects.find((entry) => entry.name === "main");
+  assert.ok(main !== undefined, "no main injection");
+  const page = main.register();
+  assert.equal(page.options.name, "main");
+  assert.equal(page.options.key, PANEL_ID);
+  assert.equal(page.options.locale, NS);
+  assert.equal(typeof page.component, "function");
+});
+
+test("the sidebar label follows the active UI language", () => {
+  const { exports } = loadBundle();
+  const ctx = makeContext();
+  exports.apply(ctx);
+  const icon = ctx.state.injects.find((entry) => entry.name === "sidebar.panellist").register();
+  assert.equal(icon.options.label(), "用量看板");
+  ctx.state.locale = "en";
+  assert.equal(icon.options.label(), "Usage Board");
+});
+
+// -------------------------------------------------------------- formatting ---
+
+test("formatters never emit NaN or undefined and use an em dash for null", () => {
+  const unit = loadPanelUnit();
+  assert.equal(unit.formatMoney(null, "CNY"), "—");
+  assert.equal(unit.formatMoney(undefined, "USD"), "—");
+  assert.equal(unit.formatMoney(Number.NaN, "USD"), "—");
+  assert.equal(unit.formatMoney(33.654, "CNY"), "¥33.65");
+  assert.equal(unit.formatMoney(-4.5, "USD"), "-$4.50");
+  assert.equal(unit.formatMoney(1234.5, "USD"), "$1,234.50");
+  assert.equal(unit.formatMoney(12, "XYZ"), "12.00 XYZ");
+  assert.equal(unit.formatPercent(null), "—");
+  assert.equal(unit.formatPercent(37.46), "37.5%");
+  assert.equal(unit.formatPercent(0), "0.0%");
+  assert.equal(unit.formatAmount(null), "—");
+  assert.equal(unit.formatAmount(10), "10");
+  assert.equal(unit.formatAmount(3.5), "3.5");
+  assert.equal(unit.formatAmount(1 / 3), "0.33");
+
+  const values = [null, undefined, Number.NaN, Infinity, -Infinity, 0, -0, 1e9, -1e9, 33.649];
+  for (const value of values) {
+    for (const rendered of [unit.formatPercent(value), unit.formatAmount(value), unit.formatMoney(value, "CNY")]) {
+      assert.equal(typeof rendered, "string");
+      assert.ok(!rendered.includes("NaN"), `NaN leaked from ${String(value)}`);
+      assert.ok(!rendered.includes("undefined"), `undefined leaked from ${String(value)}`);
+      assert.ok(!rendered.includes("Infinity"), `Infinity leaked from ${String(value)}`);
+    }
+  }
+});
+
+test("relative time and reset countdown read naturally and tolerate nulls", () => {
+  const unit = loadPanelUnit();
+  const t = translateSeat(unit.zh);
+  const now = 1_700_000_000_000;
+  assert.equal(unit.relativeTime(t, null, now), null);
+  assert.equal(unit.relativeTime(t, now - 1_000, now), "刚刚更新");
+  assert.equal(unit.relativeTime(t, now - 12_000, now), "12 秒前更新");
+  assert.equal(unit.relativeTime(t, now - 5 * 60_000, now), "5 分钟前更新");
+  assert.equal(unit.relativeTime(t, now - 3 * 3600_000, now), "3 小时前更新");
+  assert.equal(unit.relativeTime(t, now - 2 * 86400_000, now), "2 天前更新");
+  assert.equal(unit.resetText(t, null, now), null);
+  assert.equal(unit.resetText(t, now - 1, now), "即将重置");
+  assert.equal(unit.resetText(t, now + 3 * 3600_000, now), "3 小时后重置");
+  assert.equal(unit.resetText(t, now + 45_000, now), "45 秒后重置");
+});
+
+test("window labels resolve through labelKey, then id, then the provider unit", () => {
+  const unit = loadPanelUnit();
+  const t = translateSeat(unit.zh);
+  assert.equal(unit.windowLabel(t, { id: "glm.5h", labelKey: null, unit: null }), "5 小时窗口");
+  assert.equal(unit.windowLabel(t, { id: "x", labelKey: "glm.weekly", unit: null }), "每周窗口");
+  assert.equal(unit.windowLabel(t, { id: "x", labelKey: null, unit: "6" }), "每周窗口");
+  assert.equal(unit.windowLabel(t, { id: "kimi.monthly", labelKey: null, unit: null }), "每月窗口");
+  assert.equal(unit.windowLabel(t, { id: "custom.window", labelKey: null, unit: null }), "custom window");
+});
+
+// ------------------------------------------------------------ normalization ---
+
+test("normalizeProvider survives an empty or hostile row", () => {
+  const unit = loadPanelUnit();
+  const empty = unit.normalizeProvider({});
+  assert.equal(empty.status, "invalid-response");
+  assert.equal(empty.code, null);
+  assert.deepEqual([...empty.windows], []);
+  assert.deepEqual([...empty.balances], []);
+  assert.deepEqual(Object.keys(empty.meta), []);
+
+  const garbage = unit.normalizeProvider(null);
+  assert.equal(garbage.status, "invalid-response");
+  assert.equal(garbage.label, "—");
+
+  const unknown = unit.normalizeProvider({ id: "x", label: "X", status: "totally-new" });
+  assert.equal(unknown.status, "invalid-response");
+  assert.equal(unknown.code, "totally-new");
+});
+
+test("normalizeProvider fills a window's derived fields exactly once", () => {
+  const unit = loadPanelUnit();
+  const row = unit.normalizeProvider({
+    id: "glm",
+    label: "GLM",
+    status: "ok",
+    plan: "lite",
+    windows: [{ id: "glm.5h", unit: 3, number: 5, limit: 10, used: 3.5, resetAt: 1_700_000_000_000 }],
+    balances: [{ currency: "USD", available: 12, bonus: 2, totalSpent: 40 }],
+    meta: { host: "open.bigmodel.cn" },
+    account: { masked: "hy****er@example.com" },
+  });
+  assert.equal(row.status, "ok");
+  assert.equal(row.plan, "lite");
+  assert.equal(row.windows.length, 1);
+  assert.equal(row.windows[0].percent, 35);
+  assert.equal(row.windows[0].remaining, 6.5);
+  assert.equal(row.windows[0].labelKey, "glm.5h");
+  assert.equal(row.balances[0].currency, "USD");
+  assert.equal(row.balances[0].available, 12);
+  assert.deepEqual([...unit.collectHosts([row, row])], ["open.bigmodel.cn"]);
+  assert.deepEqual([...unit.collectHosts([unit.normalizeProvider({ id: "b", label: "B", status: "ok" })])], []);
+});
+
+test("a snapshot's derived ok flag and ttl behave", () => {
+  const unit = loadPanelUnit();
+  const empty = unit.normalizeSnapshot({ providers: [] });
+  assert.equal(empty.ok, false);
+  assert.equal(empty.protocolVersion, 1);
+  const mixed = unit.normalizeSnapshot({
+    ttlMs: 1,
+    providers: [
+      { id: "a", label: "A", status: "ok" },
+      { id: "b", label: "B", status: "unauthorized" },
+    ],
+  });
+  assert.equal(mixed.ok, false);
+  assert.equal(mixed.ttlMs, 1);
+  assert.equal(unit.clampTtl(mixed.ttlMs), 60_000);
+  assert.equal(unit.clampTtl(600_000), 300_000);
+  assert.equal(unit.clampTtl(null), 60_000);
+});
+
+test("the daily trend renders history, tolerates nulls and never fabricates a scale", () => {
+  const unit = loadPanelUnit();
+  const absent = unit.normalizeProvider({ id: "glm", label: "GLM", status: "ok", meta: { host: "api.z.ai" } });
+  assert.equal(unit.providerTrend(absent), null, "a provider without meta.dailyUsage gets no chart");
+
+  const empty = unit.normalizeProvider({
+    id: "d",
+    label: "D",
+    status: "ok",
+    meta: { dailyUsage: { currency: "CNY", days: 30, points: [] } },
+  });
+  assert.equal(unit.providerTrend(empty), null);
+
+  const series = unit.providerTrend(unit.normalizeProvider({
+    id: "d",
+    label: "D",
+    status: "ok",
+    meta: {
+      host: "platform.deepseek.com",
+      dailyUsage: {
+        currency: "CNY",
+        days: 30,
+        points: [
+          { date: "2026-09-30", cost: 0, tokens: 0 },
+          { date: "2026-10-01", cost: null, tokens: null },
+          { date: "2026-10-02", cost: 1.23, tokens: 45600 },
+          { date: "2026-10-03", cost: 4.92, tokens: 120000 },
+        ],
+      },
+    },
+  }));
+  assert.ok(series !== null);
+  const scale = unit.trendScale(series);
+  assert.equal(scale.bars.length, 4);
+  assert.equal(scale.max, 4.92);
+  assert.equal(Math.round(scale.total * 100) / 100, 6.15);
+  assert.equal(scale.currency, "CNY");
+  for (const bar of scale.bars) {
+    assert.equal(typeof bar.cost, "number");
+    assert.ok(Number.isFinite(bar.cost), "a null cost must become 0, not NaN");
+  }
+
+  const allZero = unit.trendScale(unit.providerTrend(unit.normalizeProvider({
+    id: "d",
+    label: "D",
+    status: "ok",
+    meta: { dailyUsage: { currency: "USD", points: [{ date: "2026-10-01", cost: 0 }, { date: "2026-10-02", cost: null }] } },
+  })));
+  assert.equal(allZero.max, 0);
+  assert.equal(allZero.total, 0);
+  const t = translateSeat(unit.zh);
+  assert.equal(unit.formatMoney(allZero.total, allZero.currency), "$0.00");
+  assert.ok(t("daily.title", { n: String(allZero.bars.length) }).includes("2"));
+});
+
+test("the trend keeps only the last fourteen points and defaults its currency", () => {
+  const unit = loadPanelUnit();
+  const points = [];
+  for (let day = 1; day <= 30; day += 1) {
+    points.push({ date: "2026-09-" + String(day).padStart(2, "0"), cost: day });
+  }
+  const series = unit.providerTrend(unit.normalizeProvider({
+    id: "d",
+    label: "D",
+    status: "ok",
+    meta: { dailyUsage: { points: points } },
+  }));
+  const scale = unit.trendScale(series);
+  assert.equal(scale.bars.length, unit.DAILY_TREND_POINTS);
+  assert.equal(scale.bars[0].date, "2026-09-17");
+  assert.equal(scale.bars[13].date, "2026-09-30");
+  assert.equal(scale.max, 30);
+  assert.equal(scale.currency, "CNY");
+});
+
+test("failures describe themselves without a stack trace", () => {  const unit = loadPanelUnit();
+  const http = Object.assign(new Error("HTTP 500"), { kind: "http", httpStatus: "500" });
+  assert.deepEqual(plain(unit.describeFailure(http)), { key: "error.http", params: { code: "500" }, detail: "HTTP 500" });
+  const shape = Object.assign(new Error("payload has no providers array"), { kind: "shape" });
+  assert.deepEqual(unit.describeFailure(shape).key, "error.invalid");
+  const timeout = Object.assign(new Error("aborted"), { kind: "timeout" });
+  assert.deepEqual(plain(unit.describeFailure(timeout)), { key: "error.timeout", params: {}, detail: null });
+  const off = unit.describeFailure(new TypeError("Failed to fetch"));
+  assert.equal(off.key, "error.network");
+  assert.ok(!off.detail.includes("\n    at "), "a stack trace leaked into the diagnostic");
+  const long = unit.describeFailure(Object.assign(new Error("x".repeat(500)), { kind: "shape" }));
+  assert.ok(long.detail.length <= 140);
+});
+
+// -------------------------------------------------------------------- CSS ---
+
+test("the stylesheet styles with DSH alias tokens and always keeps a fallback", () => {
+  const required = [
+    "--dsw-alias-label-primary",
+    "--dsw-alias-label-secondary",
+    "--dsw-alias-label-tertiary",
+    "--dsw-alias-bg-layer-2",
+    "--dsw-radius-md",
+    "--dsw-radius-panel",
+    "--dsh-frame-top-clearance",
+  ];
+  for (const token of required) {
+    assert.ok(styleSource.includes(token), `styles.css stopped using ${token}`);
+  }
+  assert.ok(
+    styleSource.includes("var(--dsw-alias-border-l1, var(--dsw-alias-border-1,"),
+    "styles.css must accept both published names for the 1px border alias",
+  );
+  // Panel-local --ub-* aliases are deliberately defined on .ub-root, so only
+  // the frame's own tokens must carry an inline fallback here.
+  const bare = [...styleSource.matchAll(/var\(\s*(--d(?:sw|sh)-[a-zA-Z0-9-]+)\s*\)/g)].map((match) => match[1]);
+  assert.deepEqual(bare, [], `these frame tokens are read without a fallback: ${bare.join(", ")}`);
+  assert.ok(!styleSource.includes("`") && !styleSource.includes("${"), "styles.css must stay embeddable");
+});

@@ -1,0 +1,84 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://api.kimi.com/coding/v1/usages",
+    "status": 200,
+    "redacted": [
+      "booster_wallet.id",
+      "booster_wallet.userId",
+      "booster_wallet.balance.{id,userId,subscriptionId}"
+    ],
+    "capturedAt": "2026-10-14T07:00:22.171Z"
+  },
+  "usage": {
+    "limit": "100",
+    "used": "43",
+    "remaining": "57",
+    "resetTime": "2026-10-16T08:11:56.034265Z"
+  },
+  "limits": [
+    {
+      "window": {
+        "duration": 300,
+        "timeUnit": "TIME_UNIT_MINUTE"
+      },
+      "detail": {
+        "limit": "100",
+        "used": "36",
+        "remaining": "64",
+        "resetTime": "2026-10-14T07:11:56.034265Z"
+      }
+    }
+  ],
+  "booster_wallet": {
+    "id": "<redacted>",
+    "userId": "<redacted>",
+    "balance": {
+      "id": "<redacted>",
+      "feature": "FEATURE_OMNI",
+      "type": "BOOSTER",
+      "unit": "UNIT_CURRENCY",
+      "periodStart": "2026-09-18T18:58:18.558151Z",
+      "periodEnd": "2126-09-18T18:58:19.558151Z",
+      "subscriptionId": "<redacted>",
+      "userId": "<redacted>",
+      "createTime": "2026-09-18T18:58:19.558151Z",
+      "updateTime": "2026-09-18T18:58:19.558151Z",
+      "domain": "DOMAIN_NEXUS"
+    },
+    "status": "STATUS_DISABLED",
+    "allowTopup": true,
+    "topupLimit": {
+      "currency": "CNY",
+      "priceInCents": "300000"
+    },
+    "autoRefillCharge": {
+      "currency": "CNY",
+      "priceInCents": "0"
+    },
+    "autoRefillThreshold": {
+      "currency": "CNY",
+      "priceInCents": "0"
+    },
+    "monthlyChargeLimit": {
+      "currency": "CNY",
+      "priceInCents": "10000"
+    },
+    "monthlyUsed": {
+      "currency": "CNY",
+      "priceInCents": "0"
+    },
+    "createdAt": "2026-09-18T18:58:19.558151Z",
+    "updatedAt": "2026-09-18T18:58:26.941554Z"
+  },
+  "usages": {
+    "limit_5h": {
+      "used_ratio": 0.357,
+      "reset_time": "2026-10-14T07:11:56Z"
+    },
+    "limit_7d": {
+      "used_ratio": 0.4266,
+      "reset_time": "2026-10-16T08:11:56Z"
+    }
+  }
+}

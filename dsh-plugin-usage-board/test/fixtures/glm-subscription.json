@@ -1,0 +1,49 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://api.z.ai/api/biz/subscription/list",
+    "status": 200,
+    "redacted": [
+      "data[].id",
+      "data[].customerId",
+      "data[].agreementNo",
+      "data[].orderNo"
+    ],
+    "capturedAt": "2026-10-14T07:00:21.943Z"
+  },
+  "code": 200,
+  "msg": "Operation successful",
+  "data": [
+    {
+      "id": "<redacted>",
+      "customerId": "<redacted>",
+      "agreementNo": "<redacted>",
+      "orderNo": "<redacted>",
+      "productId": "product-a490e5",
+      "productName": "GLM Coding Lite",
+      "description": "1. 由智谱最新旗舰 GLM-4.7 驱动\n2. 适用于 Claude Code、Roo Code、Cline、Kilo Code、OpenCode、Crush、Goose 20+ 个编程工具，持续扩展中",
+      "status": "VALID",
+      "purchaseTime": "2026-09-17 13:47:56",
+      "valid": "2026-10-17 10:00:00-2026-11-17 10:00:00",
+      "autoRenew": 0,
+      "initialPrice": 118,
+      "standardPrice": 118,
+      "useInitialPrice": false,
+      "actualPrice": 118,
+      "renewPrice": 118,
+      "currentPeriod": 2,
+      "currentRenewTime": "2026-09-17",
+      "nextRenewTime": "2026-10-17",
+      "paymentType": "WAIT_PAY",
+      "billingCycle": "monthly",
+      "inCurrentPeriod": true,
+      "paymentChannel": "ALI",
+      "refundable": false,
+      "refundableReason": "RATE_LIMITED",
+      "banStatus": 0,
+      "banExpireTime": null,
+      "version": "V3"
+    }
+  ],
+  "success": true
+}

@@ -1,0 +1,4978 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://platform.deepseek.com/api/v0/usage/cost?month=10&year=2026",
+    "status": 200,
+    "capturedAt": "2026-10-14T07:00:20.968Z"
+  },
+  "code": 0,
+  "msg": "",
+  "data": {
+    "biz_code": 0,
+    "biz_msg": "",
+    "biz_data": [
+      {
+        "total": [
+          {
+            "model": "deepseek-flash",
+            "usage": [
+              {
+                "type": "PROMPT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_HIT_TOKEN",
+                "amount": "5.2697088000000000"
+              },
+              {
+                "type": "PROMPT_CACHE_MISS_TOKEN",
+                "amount": "5.9485230000000000"
+              },
+              {
+                "type": "RESPONSE_TOKEN",
+                "amount": "14.3699520000000000"
+              },
+              {
+                "type": "REQUEST",
+                "amount": "0"
+              }
+            ]
+          },
+          {
+            "model": "deepseek-v4.1-flash-expires-on-0910",
+            "usage": [
+              {
+                "type": "PROMPT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_HIT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_MISS_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "RESPONSE_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "REQUEST",
+                "amount": "0"
+              }
+            ]
+          },
+          {
+            "model": "deepseek-v4-flash-vision-exp",
+            "usage": [
+              {
+                "type": "PROMPT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_HIT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_MISS_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "RESPONSE_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "REQUEST",
+                "amount": "0"
+              }
+            ]
+          },
+          {
+            "model": "deepseek-v4-pro",
+            "usage": [
+              {
+                "type": "PROMPT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_HIT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_MISS_TOKEN",
+                "amount": "0.0641790000000000"
+              },
+              {
+                "type": "RESPONSE_TOKEN",
+                "amount": "0.0021735000000000"
+              },
+              {
+                "type": "REQUEST",
+                "amount": "0"
+              }
+            ]
+          },
+          {
+            "model": "deepseek-v4-flash",
+            "usage": [
+              {
+                "type": "PROMPT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_HIT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_MISS_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "RESPONSE_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "REQUEST",
+                "amount": "0"
+              }
+            ]
+          },
+          {
+            "model": "deepseek-chat & deepseek-reasoner",
+            "usage": [
+              {
+                "type": "PROMPT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_HIT_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "PROMPT_CACHE_MISS_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "RESPONSE_TOKEN",
+                "amount": "0"
+              },
+              {
+                "type": "REQUEST",
+                "amount": "0"
+              }
+            ]
+          }
+        ],
+        "days": [
+          {
+            "date": "2026-10-01",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0.0137446400000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.0878090000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0.1149400000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-02",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "1.6349107200000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "2.5959230000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "5.4598000000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-03",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "1.1639526400000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.5965820000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "2.1414440000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-04",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0.0053376000000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.0544980000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0.0450840000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-05",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-06",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-07",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-08",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0.0008499200000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.0239990000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0.0277720000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-09",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-10",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0.0085529600000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.0255490000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0.1613680000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-11",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-12",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0.0129177600000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.0484720000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0.1380800000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-13",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0.5849932800000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.6421320000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "1.0878360000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0.0641790000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0.0021735000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-14",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "1.8444492800000000"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "1.8735590000000000"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "5.1936280000000000"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-15",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-16",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-17",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-18",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-19",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-20",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-21",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-22",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-23",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-24",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-25",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-26",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-27",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-28",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-29",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-30",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-10-31",
+            "data": [
+              {
+                "model": "deepseek-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4.1-flash-expires-on-0910",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash-vision-exp",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-pro",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-v4-flash",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              },
+              {
+                "model": "deepseek-chat & deepseek-reasoner",
+                "usage": [
+                  {
+                    "type": "PROMPT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_HIT_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "PROMPT_CACHE_MISS_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "RESPONSE_TOKEN",
+                    "amount": "0"
+                  },
+                  {
+                    "type": "REQUEST",
+                    "amount": "0"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "currency": "CNY"
+      }
+    ]
+  }
+}

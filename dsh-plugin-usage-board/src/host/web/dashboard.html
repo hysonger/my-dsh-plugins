@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用量看板 · Usage Board</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --fg: #111827;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --line: #e5e7eb;
+    --accent: #4d6bfe;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    --track: #eceef2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --card: #171a21;
+      --fg: #e5e7eb;
+      --muted: #9ca3af;
+      --faint: #6b7280;
+      --line: #262b35;
+      --track: #232833;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px; }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
+  .pill { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.ok { color: var(--ok); }
+  .pill.warn { color: var(--warn); }
+  .pill.err { color: var(--err); }
+  .pill.idle { color: var(--faint); }
+  .plan { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  .metric { margin-bottom: 14px; }
+  .metric:last-child { margin-bottom: 0; }
+  .metric-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+  .metric-head .name { color: var(--fg); }
+  .metric-head .spacer { flex: 1; }
+  .metric-head .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track { height: 7px; border-radius: 999px; background: var(--track); overflow: hidden; margin-top: 6px; }
+  .fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s ease; }
+  .fill.warn { background: var(--warn); }
+  .fill.err { background: var(--err); }
+  .note { color: var(--faint); font-size: 11px; margin-top: 4px; }
+  .money { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .money small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 34px; margin-top: 6px; }
+  .bar { flex: 1; min-width: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .85; }
+  .bar:hover { opacity: 1; }
+  .bar.empty { background: var(--track); opacity: 1; }
+  .err-box { color: var(--muted); font-size: 12px; }
+  .err-box code { color: var(--faint); font-size: 11px; }
+  .skeleton { height: 140px; border-radius: 14px; background: linear-gradient(90deg, var(--track), var(--card), var(--track)); background-size: 200% 100%; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .fill { transition: none; } }
+  footer { margin-top: 24px; color: var(--faint); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>用量看板</h1>
+    <span class="sub" id="updated">加载中…</span>
+    <span class="spacer"></span>
+    <button id="refresh" type="button">刷新</button>
+  </header>
+  <p class="sub" style="margin:0">DeepSeek · GLM Coding Plan · Kimi Code</p>
+  <div class="grid" id="grid"></div>
+  <footer id="footer"></footer>
+</main>
+<!--USAGE_BOARD_BOOT-->
+<script>
+ (() => {
+  const boot = window.__USAGE_BOARD__ || { snapshotPath: '/usage-board/api/snapshot', refreshPath: '/usage-board/api/refresh', version: '?' };
+  const grid = document.getElementById('grid');
+  const updatedEl = document.getElementById('updated');
+  const footerEl = document.getElementById('footer');
+  const refreshBtn = document.getElementById('refresh');
+  let ttlMs = 60000;
+  let timer = null;
+
+  const LABELS = {
+    'glm.5h': '5 小时窗口',
+    'glm.weekly': '每周窗口',
+    'kimi.5h': '5 小时窗口',
+    'kimi.weekly': '每周窗口',
+    'kimi.monthly': '每月窗口',
+    'deepseek.balance': '余额',
+  };
+  const STATUS_TEXT = {
+    ok: '正常',
+    'not-configured': '未配置',
+    unauthorized: '未授权',
+    'rate-limited': '限流',
+    'upstream-error': '上游错误',
+    'network-error': '网络错误',
+    'invalid-response': '响应异常',
+    disabled: '已停用',
+  };
+  const STATUS_CLASS = {
+    ok: 'ok', 'not-configured': 'idle', unauthorized: 'err', 'rate-limited': 'warn',
+    'upstream-error': 'err', 'network-error': 'err', 'invalid-response': 'err', disabled: 'idle',
+  };
+  const SYMBOL = { CNY: '¥', USD: '$' };
+
+  function el(tag, props, children) {
+    const node = document.createElement(tag);
+    if (props) for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') node.className = v;
+      else if (k === 'text') node.textContent = v;
+      else node.setAttribute(k, v);
+    }
+    for (const child of children || []) if (child) node.appendChild(child);
+    return node;
+  }
+  function num(value, digits) {
+    return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : null;
+  }
+  function money(balance) {
+    const symbol = SYMBOL[balance.currency] || '';
+    const amount = num(balance.available, 2);
+    return amount === null ? '—' : symbol + amount;
+  }
+  function resetText(resetAt) {
+    if (typeof resetAt !== 'number') return null;
+    const delta = resetAt - Date.now();
+    if (delta <= 0) return '即将重置';
+    const hours = Math.floor(delta / 3600000);
+    const minutes = Math.floor((delta % 3600000) / 60000);
+    if (hours >= 24) return Math.floor(hours / 24) + ' 天后重置';
+    if (hours >= 1) return hours + ' 小时后重置';
+    return Math.max(1, minutes) + ' 分钟后重置';
+  }
+  function relative(ts) {
+    if (typeof ts !== 'number') return null;
+    const delta = Math.max(0, Date.now() - ts);
+    if (delta < 5000) return '刚刚更新';
+    if (delta < 60000) return Math.round(delta / 1000) + ' 秒前';
+    if (delta < 3600000) return Math.round(delta / 60000) + ' 分钟前';
+    return Math.round(delta / 3600000) + ' 小时前';
+  }
+  function progressClass(percent) {
+    if (typeof percent !== 'number') return '';
+    if (percent >= 90) return 'err';
+    if (percent >= 70) return 'warn';
+    return '';
+  }
+
+  /**
+   * Draw the trailing daily-spend trend an adapter may attach to meta.dailyUsage.
+   * History, not allowance: the bars show what was spent, never what is left.
+   */
+  function dailyTrend(series) {
+    if (!series || !Array.isArray(series.points) || series.points.length === 0) return null;
+    const points = series.points.slice(-14);
+    const symbol = SYMBOL[series.currency] || '';
+    const costs = points.map((point) => (typeof point.cost === 'number' && Number.isFinite(point.cost) ? point.cost : 0));
+    const peak = Math.max(...costs, 0);
+    const total = costs.reduce((sum, value) => sum + value, 0);
+    const bars = el('div', { class: 'bars', role: 'img' });
+    for (const [index, cost] of costs.entries()) {
+      const height = peak > 0 ? Math.max(cost > 0 ? 2 : 0, Math.round((cost / peak) * 100)) : 0;
+      bars.appendChild(el('span', {
+        class: 'bar' + (cost > 0 ? '' : ' empty'),
+        style: 'height:' + height + '%',
+        title: points[index].date + ' · ' + symbol + cost.toFixed(2),
+      }));
+    }
+    const head = el('div', { class: 'metric-head' }, [
+      el('span', { class: 'name', text: '近 ' + points.length + ' 天消耗' }),
+      el('span', { class: 'spacer' }),
+      el('span', { class: 'val', text: symbol + total.toFixed(2) }),
+    ]);
+    const first = points[0].date;
+    const last = points[points.length - 1].date;
+    return el('div', { class: 'metric' }, [head, bars, el('div', { class: 'note', text: first + ' → ' + last })]);
+  }
+
+  function windowMetric(win) {
+    const name = LABELS[win.id] || win.id;
+    const used = num(win.used, 0);
+    const limit = num(win.limit, 0);
+    const head = el('div', { class: 'metric-head' }, [
+      el('span', { class: 'name', text: name }),
+      el('span', { class: 'spacer' }),
+      el('span', { class: 'val', text: (used === null || limit === null ? '—' : used + ' / ' + limit) }),
+    ]);
+    const percent = typeof win.percent === 'number' ? win.percent : null;
+    const track = el('div', { class: 'track' }, [
+      el('div', { class: 'fill ' + progressClass(percent), style: 'width:' + (percent === null ? 0 : Math.max(0, Math.min(100, percent))) + '%' }),
+    ]);
+    const bits = [];
+    if (percent !== null) bits.push('已用 ' + percent.toFixed(1) + '%');
+    const remaining = num(win.remaining, 0);
+    if (remaining !== null) bits.push('剩余 ' + remaining);
+    const reset = resetText(win.resetAt);
+    if (reset) bits.push(reset);
+    const metric = el('div', { class: 'metric' }, [head, track]);
+    if (bits.length > 0) metric.appendChild(el('div', { class: 'note', text: bits.join(' · ') }));
+    return metric;
+  }
+
+  function card(row) {
+    const node = el('section', { class: 'card' });
+    node.appendChild(el('h2', {}, [
+      el('span', { text: row.label }),
+      el('span', { class: 'pill ' + (STATUS_CLASS[row.status] || 'idle'), text: STATUS_TEXT[row.status] || row.status }),
+    ]));
+    if (row.plan) node.appendChild(el('p', { class: 'plan', text: '套餐：' + row.plan }));
+
+    if (row.balances && row.balances.length > 0) {
+      for (const balance of row.balances) {
+        const line = el('div', { class: 'metric' });
+        const amount = el('div', { class: 'money', text: money(balance) });
+        const extra = [];
+        const bonus = num(balance.bonus, 2);
+        if (bonus !== null && Number(bonus) > 0) extra.push('赠送 ' + (SYMBOL[balance.currency] || '') + bonus);
+        const spent = num(balance.totalSpent, 2);
+        if (spent !== null) extra.push('累计消耗 ' + (SYMBOL[balance.currency] || '') + spent);
+        if (extra.length > 0) amount.appendChild(el('small', { text: extra.join(' · ') }));
+        line.appendChild(amount);
+        node.appendChild(line);
+      }
+    }
+    if (row.windows && row.windows.length > 0) {
+      for (const win of row.windows) node.appendChild(windowMetric(win));
+    }
+    const trend = dailyTrend(row.meta && row.meta.dailyUsage);
+    if (trend) node.appendChild(trend);
+    if (row.status === 'ok' && (!row.windows || row.windows.length === 0) && (!row.balances || row.balances.length === 0) && !trend) {
+      node.appendChild(el('div', { class: 'err-box', text: '该服务暂未提供可展示的用量数据。' }));
+    }
+    if (row.status !== 'ok') {
+      const box = el('div', { class: 'err-box' });
+      box.appendChild(el('div', { text: row.message || '读取失败。' }));
+      if (row.code) box.appendChild(el('code', { text: row.code }));
+      node.appendChild(box);
+    }
+    const meta = [];
+    if (row.meta && row.meta.host) meta.push(row.meta.host);
+    if (typeof row.latencyMs === 'number') meta.push(row.latencyMs + ' ms');
+    if (meta.length > 0) node.appendChild(el('div', { class: 'note', text: meta.join(' · ') }));
+    return node;
+  }
+
+  function skeletons(count) {
+    grid.replaceChildren();
+    for (let index = 0; index < count; index += 1) grid.appendChild(el('div', { class: 'skeleton' }));
+  }
+
+  async function load(force) {
+    refreshBtn.disabled = true;
+    if (grid.childElementCount === 0) skeletons(3);
+    try {
+      const response = await fetch(force ? boot.refreshPath : boot.snapshotPath, {
+        method: force ? 'POST' : 'GET',
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      });
+      const body = await response.json();
+      if (!response.ok || !Array.isArray(body.providers)) throw new Error('HTTP ' + response.status);
+      ttlMs = typeof body.ttlMs === 'number' ? body.ttlMs : 60000;
+      grid.replaceChildren();
+      for (const row of body.providers) grid.appendChild(card(row));
+      updatedEl.textContent = relative(body.generatedAt) + (body.ok ? '' : ' · 部分服务异常');
+      footerEl.textContent = '插件 v' + boot.version + ' · 缓存 ' + Math.round(ttlMs / 1000) + ' 秒 · 协议 v' + body.protocolVersion;
+    } catch (error) {
+      grid.replaceChildren(el('section', { class: 'card' }, [
+        el('h2', { text: '无法读取用量数据' }),
+        el('div', { class: 'err-box', text: String(error && error.message ? error.message : error) }),
+      ]));
+      updatedEl.textContent = '读取失败';
+    } finally {
+      refreshBtn.disabled = false;
+      schedule();
+    }
+  }
+
+  function schedule() {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => load(false), Math.min(300000, Math.max(60000, ttlMs)));
+  }
+
+  refreshBtn.addEventListener('click', () => load(true));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') load(true);
+  });
+  load(false);
+ })();
+</script>
+</body>
+</html>

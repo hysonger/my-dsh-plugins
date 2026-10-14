@@ -1,0 +1,12 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://api.kimi.com/coding/v1/nope",
+    "status": 404,
+    "capturedAt": "2026-10-14T07:00:22.276Z"
+  },
+  "error": {
+    "message": "The requested resource was not found",
+    "type": "resource_not_found_error"
+  }
+}

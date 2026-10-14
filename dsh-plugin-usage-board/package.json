@@ -1,0 +1,43 @@
+{
+  "name": "dsh-plugin-usage-board",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH usage board: one dashboard for DeepSeek, GLM Coding Plan, and Kimi Code quota and balance",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "src/",
+    "docs/",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "live": "node test/providers.live.mjs"
+  },
+  "license": "MIT"
+}

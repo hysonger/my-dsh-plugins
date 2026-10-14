@@ -1,0 +1,23 @@
+{
+  "_fixture": {
+    "source": "synthetic",
+    "url": "https://api.deepseek.com/user/balance",
+    "note": "SYNTHETIC: no sk- key exists on this machine; documents the optional merge source shape.",
+    "capturedAt": "2026-10-14T07:00:21.026Z"
+  },
+  "is_available": true,
+  "balance_infos": [
+    {
+      "currency": "CNY",
+      "total_balance": "18.5000000000",
+      "granted_balance": "2.5000000000",
+      "topped_up_balance": "16.0000000000"
+    },
+    {
+      "currency": "USD",
+      "total_balance": "1.2500000000",
+      "granted_balance": "0",
+      "topped_up_balance": "1.2500000000"
+    }
+  ]
+}
