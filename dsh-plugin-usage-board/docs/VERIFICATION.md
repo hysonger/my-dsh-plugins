@@ -1,33 +1,40 @@
 # Independent verification — `dsh-plugin-usage-board`
 
 **Task:** `task-3` (independent verification + adversarial QA) · **Verifier:** `qa`
-**Date:** 2026-10-14 (Asia/Shanghai) · **Rounds:** freeze **v1** (15:08) and freeze **v2** (15:24)
+**Date:** 2026-10-14 (Asia/Shanghai) · **Rounds:** freeze **v1** (15:08) · **v2** (15:24) · **v3** (15:43, D-10 only)
 **Write scope used:** `test/verify/**`, `docs/VERIFICATION.md` only. No `src/**`, `lib/**`, or `package.json` file was modified by the verifier.
 
 ---
 
-## 0. Verdict on freeze v2
+## 0. Verdict — final, on freeze v3
 
-**Ship it, with one caveat worth a five-minute fix.** Every defect I filed in round 1 except the two the
-owner deliberately declined is fixed and re-verified, and each fix was attacked independently rather than
-accepted on description. The new body-cap work is safe under hostile upstreams, including a gzip bomb. The
-`derivedPercent` addition does what it claims without destroying the provider's declared value.
+**Ship it. No open defects.** The round-2 finding (D-10) is fixed and re-verified against the exact live
+scenario that exposed it, with the *absence* of the wrong sentence asserted in both renderers — not just the
+presence of the right one. The fix also covers a second instance of the same bug class that the owner found
+while reordering the classifier (the adapter-crash wrapper carries GLM's label), and the genuine "valid key,
+no subscription" branch still reaches `noCodingPlan`, which I verified through the real adapter with an
+upstream body that triggers it.
 
-The caveat is a **new, round-2 defect (D-10)**: the host's failure classifier labels three GLM failure modes
-as *"no active Coding Plan subscription"* — including the real case of a **rejected GLM key**, which I
-triggered live with a bogus credential. A user with an expired key is told to check their subscription. It is
-one string-ordering bug in `classifyMessage` and it is in the code path that round 1's D-5 was written to add.
-
-| Suite (v2) | What it covers | Result |
+| Suite (v3) | What it covers | Result |
 |---|---|---|
-| **A** | `node --test test/` + `node test/providers.live.mjs` | **109/109 pass**; live script `ok` for all three providers |
-| **B** | Live routes, methods, 404s, CSP, loopback gate, secret-leak scan | **67/67 pass** |
-| **C** | Adversarial upstreams + v2 additions (cap/flood/gzip-bomb, hostile windows, messageKey, dispose) | **173/179 pass** — 6 failures are all D-10 |
-| **D** | Real browser: sidebar, panel, standalone, console, freshness, derived-percent preference, countdown agreement | **28/28 pass** |
-| **R** | Render-truth: does each card show the sentence for the *correct* diagnosis | **6/9 on a degraded live instance** (3 = D-10) · **9/9 on the all-failing fixture** |
+| **A** | `node --test test/` + `node test/providers.live.mjs` | **111/111 pass**; live script `ok` for all three providers |
+| **B** | Live routes, methods, 404s, CSP, loopback gate, secret-leak scan | **67/67 pass** (run on v3) |
+| **C** | Adversarial upstreams incl. the D-10 matrix, cap/flood/gzip-bomb, hostile windows, dispose | **186/186 pass** |
+| **D** | Real browser: sidebar, panel, standalone, console, freshness, derived-percent preference, countdown agreement | **28/28 pass** (v2 run; the healthy path is untouched by the v3 change) |
+| **R** | Render-truth: each card shows the sentence for the *correct* diagnosis **and no other diagnosis's** | **13/13 on the live bogus-key instance** · **9/9 on the all-failing fixture** |
 | **Leak scan** | full + first-8 + last-8 of all three real secrets against every response and my own deliverables | **clean** |
 
-Open defects: **1 medium (D-10)**, 0 high. Accepted by design: D-4, D-6.
+Defect ledger: D-1 · D-2 · D-3 · D-7 · D-8 · D-9 · **D-10** all FIXED; D-4 · D-6 ACCEPTED-BY-DESIGN; D-5
+superseded by D-10. Nothing open.
+
+### Frozen revision v3 — change surface confirmed
+
+Only two files moved from v2, exactly as stated; the other 19 hashes were re-checked and match v2 byte-for-byte.
+
+```
+25d63866c1c5  src/host/snapshot.js        (was 94c47d87ab7f — classifyMessage reordered)
+43afb51398e1  test/snapshot.test.js       (was 7b6cfb36a1d0 — the two new regression tests)
+```
 
 ### Frozen revision v2 — all 21 manifest hashes confirmed
 
@@ -73,7 +80,18 @@ covers rendering. No harness edits any product file.
 | Refresh route POST-only | GET/HEAD/DELETE probes | fixed (D-7) |
 | `describeSecret()` deleted | grep | fixed (D-8) |
 | `#disposed` flag | in-flight dispose unit test | fixed (D-9) |
-| `fetchJson` cap 8 KiB → 512 KiB + `truncated`/`BodyTooLargeError` | unbounded stream, 32 MiB real flood, **gzip bomb**, over-cap adapter input, RSS measurement | sound, no exhaustion vector (C14) |
+| `fetchJson` cap 8 KiB → 512 KiB + `truncated`/`BodyTooLargeError` | unbounded stream, 32 MiB real flood, **gzip bomb**, over-adapter input, RSS measurement | sound, no exhaustion vector (C14) |
+
+## 1b. What changed in v3, and how it was attacked
+
+| v3 change | How I attacked it | Outcome |
+|---|---|---|
+| `classifyMessage` reordered: status first, crash-wrapper before the "coding plan" phrase | HTTP-level key per GLM state, the four-modes-distinct assertion, two crash-wrapper phrasings, the genuine no-plan body driven through the real GLM adapter, live bogus-key render in both renderers **plus absence of every other diagnosis's sentence** | **fixed** — C13 31/31, R 13/13, D-10 closed |
+
+The second bug class the owner found while fixing this (the `The ${label} adapter failed: …` wrapper also
+carrying GLM's name) is covered by two independent checks I wrote before knowing about it:
+`C13.adapter-throw` drives a throwing adapter labelled `GLM Coding Plan` through the real `SnapshotService`,
+and the classifier matrix now includes both `adapter failed` and `could not complete` phrasings.
 
 ---
 
@@ -292,6 +310,96 @@ So the *fallback* branch is correct and renders Chinese; the defect is purely wh
 Screenshots: `test/verify/screenshots/50-panel-bad-glm-key-v2.png` (wrong GLM explanation beside the correct
 Kimi one), `51-standalone-bad-glm-key-v2.png`, `52-standalone-outage-v2.png` (fallback path).
 
+### 3.7 Round 3 (freeze v3) — targeted re-verification of D-10
+
+Scope as requested: `adversarial.mjs c13` (expanded) plus `render-messages.mjs` against a live instance
+booted with a **genuinely bogus GLM key** (and, for the strongest before/after, a bogus Kimi key too — the
+exact configuration in which round 2 exposed the defect). I also re-ran A, B and the full C suite because they
+are cheap and they prove the one-function change did not disturb anything else.
+
+Classifier matrix — 31/31:
+
+```
+$ node test/verify/adversarial.mjs c13
+PASS [C13.http:glm not-configured]            glm -> notConfigured
+PASS [C13.http:kimi not-configured]           kimi -> notConfigured
+PASS [C13.http:deepseek not-configured]       deepseek -> notConfigured
+PASS [C13.http:glm unauthorized (body code)]  glm -> authRejected        <- was noCodingPlan in v2
+PASS [C13.http:glm unauthorized (http 401)]   glm -> authRejected
+PASS [C13.http:kimi unauthorized (http 401)]  kimi -> authRejected
+PASS [C13.http:deepseek unauthorized]         deepseek -> authRejected
+PASS [C13.http:glm rate-limited] / [kimi rate-limited] -> rateLimited
+PASS [C13.http:kimi invalid-response (html)] -> badResponse
+PASS [C13.http:kimi unreachable] / [deepseek unreachable] -> unreachable
+PASS [C13.ok-null] ok rows carry messageKey null
+PASS [C13.http:glm no-subscription] GLM valid key without a plan -> noCodingPlan —
+     status=upstream-error, message="This Zhipu key has no GLM Coding Plan subscription."
+     (driven with the real body {"code":500,"success":false,"msg":"当前用户不存在coding plan"})
+PASS [C13.http:kimi no-subscription-benign] the same body for Kimi is not mislabelled — badResponse
+PASS [C13.adapter-throw] GLM adapter throw -> adapterFailed                <- was noCodingPlan in v2
+PASS [C13.classify:adapterFailed] both crash-wrapper phrasings -> adapterFailed
+PASS [C13.classify:noCodingPlan] genuine no-plan sentence -> noCodingPlan
+PASS [C13.classify:status.upstream-error] GLM error without the phrase -> status.upstream-error
+PASS [C13.classify:noHost] / [cancelled] / [unreachable] / [badResponse] / [rateLimited] -> correct keys
+PASS [C13.glm-distinct] GLM unset / rejected / crashed / no-plan produce four distinct keys
+     — {"unset":"notConfigured","rejected":"authRejected","crashed":"adapterFailed","noPlan":"noCodingPlan"}
+PASS [C13.glm-correct] and they are the four correct keys
+SUMMARY: 31/31 checks passed
+```
+
+Live wire, both keys bogus (the round-2 failure configuration):
+
+```
+$ curl -s http://127.0.0.1:3182/usage-board/api/snapshot
+ok: false
+  deepseek | ok           | messageKey= null
+  glm      | unauthorized | messageKey= "authRejected"     <- was "noCodingPlan" in v2
+  kimi     | unauthorized | messageKey= "authRejected"
+```
+
+Render-truth, both renderers, with the new **absence** assertions (R7/R8: a card must not carry any other
+diagnosis's sentence — the property that made D-10 user-visible):
+
+```
+$ node test/verify/render-messages.mjs http://127.0.0.1:3182 <token>
+PASS [R1] both renderers ship a non-empty message dictionary — page=16 keys, panel=17 keys
+PASS [R2] every bare key the host can emit exists in the page dictionary
+PASS [R3] every bare key has a panel translation under message.*
+PASS [R4.glm]  glm:  host key matches the intended diagnosis (authRejected)
+PASS [R4.kimi] kimi: host key matches the intended diagnosis (authRejected)
+PASS [R5.glm]  standalone glm card shows the authRejected sentence — 凭据被服务方拒绝，可能已过期或填错。
+PASS [R7.glm]  standalone glm card carries no other diagnosis's sentence — only authRejected
+PASS [R5.kimi] standalone kimi card shows the authRejected sentence — 凭据被服务方拒绝，可能已过期或填错。
+PASS [R7.kimi] standalone kimi card carries no other diagnosis's sentence — only authRejected
+PASS [R6.glm]  panel glm card shows the authRejected sentence — 凭据被服务方拒绝，可能已过期或填错。
+PASS [R8.glm]  panel glm card carries no other diagnosis's sentence — only authRejected
+PASS [R6.kimi] panel kimi card shows the authRejected sentence — 凭据被服务方拒绝，可能已过期或填错。
+PASS [R8.kimi] panel kimi card carries no other diagnosis's sentence — only authRejected
+SUMMARY: 13/13 checks passed
+```
+
+Direct DOM check on the standalone page — the wrong sentence appears **zero** times:
+
+```
+$ agent-browser ... get text body | grep -c "这个密钥没有有效的 Coding Plan 套餐"
+0
+$ agent-browser ... get text body | grep -c "凭据被服务方拒绝"
+1
+```
+
+`/usage-board/api/*` on the same instance answered without console warnings or page errors in both renderers.
+Screenshots: `test/verify/screenshots/73-panel-bogus-keys-v3.png` (GLM and Kimi both `未授权` with the correct
+sentence), `72-standalone-bogus-keys-v3.png`.
+
+Full suites re-run on v3 (unchanged files, so this is regression insurance rather than new coverage):
+
+```
+$ node --test test/                 → ℹ tests 111  ℹ pass 111  ℹ fail 0
+$ node test/verify/routes-live.mjs http://127.0.0.1:3181/usage-board  → SUMMARY: 67/67 checks passed
+$ node test/verify/adversarial.mjs  → SUMMARY: 186/186 checks passed
+$ node test/verify/render-messages.mjs http://127.0.0.1:3199          → SUMMARY: 9/9 checks passed
+```
+
 ### 3.5 D — real browser (`node test/verify/browser-e2e.mjs http://127.0.0.1:3181 <token>`)
 
 ```
@@ -323,14 +431,16 @@ Screenshots (frozen v2): `60-sidebar-v2.png`, `61-panel-v2.png` (DeepSeek money 
 `32.8%` beside `656 / 2,000`, Kimi windows), `62-standalone-v2.png`. Round-1 captures live in
 `screenshots/archive/`.
 
-### 3.6 Product state at v2
+### 3.6 Product state at v2 (and what v3 changed)
 
-- Money left, quota left, reset time and per-provider health are all present and **now self-consistent**:
-  the bar, the percentage and the fraction finally agree; the two renderers agree on countdowns.
-- A rejected GLM key produces a **wrong explanation** (D-10) while the identical Kimi condition produces the
-  right one — the one place where a user is actively misdirected.
-- A not-configured GLM key produces the same wrong explanation, so the "set your key" instruction never
-  appears for GLM.
+- Money left, quota left, reset time and per-provider health were already present and **self-consistent**:
+  the bar, the percentage and the fraction agree; the two renderers agree on countdowns.
+- **v2:** a rejected GLM key produced a **wrong explanation** (D-10) while the identical Kimi condition
+  produced the right one — the one place where a user was actively misdirected, and the same wrong sentence
+  covered a not-configured GLM key, so the "set your key" instruction never appeared for GLM.
+- **v3:** both states now produce the correct sentence in both renderers
+  (「凭据被服务方拒绝，可能已过期或填错。」), the wrong sentence appears zero times, and GLM's four failure
+  modes are four distinct keys. `notConfigured` now reaches GLM users with no key configured.
 - Accepted-by-design gaps remain honest rather than pretty: GLM's ±1 unit (D-4) and Kimi's unnamed
   denominator (D-6).
 
@@ -390,32 +500,46 @@ Dead `describeSecret()` (which would have leaked `first4…last2` had it been wi
 `node test/verify/adversarial.mjs c11` → the next `get()` after disposal performs a fresh upstream read
 (calls=2), proving the pre-dispose snapshot is not served from cache.
 
-### D-10 · **P2 · OPEN (new in v2)** — GLM failures are explained as "no Coding Plan subscription"
-`classifyMessage()` tests `message.includes('coding plan')` **before** it looks at `status`, and every GLM
-diagnostic contains the phrase "GLM Coding Plan". Three real states are therefore mislabelled:
+### D-10 · **P2 · FIXED-IN-V3** — GLM failures were explained as "no Coding Plan subscription"
 
-| status | host message | emitted key | should be |
+**As found in v2** (kept as the record of what was wrong): `classifyMessage()` tested
+`message.includes('coding plan')` **before** it looked at `status`, and every GLM diagnostic contains the
+phrase "GLM Coding Plan". Three real states were mislabelled:
+
+| status | host message | emitted key (v2) | should be |
 |---|---|---|---|
 | `not-configured` | `Set ZAI_CODING_CN_API_KEY to show the GLM Coding Plan quota.` | `noCodingPlan` | `notConfigured` |
 | `unauthorized` (body code, the real bad-key path) | `The GLM Coding Plan credential was rejected; check ZAI_CODING_CN_API_KEY.` | `noCodingPlan` | `authRejected` |
 | `upstream-error` (adapter throw) | `The GLM Coding Plan adapter failed: …` | `noCodingPlan` | `adapterFailed` |
 
-User impact: with a genuinely rejected GLM key both renderers say **“这个密钥没有有效的 Coding Plan 套餐。”**
-("This key has no active Coding Plan subscription") instead of "the credential was rejected; it may be
-expired or mistyped" — and a GLM user with *no* key configured is never told to set one. Kimi, in the same
-panel and the same failure class, gets the correct sentence, so the inconsistency is visible on one screen.
+User impact: with a genuinely rejected GLM key both renderers said **“这个密钥没有有效的 Coding Plan 套餐。”**
+instead of "the credential was rejected; it may be expired or mistyped" — and a GLM user with *no* key
+configured was never told to set one. Kimi, in the same panel and the same failure class, got the correct
+sentence, so the inconsistency was visible on one screen. v2 repro:
+`ZAI_CODING_CN_API_KEY=bogus dsh --profile usage-qa --port 3182 --no-open` →
+`glm | unauthorized | messageKey="noCodingPlan"`.
 
-Repro (one line, live):
-`ZAI_CODING_CN_API_KEY=bogus dsh --profile usage-qa --port 3182 --no-open` then
-`curl -s .../usage-board/api/snapshot | grep -o '"id":"glm".*messageKey":"[^"]*"'` → `noCodingPlan`.
-Harness repro: `node test/verify/adversarial.mjs c13` (6 failures) and
-`node test/verify/render-messages.mjs http://127.0.0.1:3182 <token>` (R4/R5/R6 glm).
+**Fix verified in v3.** The owner reordered the classifier (status branches first; then, inside
+`upstream-error`, the crash wrapper `could not complete` / `adapter failed`, then `no upstream`, and only then
+the phrase). I re-ran the exact live scenario plus expanded attacks:
 
-Suggested fix (owner's choice, not mine to make): evaluate the status-based branches first and keep the
-phrase test only as a narrow last resort for `upstream-error`, e.g.
-`if (status === 'upstream-error' && /\bno (active )?coding plan\b|coding plan (has )?expired/i.test(text)) return 'noCodingPlan';`
-The verified behaviour to preserve is that a genuine "no subscription" answer stays distinct from
-`authRejected` — I checked that intent in the harness (`C13.distinct`).
+- `glm | unauthorized | messageKey="authRejected"`, and both renderers print
+  「凭据被服务方拒绝，可能已过期或填错。」 — with `grep -c` proving the wrong sentence appears **0** times.
+- The four GLM failure modes now produce four distinct, correct keys:
+  `{unset: notConfigured, rejected: authRejected, crashed: adapterFailed, noPlan: noCodingPlan}` (C13.glm-distinct / C13.glm-correct).
+- The genuine "valid key, no subscription" branch is preserved: I drove the real GLM adapter with
+  `{"code":500,"success":false,"msg":"当前用户不存在coding plan"}` → `upstream-error` + `noCodingPlan`
+  (C13.http:glm no-subscription), so the fix did not simply delete the branch.
+- The second instance of the same bug class that the owner found while fixing it — the adapter-crash wrapper
+  `The ${adapter.label} adapter failed: …` also carrying GLM's name — is independently covered by
+  `C13.adapter-throw` (real `SnapshotService`, adapter labelled `GLM Coding Plan`) and by two crash-wrapper
+  phrasings in the classifier matrix. Both pass.
+- New absence assertions (`R7`/`R8`) check that each card carries **no other diagnosis's** sentence, which is
+  the property that made the defect user-visible.
+
+Repro (v3, all passing): `node test/verify/adversarial.mjs c13` → 31/31 · 
+`node test/verify/render-messages.mjs http://127.0.0.1:3182 <token>` → 13/13.
+Screenshots: `73-panel-bogus-keys-v3.png`, `72-standalone-bogus-keys-v3.png`.
 
 ---
 
@@ -434,10 +558,13 @@ The verified behaviour to preserve is that a genuine "no subscription" answer st
 5. **The `verbose: true` log branch** — log lines were never checked for secret material with verbose on.
 6. **`cancelled` and `noHost` messageKeys have no HTTP trigger in this build.** The fan-out controller only
    aborts after every adapter has settled, and no adapter reports "no upstream host". Both are covered by the
-   classifier matrix and by dictionary presence in both renderers, not by a live render.
-7. **The React panel's rendering of the `status.*` fallback.** The standalone page was render-checked for
-   `status.upstream-error` against the all-failing fixture (9/9); the panel needs a DSH-served snapshot with
-   that state and was only render-checked for `authRejected`/`noCodingPlan` (bogus-key instance).
+   classifier matrix and by dictionary presence in both renderers, not by a live render. (By contrast
+   `noCodingPlan` *is* reachable over HTTP and was verified end-to-end in v3 with
+   `{"code":500,"success":false,"msg":"当前用户不存在coding plan"}`.)
+7. **The React panel's rendering of the `status.*` fallback.** In v3 the panel was render-checked live for
+   `authRejected` (bogus key, both renderers, incl. the absence assertions), and the standalone page was
+   render-checked for `status.upstream-error` against the all-failing fixture (9/9). The panel's rendering of a
+   `status.*` key needs a DSH-served snapshot in that state and remains unverified.
 8. **Locale switching in the panel.** Both dictionaries and the key→sentence path were verified in Chinese;
    I did not drive DSH's language switcher, so the English branch is only checked by dictionary presence.
 9. **Long-run soak.** ~15 minutes of observation; multi-hour memory/timer behaviour is out of scope.
@@ -474,6 +601,12 @@ node test/verify/browser-e2e.mjs http://127.0.0.1:3181 <token>
 node test/verify/render-messages.mjs http://127.0.0.1:3182 <token>   # degraded live instance
 node test/verify/degraded-server.mjs 3199 &                          # all-failing fixture host
 node test/verify/render-messages.mjs http://127.0.0.1:3199
+
+# v3 targeted re-verification of D-10 (the actual v3 scope)
+node test/verify/adversarial.mjs c13                                 # 31/31 classifier + HTTP matrix
+ZAI_CODING_CN_API_KEY=qa-bogus KIMI_CODING_API_KEY=qa-bogus \
+  "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" --profile usage-qa --port 3182 --no-open
+node test/verify/render-messages.mjs http://127.0.0.1:3182 <token>   # 13/13 incl. absence assertions
 ```
 
 Harnesses: `_lib.mjs` (plumbing), `adversarial.mjs` (C), `routes-live.mjs` (B), `browser-e2e.mjs` (D),
@@ -485,5 +618,8 @@ Harnesses: `_lib.mjs` (plumbing), `adversarial.mjs` (C), `routes-live.mjs` (B), 
 - Three failures inside my own harnesses were found and fixed during this engagement and are **not** product
   defects: a fixture `default` rule that swallowed the harness's own localhost calls, a digit-grouping mismatch
   (`1,343` vs `1343`), and a browser-session click that landed on a stale tab (fixed by closing sessions at
-  startup and polling for the refetch). They are listed so the numbers above are not misread.
+  startup and polling for the refetch). Two more harness defects were caught by the D-10 work itself: the
+  render-truth card extractor initially sliced from the standalone page's *header* line (making a GLM check
+  read Kimi's sentence), and it captured a loading skeleton instead of the rendered cards — both fixed by
+  line-anchored card slicing and content polling before any of the numbers above were produced.
 - The verifier scanned its own deliverables for all three real secrets (full, first-8, last-8): clean.

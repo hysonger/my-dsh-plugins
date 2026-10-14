@@ -166,6 +166,10 @@ if (failed.length > 0) {
     const card = cardText(pageText, entry.id);
     const okText = entry.pageText !== null && card.includes(entry.pageText);
     check(`R5.${entry.id}`, `standalone ${entry.id} card shows the ${entry.key} sentence`, okText, okText ? entry.pageText : `card reads: ${JSON.stringify(card.replace(/\s+/g, ' ').slice(0, 120))}`);
+    // R7: and it must not carry the sentence of any OTHER diagnosis — the
+    // failure mode that made D-10 user-visible was a plausible wrong sentence.
+    const wrong = Object.entries(pageDict).filter(([otherKey, sentence]) => otherKey !== entry.key && sentence !== entry.pageText && card.includes(sentence)).map(([otherKey]) => otherKey);
+    check(`R7.${entry.id}`, `standalone ${entry.id} card carries no other diagnosis's sentence`, wrong.length === 0, wrong.length === 0 ? `only ${entry.key}` : `also shows: ${wrong.join(', ')}`);
   }
   ab('qa-msg-page', ['close']);
 
@@ -179,6 +183,10 @@ if (failed.length > 0) {
       const card = cardText(panelText, entry.id);
       const okText = want !== null && card.includes(want);
       check(`R6.${entry.id}`, `panel ${entry.id} card shows the ${entry.key} sentence`, okText, okText ? want : `card reads: ${JSON.stringify(card.replace(/\s+/g, ' ').slice(0, 140))}`);
+      const wrong = Object.entries(panelDict)
+        .filter(([otherKey, sentence]) => otherKey.startsWith('message.') && otherKey !== `message.${entry.key}` && sentence !== want && card.includes(sentence))
+        .map(([otherKey]) => otherKey.replace('message.', ''));
+      check(`R8.${entry.id}`, `panel ${entry.id} card carries no other diagnosis's sentence`, wrong.length === 0, wrong.length === 0 ? `only ${entry.key}` : `also shows: ${wrong.join(', ')}`);
     }
     ab('qa-msg-panel', ['close']);
   } else {

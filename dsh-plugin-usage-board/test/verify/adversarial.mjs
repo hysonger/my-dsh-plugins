@@ -677,6 +677,17 @@ async function c13() {
   const healthy = await httpRows({ plan: healthyPlan });
   check('C13.ok-null', 'ok rows carry messageKey null', healthy.every((row) => row.messageKey === null), JSON.stringify(healthy.map((row) => [row.id, row.messageKey])));
 
+  // --- the genuine "valid key, no subscription" path (GLM code 500 + CN msg) --
+  // This is the one branch that is *supposed* to reach `noCodingPlan`; a fix that
+  // reorders the phrase test must not break it.
+  const noPlanRows = await httpRows({
+    plan: { default: { status: 200, body: { code: 500, success: false, msg: '当前用户不存在coding plan' } } },
+  });
+  const noPlanGlm = rowFrom(noPlanRows, 'glm');
+  check('C13.http:glm no-subscription', 'GLM valid key without a plan -> noCodingPlan', noPlanGlm.messageKey === 'noCodingPlan', `status=${noPlanGlm.status}, messageKey=${JSON.stringify(noPlanGlm.messageKey)}, message=${JSON.stringify(noPlanGlm.message)}`);
+  const noPlanKimi = rowFrom(noPlanRows, 'kimi');
+  check('C13.http:kimi no-subscription-benign', 'the same body for Kimi is not mislabelled as a plan problem', noPlanKimi.messageKey !== 'noCodingPlan', `kimi messageKey=${JSON.stringify(noPlanKimi.messageKey)}`);
+
   // --- the adapter-throw path, with the REAL GLM label -----------------------
   const { PROVIDERS } = await import('../../src/host/providers/index.js');
   const saved = PROVIDERS.slice();
@@ -707,7 +718,11 @@ async function c13() {
     ['network-error', 'The read was cancelled.', 'cancelled'],
     ['network-error', 'The provider could not be reached.', 'unreachable'],
     ['invalid-response', 'The provider returned a body that is not valid JSON.', 'badResponse'],
+    // The provider-name trap: every one of these mentions GLM's own name.
     ['upstream-error', 'The GLM Coding Plan adapter failed: boom', 'adapterFailed'],
+    ['upstream-error', 'The GLM Coding Plan adapter could not complete the upstream read.', 'adapterFailed'],
+    ['upstream-error', 'This Zhipu key has no GLM Coding Plan subscription.', 'noCodingPlan'],
+    ['upstream-error', 'The GLM quota API reported an error.', 'status.upstream-error'],
     ['upstream-error', 'No upstream host was attempted.', 'noHost'],
   ];
   for (const [status, message, expected] of matrix) {
@@ -715,7 +730,17 @@ async function c13() {
     check(`C13.classify:${expected}`, `classifyMessage(${status}, ${JSON.stringify(message.slice(0, 40))}…) -> ${expected}`, actual === expected, `got ${JSON.stringify(actual)}`);
   }
 
-  const keysSeen = new Set([...Object.values(observed).map((entry) => entry.key), ...healthy.map((row) => row.messageKey)].filter(Boolean));
+  // --- the four GLM failure modes must be four DISTINCT keys ------------------
+  const glmModes = {
+    unset: classifyMessage('not-configured', 'Set ZAI_CODING_CN_API_KEY to show the GLM Coding Plan quota.'),
+    rejected: classifyMessage('unauthorized', 'The GLM Coding Plan credential was rejected; check ZAI_CODING_CN_API_KEY.'),
+    crashed: classifyMessage('upstream-error', 'The GLM Coding Plan adapter failed: boom'),
+    noPlan: classifyMessage('upstream-error', 'This Zhipu key has no GLM Coding Plan subscription.'),
+  };
+  check('C13.glm-distinct', 'GLM unset / rejected / crashed / no-plan produce four distinct keys', new Set(Object.values(glmModes)).size === 4, JSON.stringify(glmModes));
+  check('C13.glm-correct', 'and they are the four correct keys', glmModes.unset === 'notConfigured' && glmModes.rejected === 'authRejected' && glmModes.crashed === 'adapterFailed' && glmModes.noPlan === 'noCodingPlan', JSON.stringify(glmModes));
+
+  const keysSeen = new Set([...Object.values(observed).map((entry) => entry.key), ...healthy.map((row) => row.messageKey), noPlanGlm.messageKey].filter(Boolean));
   console.log(`      keys observed over HTTP: ${[...keysSeen].sort().join(', ')}`);
   console.log('      NOTE: `cancelled` and `noHost` have no HTTP trigger in this build (the fan-out controller only aborts after every adapter has settled); they are covered by the classifyMessage matrix above and by both client dictionaries, not by a live render.');
 }
