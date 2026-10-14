@@ -209,10 +209,12 @@ function makeContext() {
  * @returns {object} the panel's internal helpers.
  */
 function loadPanelUnit() {
+  // Element stubs that record instead of rendering: this loader is for the pure
+  // helpers, but a component may still be invoked through it (the icon).
+  const createElement = (type, props) => (typeof type === "function" ? type(props ?? {}) : { type: String(type), props: props ?? {} });
   const context = vm.createContext({
     react: stubModules().react,
-    "react/jsx-runtime": undefined,
-    jsxRuntime: stubModules()["react/jsx-runtime"],
+    jsxRuntime: { jsx: createElement, jsxs: createElement, Fragment: "Fragment" },
     console,
   });
   const exposure = [
@@ -241,6 +243,135 @@ function translateSeat(table) {
 /** Deep-copy a value out of the VM realm so strict deep-equality compares shapes, not realms. */
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+/** Depth-first walk over the plain element tree the render harness builds. */
+function walk(node, visit) {
+  if (node === null || node === undefined || typeof node === "boolean") return;
+  if (Array.isArray(node)) {
+    for (const child of node) walk(child, visit);
+    return;
+  }
+  if (typeof node === "object" && node.props !== undefined) {
+    visit(node);
+    walk(node.props.children, visit);
+  }
+}
+
+/** Every visible text node in the tree, joined for substring assertions. */
+function treeText(tree) {
+  const parts = [];
+  walk(tree, (node) => {
+    const children = node.props.children;
+    if (typeof children === "string" || typeof children === "number") parts.push(String(children));
+  });
+  return parts.join(" | ");
+}
+
+/** First element carrying `className`, or null. */
+function findByClass(tree, className) {
+  let found = null;
+  walk(tree, (node) => {
+    const value = node.props.className;
+    if (found === null && typeof value === "string" && value.split(" ").includes(className)) found = node;
+  });
+  return found;
+}
+
+/**
+ * A thirty-line stand-in for React: enough of the hook contract to mount
+ * UsageBoardPanel, resolve one fetch, and hand back the element tree it renders.
+ * The point is to exercise the branches a live host cannot produce on demand —
+ * an empty card, a non-ok provider, a failed request.
+ * @param {{ ok?: boolean, status?: number, body?: object, reject?: boolean }} [options]
+ * @returns {object} render(), requests, and the payload setter.
+ */
+function createRenderer(options = {}) {
+  const slots = {};
+  const effects = {};
+  const requests = [];
+  let hookIndex = 0;
+  let dirty = false;
+  let mounted = false;
+  let payload = { ok: options.ok !== false, status: options.status ?? 200, body: options.body, reject: options.reject === true };
+
+  const react = {
+    useState(initial) {
+      const key = "s" + String(hookIndex++);
+      if (!(key in slots)) slots[key] = typeof initial === "function" ? initial() : initial;
+      return [slots[key], (next) => {
+        slots[key] = typeof next === "function" ? next(slots[key]) : next;
+        dirty = true;
+      }];
+    },
+    useRef(initial) {
+      const key = "r" + String(hookIndex++);
+      if (!(key in slots)) slots[key] = { current: initial };
+      return slots[key];
+    },
+    useCallback(callback) {
+      hookIndex += 1;
+      return callback;
+    },
+    useEffect(callback) {
+      effects["e" + String(hookIndex++)] = callback;
+    },
+  };
+  const createElement = (type, props) => {
+    const next = props === undefined || props === null ? {} : props;
+    if (typeof type === "function") return type(next);
+    return { type: String(type), props: next };
+  };
+  const context = vm.createContext({
+    react,
+    jsxRuntime: { jsx: createElement, jsxs: createElement, Fragment: "Fragment" },
+    fetch(url, init) {
+      requests.push({ url: String(url), method: init !== undefined && init.method ? init.method : "GET" });
+      if (payload.reject === true) return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve({
+        ok: payload.ok,
+        status: payload.status,
+        json: () => Promise.resolve(payload.body),
+      });
+    },
+    AbortController: function AbortController() {
+      this.signal = {};
+      this.abort = () => {};
+    },
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    setInterval: () => 0,
+    clearInterval: () => {},
+    console,
+  });
+  new vm.Script(copySource + "\n" + panelSource + "\n;globalThis.__ub = { UsageBoardPanel, zh, en };", {
+    filename: "panel-render.js",
+  }).runInContext(context);
+  const translate = translateSeat(context.__ub.zh);
+
+  return {
+    requests,
+    setPayload(next) {
+      payload = { ...payload, ...next };
+    },
+    /** Mount once, let the fetch settle, and render again with the resulting state. */
+    async render() {
+      hookIndex = 0;
+      dirty = false;
+      let tree = context.__ub.UsageBoardPanel({ t: translate });
+      if (!mounted) {
+        mounted = true;
+        for (const key of Object.keys(effects)) effects[key]();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (dirty) {
+        hookIndex = 0;
+        dirty = false;
+        tree = context.__ub.UsageBoardPanel({ t: translate });
+      }
+      return tree;
+    },
+  };
 }
 
 // --------------------------------------------------------------- assembly ---
@@ -567,6 +698,214 @@ test("failures describe themselves without a stack trace", () => {  const unit =
   const long = unit.describeFailure(Object.assign(new Error("x".repeat(500)), { kind: "shape" }));
   assert.ok(long.detail.length <= 140);
 });
+
+// ------------------------------------------------------------- rendering ---
+
+test("an ok provider with no windows and no balances reads as an explanation, not an error", async () => {
+  const renderer = createRenderer({
+    body: { protocolVersion: 1, ok: true, ttlMs: 60_000, providers: [{ id: "x", label: "X", status: "ok" }] },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /该服务不提供用量窗口/);
+  assert.ok(!text.includes("重试"), "an empty card must not offer a retry");
+  assert.ok(!text.includes("error."), "no locale key leaked into the render");
+  assert.equal(findByClass(tree, "ub-card").props["data-status"], "ok");
+  assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
+});
+
+test("a wallet-only provider explains itself and never calls the trend an allowance", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [{
+        id: "deepseek",
+        label: "DeepSeek",
+        status: "ok",
+        windows: [],
+        balances: [{ currency: "CNY", available: 27.747, bonus: 0, totalSpent: 128.25 }],
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /¥27\.75/);
+  assert.match(text, /总消耗 ¥128\.25/);
+  assert.match(text, /该服务按余额计费，不提供用量窗口/);
+  assert.ok(!text.includes("剩余"), "a wallet has no remainder to report");
+  assert.ok(!text.includes("额度"));
+});
+
+test("a provider with a daily trend shows the chart and drops the wallet-only note", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [{
+        id: "deepseek",
+        label: "DeepSeek",
+        status: "ok",
+        windows: [],
+        balances: [{ currency: "CNY", available: 27.75, totalSpent: 128.25 }],
+        meta: {
+          host: "platform.deepseek.com",
+          dailyUsage: {
+            currency: "CNY",
+            days: 14,
+            points: [
+              { date: "2026-10-01", cost: 1.23 },
+              { date: "2026-10-02", cost: 4.92 },
+              { date: "2026-10-03", cost: null },
+            ],
+          },
+        },
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  // The title names the window it actually drew, and the range makes the window
+  // explicit so the total can never be read as the lifetime spend above it.
+  assert.match(text, /近 3 天消耗/);
+  assert.match(text, /10-01 → 10-03/);
+  assert.match(text, /¥6\.15/);
+  assert.ok(!text.includes("不提供用量窗口"), "the trend answers the question the note was covering");
+  const bars = findByClass(tree, "ub-trend-bars");
+  assert.equal(bars.props.children.length, 3);
+  for (const bar of bars.props.children) {
+    assert.equal(typeof bar.props.style.height, "string");
+    assert.ok(!bar.props.style.height.includes("NaN"));
+  }
+  assert.equal(bars.props.children[2].props["data-empty"], "true");
+});
+
+test("a failed first request renders the error state with a retry control", async () => {
+  const renderer = createRenderer({ reject: true });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /无法连接实例的用量服务/);
+  assert.equal(findByClass(tree, "ub-root").props["data-phase"], "error");
+  assert.ok(findByClass(tree, "ub-retry") !== null, "the error state must offer a retry");
+  assert.ok(!text.includes("at Object."), "a stack trace reached the panel");
+});
+
+test("a non-2xx answer is reported with its status code and the retry control", async () => {
+  const renderer = createRenderer({ ok: false, status: 503 });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /实例返回了 HTTP 503/);
+  assert.equal(findByClass(tree, "ub-code").props.children, "HTTP 503");
+  assert.ok(findByClass(tree, "ub-retry") !== null);
+});
+
+test("a non-ok provider renders its explanation and diagnostic code", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: false,
+      ttlMs: 60_000,
+      providers: [{
+        id: "glm",
+        label: "GLM Coding Plan",
+        status: "unauthorized",
+        code: "401",
+        windows: [],
+        balances: [],
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /未授权/);
+  assert.match(text, /401/);
+  assert.equal(findByClass(tree, "ub-card").props["data-status"], "unauthorized");
+  assert.equal(findByClass(tree, "ub-pill").props["data-tone"], "danger");
+});
+
+test("quota windows render a labelled bar, used/limit, remainder and reset countdown", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [{
+        id: "glm",
+        label: "GLM Coding Plan",
+        status: "ok",
+        plan: "GLM Coding Lite",
+        windows: [{
+          id: "glm.5h",
+          labelKey: "glm.5h",
+          unit: 3,
+          number: 5,
+          limit: 2000,
+          used: 656,
+          remaining: 1343,
+          percent: 32,
+          resetAt: Date.now() + 3 * 3600_000,
+        }],
+        balances: [],
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /5 小时窗口 ×5/);
+  assert.match(text, /32\.0%/);
+  assert.match(text, /656 \/ 2,000/);
+  assert.match(text, /剩余 1,343/);
+  assert.match(text, /3 小时后重置/);
+  assert.match(text, /GLM Coding Lite/);
+  const bar = findByClass(tree, "ub-bar");
+  assert.equal(bar.props.role, "progressbar");
+  assert.equal(bar.props["aria-valuenow"], 32);
+  assert.equal(findByClass(tree, "ub-bar-fill").props.style.width, "32.0%");
+  assert.equal(findByClass(tree, "ub-bar-fill").props["data-level"], "ok");
+});
+
+test("a fourteen-point trend is labelled as a fourteen-day window", async () => {
+  const points = [];
+  for (let day = 1; day <= 14; day += 1) {
+    points.push({ date: "2026-10-" + String(day).padStart(2, "0"), cost: day });
+  }
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [{
+        id: "deepseek",
+        label: "DeepSeek",
+        status: "ok",
+        windows: [],
+        balances: [{ currency: "CNY", available: 25.38, totalSpent: 130.62 }],
+        meta: { dailyUsage: { currency: "CNY", days: 14, points } },
+      }],
+    },
+  });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /近 14 天消耗/);
+  assert.match(text, /10-01 → 10-14/);
+  assert.match(text, /¥105\.00/);
+  assert.match(text, /总消耗 ¥130\.62/);
+  assert.equal(findByClass(tree, "ub-trend-bars").props.children.length, 14);
+});
+
+test("the sidebar glyph renders at the size the sidebar asks for", () => {
+  const unit = loadPanelUnit();
+  const small = unit.UsageBoardPanelIcon({ size: 16, active: false });
+  const large = unit.UsageBoardPanelIcon({ size: 18, active: true });
+  assert.equal(small.props.width, 16);
+  assert.equal(large.props.width, 18);
+  assert.equal(unit.UsageBoardPanelIcon({}).props.width, 16);
+  assert.equal(small.props.children.length, 3);
+});
+
+
 
 // -------------------------------------------------------------------- CSS ---
 

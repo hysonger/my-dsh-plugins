@@ -459,10 +459,78 @@ async function c9() {
   check('C9.5', 'every provider is represented in the health hint', body.credentials.providers.length === PROVIDERS.length, `${body.credentials.providers.length} providers`);
 }
 
+/* ============================================================ C0 healthy fixture */
+
+async function c0() {
+  console.log('\n== C0 healthy path parses the documented shapes (fixture sanity) ==');
+  const ds = await direct('deepseek', { plan: healthyPlan });
+  check('C0.1', 'DeepSeek ok from the documented envelope', ds.row.status === 'ok', brief(ds.row));
+  checkEqual('C0.2', 'DeepSeek wallet balance parsed from the money string', ds.row.balances[0]?.available, 33.65288794);
+  checkEqual('C0.3', 'DeepSeek totalSpent parsed from total_costs', ds.row.balances[0]?.totalSpent, 12.34);
+  checkEqual('C0.4', 'DeepSeek account is null (no identity request)', ds.row.account, null);
+  const series = ds.row.meta?.dailyUsage;
+  check('C0.5', 'daily usage series attached to meta', typeof series === 'object' && series !== null, JSON.stringify(series).slice(0, 140));
+  checkEqual('C0.6', 'trailing zero-cost future day is trimmed', series?.days, 3);
+  const sum = (series?.points ?? []).reduce((total, point) => total + (point.cost ?? 0), 0);
+  checkEqual('C0.7', 'daily costs sum to the fixture total from data[].usage[].amount', Number(sum.toFixed(2)), 3);
+  checkEqual('C0.8', 'DeepSeek makes exactly two upstream calls per fan-out', ds.calls.length, 2);
+
+  const glm = await direct('glm', { plan: healthyPlan });
+  check('C0.9', 'GLM ok', glm.row.status === 'ok', brief(glm.row));
+  checkEqual('C0.10', 'GLM windows are ordered 5h then weekly', glm.row.windows.map((win) => win.id), ['glm.5h', 'glm.weekly']);
+  checkEqual('C0.11', 'GLM plan comes from the subscription endpoint, not the bare level', glm.row.plan, 'GLM Coding Lite');
+  checkEqual('C0.12', 'GLM meta.level keeps the raw level', glm.row.meta?.level, 'lite');
+  checkEqual('C0.13', 'GLM meta.subscriptionStatus is surfaced', glm.row.meta?.subscriptionStatus, 'VALID');
+  checkEqual('C0.14', 'GLM makes two calls (quota + subscription) per fan-out', glm.calls.length, 2);
+  const fiveHour = glm.row.windows[0];
+  check('C0.15', 'GLM 5h limit/used/remaining triples are complete', fiveHour.limit === 2000 && fiveHour.used === 656 && fiveHour.remaining === 1343, JSON.stringify(fiveHour));
+
+  const kimi = await direct('kimi', { plan: healthyPlan });
+  check('C0.16', 'Kimi ok', kimi.row.status === 'ok', brief(kimi.row));
+  checkEqual('C0.17', 'Kimi windows are 5h then weekly', kimi.row.windows.map((win) => win.id), ['kimi.5h', 'kimi.weekly']);
+  checkEqual('C0.18', 'Kimi 5h percent uses the precise ratio (35.7), not 36/100', kimi.row.windows[0].percent, 35.7);
+  checkEqual('C0.19', 'Kimi has no balances and no account', [kimi.row.balances.length, kimi.row.account], [0, null]);
+  checkEqual('C0.20', 'Kimi makes one call per fan-out (no identity request)', kimi.calls.length, 1);
+}
+
+/* ============================================== C10 best-effort secondary sources */
+
+async function c10() {
+  console.log('\n== C10 a failing best-effort source must not degrade a good row ==');
+  const dsCostDown = await direct('deepseek', {
+    plan: (url) => (url.startsWith(DS_COST_PREFIX) ? { status: 500, body: { error: 'cost down' } } : healthyPlan(url)),
+  });
+  check('C10.1', 'DeepSeek stays ok when the spend-history call fails', dsCostDown.row.status === 'ok', brief(dsCostDown.row));
+  check('C10.2', 'the failure is recorded as meta.dailyUsageError', typeof dsCostDown.row.meta?.dailyUsageError === 'string', `dailyUsageError=${dsCostDown.row.meta?.dailyUsageError}`);
+  check('C10.3', 'no fabricated dailyUsage series', dsCostDown.row.meta?.dailyUsage === undefined, JSON.stringify(dsCostDown.row.meta));
+
+  const glmSubDown = await direct('glm', {
+    plan: (url) => (url === GLM_SUB ? { status: 500, body: { error: 'sub down' } } : healthyPlan(url)),
+  });
+  check('C10.4', 'GLM stays ok when the subscription call fails', glmSubDown.row.status === 'ok', brief(glmSubDown.row));
+  checkEqual('C10.5', 'GLM plan falls back to the bare level', glmSubDown.row.plan, 'lite');
+  check('C10.6', 'the failure is recorded as meta.subscriptionError', typeof glmSubDown.row.meta?.subscriptionError === 'string', `subscriptionError=${glmSubDown.row.meta?.subscriptionError}`);
+
+  const withSkKey = async (name) => (name === 'DEEPSEEK_API_KEY' ? 'qa-sk-key' : allSecrets(name));
+  const secondaryDown = await direct('deepseek', {
+    plan: (url) => (url === DS_API_BALANCE ? { status: 401, body: { error: 'bad sk key' } } : healthyPlan(url)),
+    getSecret: withSkKey,
+  });
+  check('C10.7', 'DeepSeek stays ok when the optional sk- balance source is rejected', secondaryDown.row.status === 'ok', brief(secondaryDown.row));
+  check('C10.8', 'the optional-source failure is recorded, not hidden', typeof secondaryDown.row.meta?.secondarySource === 'string', `secondarySource=${secondaryDown.row.meta?.secondarySource}`);
+
+  const bothSources = await direct('deepseek', {
+    plan: (url) => (url === DS_API_BALANCE ? { status: 200, body: { balance_infos: [{ currency: 'CNY', total_balance: '9.99', granted_balance: '1.00' }] } } : healthyPlan(url)),
+    getSecret: withSkKey,
+  });
+  check('C10.9', 'a working sk- source merges without overwriting platform values', bothSources.row.status === 'ok' && bothSources.row.balances[0].available === 33.65288794, brief(bothSources.row));
+  checkEqual('C10.10', 'merge reports source "both"', bothSources.row.meta?.source, 'both');
+}
+
 /* ---------------------------------------------------------------------- runner */
 
 const only = process.argv[2];
-const sections = { c1, c2, c3, c4, c5, c6, c7, c8, c9 };
+const sections = { c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10 };
 for (const [name, section] of Object.entries(sections)) {
   if (only && only !== name) continue;
   await section();

@@ -86,7 +86,7 @@ const zh = {
   "action.refreshing": "\u5237\u65b0\u4e2d\u2026",
   "action.retry": "\u91cd\u8bd5",
   "state.loading": "\u6b63\u5728\u8bfb\u53d6\u7528\u91cf\u6570\u636e\u2026",
-  "state.empty": "\u5b9f\u4f8b\u8fd8\u6ca1\u6709\u914d\u7f6e\u4efb\u4f55\u670d\u52a1\u3002",
+  "state.empty": "\u5b9e\u4f8b\u8fd8\u6ca1\u6709\u914d\u7f6e\u4efb\u4f55\u670d\u52a1\u3002",
   "state.noWindows": "\u8be5\u670d\u52a1\u4e0d\u63d0\u4f9b\u7528\u91cf\u7a97\u53e3",
   "state.balanceOnly": "\u8be5\u670d\u52a1\u6309\u4f59\u989d\u8ba1\u8d39\uff0c\u4e0d\u63d0\u4f9b\u7528\u91cf\u7a97\u53e3",
   "state.refreshFailed": "\u5237\u65b0\u5931\u8d25\uff1a{reason}",
@@ -106,10 +106,10 @@ const zh = {
   "balance.bonus": "\u8d60\u9001 {value}",
   "balance.spent": "\u603b\u6d88\u8017 {value}",
   "source.host": "\u6570\u636e\u6765\u6e90\uff1a{host}",
-  "source.none": "\u6570\u636e\u6765\u6e90\uff1a\u672c\u673a\u5b9f\u4f8b",
-  "error.network": "\u65e0\u6cd5\u8fde\u63a5\u5b9f\u4f8b\u7684\u7528\u91cf\u670d\u52a1",
-  "error.http": "\u5b9f\u4f8b\u8fd4\u56de\u4e86 HTTP {code}",
-  "error.invalid": "\u5b9f\u4f8b\u8fd4\u56de\u7684\u6570\u636e\u683c\u5f0f\u4e0d\u6b63\u786e",
+  "source.none": "\u6570\u636e\u6765\u6e90\uff1a\u672c\u673a\u5b9e\u4f8b",
+  "error.network": "\u65e0\u6cd5\u8fde\u63a5\u5b9e\u4f8b\u7684\u7528\u91cf\u670d\u52a1",
+  "error.http": "\u5b9e\u4f8b\u8fd4\u56de\u4e86 HTTP {code}",
+  "error.invalid": "\u5b9e\u4f8b\u8fd4\u56de\u7684\u6570\u636e\u683c\u5f0f\u4e0d\u6b63\u786e",
   "error.timeout": "\u8bf7\u6c42\u8d85\u65f6",
   "status.ok": "\u6b63\u5e38",
   "status.not-configured": "\u672a\u914d\u7f6e",
@@ -132,6 +132,7 @@ const zh = {
   "kimi.monthly": "\u6bcf\u6708\u7a97\u53e3",
   "deepseek.balance": "\u4f59\u989d",
   "daily.title": "\u8fd1 {n} \u5929\u6d88\u8017",
+  "daily.range": "{from} \u2192 {to}",
   "daily.pointTip": "{date} \u00b7 {cost}",
   "daily.tokens": "{value} tokens",
 };
@@ -188,6 +189,7 @@ const en = {
   "kimi.monthly": "Monthly window",
   "deepseek.balance": "Balance",
   "daily.title": "Spend, last {n} days",
+  "daily.range": "{from} \u2192 {to}",
   "daily.pointTip": "{date} \u00b7 {cost}",
   "daily.tokens": "{value} tokens",
 };
@@ -292,6 +294,12 @@ function formatAmount(value) {
 /** Clamp `value` into [min, max]. */
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+/** `2026-10-01` as `10-01`; anything else is returned untouched. */
+function shortDate(date) {
+  const value = String(date);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.slice(5) : value;
 }
 
 /**
@@ -651,6 +659,13 @@ function DailyTrend(props) {
       title: tip,
     }, bar.date + "-" + String(index));
   });
+  const first = scale.bars.length === 0 ? "" : scale.bars[0].date;
+  const last = scale.bars.length === 0 ? "" : scale.bars[scale.bars.length - 1].date;
+  // The window is spelled out so the chart total can never be mistaken for the
+  // lifetime spend the card also carries.
+  const range = first === "" || last === "" || scale.bars.length < 2
+    ? null
+    : t("daily.range", { from: shortDate(first), to: shortDate(last) });
   return jsxs("div", {
     className: "ub-trend",
     children: [
@@ -666,9 +681,11 @@ function DailyTrend(props) {
         key: "bars",
         className: "ub-trend-bars",
         role: "img",
-        "aria-label": t("daily.title", { n: String(bars.length) }) + " " + formatMoney(scale.total, scale.currency),
+        "aria-label": t("daily.title", { n: String(bars.length) }) + " " + formatMoney(scale.total, scale.currency) +
+          (range === null ? "" : " " + range),
         children: bars,
       }),
+      range === null ? null : jsx("span", { key: "range", className: "ub-trend-range", children: range }),
     ],
   });
 }

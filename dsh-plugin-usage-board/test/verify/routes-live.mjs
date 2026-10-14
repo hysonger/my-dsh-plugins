@@ -7,11 +7,35 @@
  * Default base URL: http://127.0.0.1:3178/usage-board
  */
 
+import http from 'node:http';
+
 import { isLoopbackAddress } from '../../src/host/routes.js';
 import { PROVIDER_IDS, PROTOCOL_VERSION } from '../../src/shared/protocol.js';
 import { check, checkEqual, finish, loadRealSecrets, mask, request, startPluginServer, tryJson } from './_lib.mjs';
 
 const BASE = process.argv[2] ?? 'http://127.0.0.1:3178/usage-board';
+
+/**
+ * Send a request with a raw, un-encoded path (fetch/undici normalize it).
+ * @param {string} origin
+ * @param {string} path
+ * @returns {Promise<{status: number, text: string}>}
+ */
+function rawGet(origin, path) {
+  const target = new URL(origin);
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: target.hostname, port: target.port, method: 'GET', path }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        text += chunk;
+      });
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, text }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 /* ------------------------------------------------------------------ live DSH */
 
@@ -89,15 +113,26 @@ async function liveRoutes() {
   check('B5.5', 'page is self-contained (no external subresource)', !/<(script|link|img)[^>]+(src|href)=["']https?:/i.test(page.text), 'no absolute subresources');
 
   // ---- unknown paths / prefix boundaries
+  const origin = new URL(BASE).origin;
   const unknownApi = await request(`${BASE}/api/does-not-exist`);
-  check('B6.1', 'unknown path under /usage-board/ answers promptly (no hang)', unknownApi.status > 0, `HTTP ${unknownApi.status}, content-type=${unknownApi.headers['content-type']}`);
-  console.log(`      unknown API path -> HTTP ${unknownApi.status} (${unknownApi.headers['content-type']}), first 60 bytes: ${JSON.stringify(unknownApi.text.slice(0, 60))}`);
-  const sibling = await request('http://127.0.0.1:3178/usage-board-sibling');
-  check('B6.2', 'a sibling path outside the prefix does not match the plugin', sibling.status !== 200 || !sibling.text.includes('用量看板'), `HTTP ${sibling.status} from /usage-board-sibling`);
-  const bundle = await request(`${BASE}/client.js`);
-  check('B6.3', 'GET /usage-board/client.js -> 200 JS with an ETag', bundle.status === 200 && (bundle.headers.etag ?? '').startsWith('"'), `HTTP ${bundle.status} etag=${bundle.headers.etag}`);
-  const bundle304 = await request(`${BASE}/client.js`, { headers: { 'if-none-match': bundle.headers.etag } });
-  check('B6.4', 'conditional GET returns 304', bundle304.status === 304, `HTTP ${bundle304.status}`);
+  const unknownApiBody = tryJson(unknownApi.text);
+  check('B6.1', 'unknown API path -> 404 JSON with error.code not-found', unknownApi.status === 404 && (unknownApi.headers['content-type'] ?? '').includes('application/json') && unknownApiBody?.error?.code === 'not-found', `HTTP ${unknownApi.status} ${unknownApi.text.slice(0, 90)}`);
+  const unknownPage = await request(`${BASE}/does-not-exist`);
+  check('B6.2', 'unknown non-API path -> 404 HTML, not a 200 dashboard', unknownPage.status === 404 && !unknownPage.text.includes('__USAGE_BOARD__'), `HTTP ${unknownPage.status}, ${unknownPage.text.length} bytes`);
+  const rootNoSlash = await request(`${origin}${'/usage-board'}`);
+  check('B6.3', 'the dashboard answers at both /usage-board and /usage-board/', rootNoSlash.status === 200 && rootNoSlash.text.includes('__USAGE_BOARD__'), `HTTP ${rootNoSlash.status} for /usage-board`);
+  const headUnknown = await request(`${BASE}/api/does-not-exist`, { method: 'HEAD' });
+  check('B6.4', 'HEAD on an unknown path -> 404 with no body', headUnknown.status === 404 && headUnknown.text === '', `HTTP ${headUnknown.status}, body ${headUnknown.text.length} bytes`);
+  const xss = await request(`${BASE}/%3Cscript%3Ealert(1)%3C/script%3E%3Cimg%20src=x%20onerror=alert(1)%3E`);
+  check('B6.5', 'a reflected path cannot inject markup (percent-encoded, never decoded)', xss.status === 404 && !xss.text.includes('<script') && !xss.text.includes('<img'), `HTTP ${xss.status}; body keeps the encoded path: ${xss.text.includes('%3Cscript%3E')}`);
+  const encodedTraversal = await request(`${BASE}/..%2f..%2fetc%2fpasswd`);
+  check('B6.6', 'an encoded traversal attempt is a plain 404 with no file content', encodedTraversal.status === 404 && !encodedTraversal.text.includes('root:'), `HTTP ${encodedTraversal.status}`);
+  const rawXss = await rawGet(origin, '/usage-board/<script>alert(1)</script>');
+  check('B6.6b', 'a raw markup path is encoded by the HTTP parser and cannot inject', rawXss.status === 404 && !rawXss.text.includes('<script'), `HTTP ${rawXss.status}`);
+  const sibling = await request(`${origin}/usage-board-sibling`);
+  check('B6.7', 'a sibling path outside the prefix does not match the plugin', sibling.status !== 200 || !sibling.text.includes('用量看板'), `HTTP ${sibling.status} from /usage-board-sibling`);
+  const pluginBundle = await request(`${BASE}/client.js`);
+  check('B6.8', 'the plugin does not double-serve the browser bundle (DSH client-module route owns it)', pluginBundle.status === 404, `HTTP ${pluginBundle.status} (bundle is served at /plugins/??dsh-plugin-usage-board/client.js, verified in the browser network log)`);
 
   return snapshot;
 }

@@ -221,7 +221,7 @@ export async function startPluginServer(options = {}) {
       res.end(String(error?.stack ?? error));
     }
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve) => server.listen(options.port ?? 0, '127.0.0.1', resolve));
   const port = server.address().port;
   return {
     url: `http://127.0.0.1:${port}`,
