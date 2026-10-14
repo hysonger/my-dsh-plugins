@@ -176,15 +176,6 @@ window.__ModuleLoader__.load({
   outline-offset: 1px;
 }
 
-.ub-refresh--foot {
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
-  background: transparent;
-  border-color: var(--ub-border);
-  color: var(--ub-fg-secondary);
-}
-
 .ub-spin {
   display: inline-flex;
   width: 14px;
@@ -609,12 +600,12 @@ window.__ModuleLoader__.load({
 
 /* ---------- footer ---------- */
 
+/* One child only — the host line. The refresh control lives in the header, so
+   this row needs no distribution, just the divider and the muted text. */
 .ub-foot {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
   padding-top: 10px;
   margin-top: 2px;
   border-top: 0.5px solid var(--ub-border);
@@ -1706,15 +1697,15 @@ function RefreshGlyph() {
 }
 
 /**
- * One refresh button; `place` only selects the compact footer styling.
+ * The panel's single refresh control, in the header. The footer deliberately has
+ * no second one: two controls for one action is noise, not convenience.
  * @param {Function} t
  * @param {object} board
- * @param {string} place "head" | "foot"
  */
-function refreshButton(t, board, place) {
+function refreshButton(t, board) {
   return jsxs("button", {
     type: "button",
-    className: place === "foot" ? "ub-refresh ub-refresh--foot" : "ub-refresh",
+    className: "ub-refresh",
     onClick: board.refresh,
     disabled: board.busy,
     "aria-busy": board.busy ? "true" : undefined,
@@ -1956,20 +1947,17 @@ function UsageBoardPanel(props) {
               }),
             ],
           }),
-          refreshButton(t, board, "head"),
+          refreshButton(t, board),
         ],
       }),
       jsx("div", { key: "body", className: "ub-body", children: body }),
-      jsxs("footer", {
+      jsx("footer", {
         key: "foot",
         className: "ub-foot",
-        children: [
-          jsx("span", {
-            className: "ub-source",
-            children: hosts.length === 0 ? t("source.none") : t("source.host", { host: hosts.join(" \u00b7 ") }),
-          }),
-          refreshButton(t, board, "foot"),
-        ],
+        children: jsx("span", {
+          className: "ub-source",
+          children: hosts.length === 0 ? t("source.none") : t("source.host", { host: hosts.join(" \u00b7 ") }),
+        }),
       }),
     ],
   });

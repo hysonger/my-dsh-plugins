@@ -143,15 +143,6 @@
   outline-offset: 1px;
 }
 
-.ub-refresh--foot {
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
-  background: transparent;
-  border-color: var(--ub-border);
-  color: var(--ub-fg-secondary);
-}
-
 .ub-spin {
   display: inline-flex;
   width: 14px;
@@ -576,12 +567,12 @@
 
 /* ---------- footer ---------- */
 
+/* One child only — the host line. The refresh control lives in the header, so
+   this row needs no distribution, just the divider and the muted text. */
 .ub-foot {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
   padding-top: 10px;
   margin-top: 2px;
   border-top: 0.5px solid var(--ub-border);

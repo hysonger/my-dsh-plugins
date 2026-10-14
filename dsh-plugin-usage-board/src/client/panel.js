@@ -857,15 +857,15 @@ function RefreshGlyph() {
 }
 
 /**
- * One refresh button; `place` only selects the compact footer styling.
+ * The panel's single refresh control, in the header. The footer deliberately has
+ * no second one: two controls for one action is noise, not convenience.
  * @param {Function} t
  * @param {object} board
- * @param {string} place "head" | "foot"
  */
-function refreshButton(t, board, place) {
+function refreshButton(t, board) {
   return jsxs("button", {
     type: "button",
-    className: place === "foot" ? "ub-refresh ub-refresh--foot" : "ub-refresh",
+    className: "ub-refresh",
     onClick: board.refresh,
     disabled: board.busy,
     "aria-busy": board.busy ? "true" : undefined,
@@ -1107,20 +1107,17 @@ function UsageBoardPanel(props) {
               }),
             ],
           }),
-          refreshButton(t, board, "head"),
+          refreshButton(t, board),
         ],
       }),
       jsx("div", { key: "body", className: "ub-body", children: body }),
-      jsxs("footer", {
+      jsx("footer", {
         key: "foot",
         className: "ub-foot",
-        children: [
-          jsx("span", {
-            className: "ub-source",
-            children: hosts.length === 0 ? t("source.none") : t("source.host", { host: hosts.join(" \u00b7 ") }),
-          }),
-          refreshButton(t, board, "foot"),
-        ],
+        children: jsx("span", {
+          className: "ub-source",
+          children: hosts.length === 0 ? t("source.none") : t("source.host", { host: hosts.join(" \u00b7 ") }),
+        }),
       }),
     ],
   });

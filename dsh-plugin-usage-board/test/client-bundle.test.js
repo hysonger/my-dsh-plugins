@@ -1036,6 +1036,64 @@ test("quota windows render a labelled bar, used/limit, remainder and reset count
   assert.equal(findByClass(tree, "ub-bar-fill").props["data-level"], "ok");
 });
 
+test("the panel renders exactly ONE refresh control, and it is in the header", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [
+        {
+          id: "deepseek",
+          label: "DeepSeek",
+          status: "ok",
+          windows: [],
+          balances: [{ currency: "CNY", available: 27.75 }],
+          meta: { host: "platform.deepseek.com" },
+        },
+        { id: "glm", label: "GLM Coding Plan", status: "ok", windows: [{ id: "glm.5h", limit: 2000, used: 656 }], balances: [] },
+      ],
+    },
+  });
+  const tree = await renderer.render();
+
+  // Every control that would trigger a refresh, by class and by accessible name.
+  const refreshControls = [];
+  walk(tree, (node) => {
+    const className = node.props.className;
+    if (typeof className === "string" && className.split(" ").includes("ub-refresh")) refreshControls.push(node);
+    else if (node.props["aria-label"] === "刷新") refreshControls.push(node);
+  });
+  assert.equal(refreshControls.length, 1, "the duplicate footer refresh button must not come back");
+  assert.equal(refreshControls[0].type, "button");
+  assert.equal(refreshControls[0].props.className, "ub-refresh");
+  assert.ok(!refreshControls[0].props.className.includes("ub-refresh--foot"), "the footer variant is gone");
+
+  // It lives in the header, next to the title — exactly once.
+  const header = findByClass(tree, "ub-head");
+  let headerControls = 0;
+  walk(header, (node) => {
+    if (typeof node.props.className === "string" && node.props.className.split(" ").includes("ub-refresh")) {
+      headerControls += 1;
+    }
+  });
+  assert.equal(headerControls, 1);
+
+  // The footer holds only the host line: no button, no control of any kind.
+  const footer = findByClass(tree, "ub-foot");
+  assert.ok(footer !== null, "the footer still renders the source line");
+  const footerChildren = Array.isArray(footer.props.children) ? footer.props.children : [footer.props.children];
+  assert.equal(footerChildren.filter(Boolean).length, 1, "the footer must hold exactly one child");
+  assert.equal(footerChildren[0].type, "span");
+  assert.equal(footerChildren[0].props.className, "ub-source");
+  let footerButtons = 0;
+  walk(footer, (node) => {
+    if (node.type === "button") footerButtons += 1;
+  });
+  assert.equal(footerButtons, 0, "no button may live in the footer");
+  assert.match(treeText(footer), /数据来源/);
+});
+
 test("a true 0% is data, not an absence: it prints 0.0% and draws an empty bar", async () => {
   const renderer = createRenderer({
     body: {
