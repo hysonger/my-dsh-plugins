@@ -76,9 +76,19 @@
   .money { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .money small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 6px; }
   .bars { display: flex; align-items: flex-end; gap: 3px; height: 34px; margin-top: 6px; }
-  .bar { flex: 1; min-width: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .85; }
+  /* Both ends of the range matter: the 2px floor keeps a zero-cost day visible
+     AND keeps a tiny nonzero day from shrinking below the zero stub, so a
+     ¥0.10 day never reads as an empty slot. */
+  .bar { flex: 1; min-width: 2px; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .85; }
   .bar:hover { opacity: 1; }
-  .bar.empty { background: var(--track); opacity: 1; }
+  /* A zero-cost day still draws a visible stub with its own muted tone. */
+  .bar.empty { background: var(--track); opacity: 1; min-height: 2px; }
+  /* Spend-history stats: a muted window label beside an emphasised amount.
+     History, never allowance — this row never prints a remainder. */
+  .trend-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; font-variant-numeric: tabular-nums; }
+  .trend-stat { display: flex; align-items: baseline; gap: 6px; }
+  .trend-stat .name { color: var(--muted); font-size: 11px; }
+  .trend-stat .val { color: var(--fg); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
   /* DeepSeek peak / off-peak billing reminder. The tinted card says "cheap"
      (green) or "full price" (amber) at a glance; the countdown text is updated
      once a second by the page's wall-clock ticker. */
@@ -437,34 +447,63 @@
     return null;
   }
 
+  /** Days of meta.dailyUsage the chart draws; the same window is the 近一周 total. */
+  const DAILY_TREND_DAYS = 7;
+  /** Trailing days summed as 近一月. The host ships at most this many points. */
+  const MONTH_TOTAL_DAYS = 30;
+
+  /** One spend-history stat: muted window label beside an emphasised amount. */
+  function trendStat(name, total, symbol) {
+    return el('div', { class: 'trend-stat' }, [
+      el('span', { class: 'name', text: name }),
+      el('span', { class: 'val', text: symbol + total.toFixed(2) }),
+    ]);
+  }
+
   /**
    * Draw the trailing daily-spend trend an adapter may attach to meta.dailyUsage.
    * History, not allowance: the bars show what was spent, never what is left.
+   * The chart and the 近一周 total both cover the trailing 7 points; 近一月 sums
+   * the trailing 30, or every point the host shipped when it has fewer.
    */
   function dailyTrend(series) {
     if (!series || !Array.isArray(series.points) || series.points.length === 0) return null;
-    const points = series.points.slice(-14);
+    const points = series.points;
     const symbol = SYMBOL[series.currency] || '';
     const costs = points.map((point) => (typeof point.cost === 'number' && Number.isFinite(point.cost) ? point.cost : 0));
-    const peak = Math.max(...costs, 0);
-    const total = costs.reduce((sum, value) => sum + value, 0);
-    const bars = el('div', { class: 'bars', role: 'img' });
-    for (const [index, cost] of costs.entries()) {
-      const height = peak > 0 ? Math.max(cost > 0 ? 2 : 0, Math.round((cost / peak) * 100)) : 0;
+    const sum = (values) => values.reduce((total, value) => total + value, 0);
+    const weekTotal = sum(costs.slice(-DAILY_TREND_DAYS));
+    const monthTotal = sum(costs.slice(-MONTH_TOTAL_DAYS));
+    const chartPoints = points.slice(-DAILY_TREND_DAYS);
+    const chartCosts = costs.slice(-DAILY_TREND_DAYS);
+    const first = chartPoints[0].date;
+    const last = chartPoints[chartPoints.length - 1].date;
+    const peak = Math.max(...chartCosts, 0);
+    const bars = el('div', {
+      class: 'bars',
+      role: 'img',
+      'aria-label': '近 ' + chartPoints.length + ' 天消耗趋势（' + first + ' → ' + last + '）：'
+        + '近一周 ' + symbol + weekTotal.toFixed(2) + '，近一月 ' + symbol + monthTotal.toFixed(2),
+    });
+    for (const [index, cost] of chartCosts.entries()) {
+      // A zero-cost day keeps a visible stub (3%, floored by `.bar.empty`'s
+      // min-height), so a sparse week still reads as seven days.
+      const height = Math.max(cost > 0 ? 2 : 3, peak > 0 ? Math.round((cost / peak) * 100) : 0);
       bars.appendChild(el('span', {
         class: 'bar' + (cost > 0 ? '' : ' empty'),
         style: 'height:' + height + '%',
-        title: points[index].date + ' · ' + symbol + cost.toFixed(2),
+        title: chartPoints[index].date + ' · ' + symbol + cost.toFixed(2),
       }));
     }
-    const head = el('div', { class: 'metric-head' }, [
-      el('span', { class: 'name', text: '近 ' + points.length + ' 天消耗' }),
-      el('span', { class: 'spacer' }),
-      el('span', { class: 'val', text: symbol + total.toFixed(2) }),
+    const stats = el('div', { class: 'trend-stats' }, [
+      trendStat('近一周', weekTotal, symbol),
+      trendStat('近一月', monthTotal, symbol),
     ]);
-    const first = points[0].date;
-    const last = points[points.length - 1].date;
-    return el('div', { class: 'metric' }, [head, bars, el('div', { class: 'note', text: first + ' → ' + last })]);
+    return el('div', { class: 'metric trend' }, [
+      stats,
+      bars,
+      el('div', { class: 'note', text: first + ' → ' + last }),
+    ]);
   }
 
   function windowMetric(win) {

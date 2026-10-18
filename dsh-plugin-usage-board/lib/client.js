@@ -65,7 +65,9 @@ window.__ModuleLoader__.load({
   --ub-idle: var(--dsw-alias-state-idle-primary, #8a8a8a);
   --ub-info: var(--dsw-alias-state-business-primary, #2f6fed);
   --ub-radius: var(--dsw-radius-md, 8px);
-  --ub-radius-panel: var(--dsw-radius-panel, 12px);
+  /* 14px matches the standalone page's cards; the literal fallback keeps the
+     panel identical when the DSH frame publishes no radius token at all. */
+  --ub-radius-panel: var(--dsw-radius-panel, 14px);
   --ub-focus: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #2f6fed));
 
   box-sizing: border-box;
@@ -108,6 +110,22 @@ window.__ModuleLoader__.load({
   box-sizing: border-box;
 }
 
+/* ---------- layout shell ---------- */
+
+/* The DSH main-area slot is wide; the standalone page is the reading-width
+   baseline the user chose. The .ub-inner rule centres the whole panel at that width
+   (header, subtitle, card grid, footer) while still filling the slot's height,
+   so the body scrolls but the footer stays pinned below it. */
+.ub-inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* ---------- header ---------- */
 
 .ub-head {
@@ -117,7 +135,7 @@ window.__ModuleLoader__.load({
   gap: 12px;
   flex: none;
   padding-left: var(--dsh-frame-leading-clearance, 0px);
-  padding-bottom: 12px;
+  padding-bottom: 6px;
 }
 
 .ub-head-text {
@@ -129,9 +147,9 @@ window.__ModuleLoader__.load({
 
 .ub-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 600;
-  line-height: 24px;
+  line-height: 28px;
   color: var(--ub-fg);
 }
 
@@ -141,6 +159,16 @@ window.__ModuleLoader__.load({
   line-height: 18px;
   color: var(--ub-fg-tertiary);
   font-variant-numeric: tabular-nums;
+}
+
+/* The services this board covers, exactly the standalone page's subtitle line.
+   The 20px bottom margin is that page's spacer between the title block and the
+   card grid; keeping it here makes the two surfaces share one vertical rhythm. */
+.ub-subtitle {
+  margin: 0 0 20px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ub-fg-tertiary);
 }
 
 /* ---------- refresh controls ---------- */
@@ -208,17 +236,32 @@ window.__ModuleLoader__.load({
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  /* The standalone page's card grid: as many equal-width columns as fit, one
+     column when the pane is narrow, and rows that shrink to their content
+     instead of stretching to fill a short pane. */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-content: start;
   padding-right: 2px;
 }
 
+/* The grid's direct children are normally provider cards. A board-level note
+   (a failed refresh) or the whole-board failure is not a card and must not be
+   squeezed into one column: it spans the full row. */
+.ub-body > .ub-note,
+.ub-body > .ub-failure {
+  grid-column: 1 / -1;
+}
+
+/* 14px radius, 18/18/16 padding and a 16px gap are the standalone page's card
+   metrics; the panel copies them so a wide main-area render reads as the same
+   product, not as a different one. */
 .ub-card {
   border: 0.5px solid var(--ub-border);
-  border-radius: var(--ub-radius-panel);
+  border-radius: var(--ub-radius-panel, 14px);
   background: var(--ub-layer);
-  padding: 12px 14px;
+  padding: 18px 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -475,24 +518,35 @@ window.__ModuleLoader__.load({
   gap: 6px;
 }
 
-.ub-trend-head {
+/* Two trailing spend windows side by side: the label stays quiet, the amount
+   carries the emphasis, and both use tabular numerals so the pair lines up
+   across every card. These sizes are the standalone page's trend stats. */
+.ub-trend-stats {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-variant-numeric: tabular-nums;
 }
 
-.ub-trend-title {
+.ub-trend-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
-  font-size: 11.5px;
+}
+
+.ub-trend-stat-label {
+  font-size: 11px;
   line-height: 16px;
   color: var(--ub-fg-secondary);
+  white-space: nowrap;
 }
 
-.ub-trend-total {
-  flex: none;
-  font-size: 12.5px;
-  line-height: 16px;
+.ub-trend-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
   color: var(--ub-fg);
   font-variant-numeric: tabular-nums;
 }
@@ -509,12 +563,20 @@ window.__ModuleLoader__.load({
 .ub-trend-bar {
   flex: 1 1 0;
   min-width: 2px;
+  /* Both ends of the range matter: a zero-cost day is still a day, and a tiny
+     nonzero day must not shrink below the same 2px floor as the zero stub —
+     otherwise a ¥0.10 day reads as an empty slot. */
+  min-height: 2px;
   border-radius: 2px 2px 0 0;
   background: var(--ub-info);
 }
 
+/* A zero-spend day is still a day. The min-height floor keeps all seven slots
+   visible even when the week was mostly idle, so a sparse window cannot be
+   mistaken for a chart that lost its data. */
 .ub-trend-bar[data-empty="true"] {
   background: var(--ub-border-strong);
+  min-height: 2px;
 }
 
 .ub-trend-range {
@@ -748,6 +810,14 @@ window.__ModuleLoader__.load({
     gap: 8px;
   }
 }
+
+/* Below one 300px grid track plus the shell's horizontal padding, a single
+   column is the only layout that cannot overflow horizontally. */
+@media (max-width: 380px) {
+  .ub-body {
+    grid-template-columns: 1fr;
+  }
+}
 `;
     const PANEL_CSS_ID = "dsh-plugin-usage-board/panel.css";
 
@@ -828,7 +898,8 @@ const ROUTE_PREFIX = '/usage-board';
 
 /**
  * Maximum number of trailing days an adapter may put in `meta.dailyUsage`.
- * The UI renders the last 14; the cap keeps a snapshot small.
+ * The UI draws the last 7 and sums the last 30, so the cap keeps a snapshot
+ * small while still covering a full month of history.
  */
 const MAX_DAILY_USAGE_DAYS = 31;
 
@@ -1071,8 +1142,17 @@ const STALE_FOLLOW_UP_MS = 1500;
 /** Longest diagnostic string rendered next to a failure. */
 const DIAGNOSTIC_MAX = 140;
 
-/** How many trailing days of `meta.dailyUsage` the trend chart draws. */
-const DAILY_TREND_POINTS = 14;
+/**
+ * The two spend-history windows the DeepSeek card reports.
+ *
+ * `meta.dailyUsage.points` is a trailing daily-spend series, oldest first, up
+ * to 30 points (see the host adapter). The chart draws only the last week, but
+ * both totals come from the same series so the headline numbers can never
+ * disagree with the bars next to them. A young account simply has fewer points;
+ * both windows then use what exists instead of inventing zero days.
+ */
+const WEEK_TREND_POINTS = 7;
+const MONTH_TREND_POINTS = 30;
 
 /** Billing phases the DeepSeek reminder understands. */
 const PRICING_PHASES = ["peak", "offpeak"];
@@ -1173,7 +1253,10 @@ const zh = {
   "kimi.weekly": "\u6bcf\u5468\u7a97\u53e3",
   "kimi.monthly": "\u6bcf\u6708\u7a97\u53e3",
   "deepseek.balance": "\u4f59\u989d",
-  "daily.title": "\u8fd1 {n} \u5929\u6d88\u8017",
+  // Spend history, never allowance: the week/month labels are window totals of
+  // money already spent, not a quota and not something that "remains".
+  "daily.week": "\u8fd1\u4e00\u5468",
+  "daily.month": "\u8fd1\u4e00\u6708",
   "daily.range": "{from} \u2192 {to}",
   "daily.pointTip": "{date} \u00b7 {cost}",
   "daily.tokens": "{value} tokens",
@@ -1257,7 +1340,8 @@ const en = {
   "kimi.weekly": "Weekly window",
   "kimi.monthly": "Monthly window",
   "deepseek.balance": "Balance",
-  "daily.title": "Spend, last {n} days",
+  "daily.week": "Last 7 days",
+  "daily.month": "Last 30 days",
   "daily.range": "{from} \u2192 {to}",
   "daily.pointTip": "{date} \u00b7 {cost}",
   "daily.tokens": "{value} tokens",
@@ -2005,9 +2089,11 @@ function collectHosts(providers) {
 }
 
 /**
- * The trailing daily-spend series a provider may attach to `meta.dailyUsage`.
- * This is HISTORY, never allowance: it is drawn as a trend and is never labelled
- * as a quota or a remainder.
+ * The trailing daily-spend series a provider may attach to `meta.dailyUsage`:
+ * one point per calendar day, oldest first, up to 30 days. This is HISTORY,
+ * never allowance: it is drawn as a trend and is never labelled as a quota or a
+ * remainder. {@link trendScale} derives the week/month totals and the chart
+ * window from it.
  * @param {object} provider Normalized provider row.
  * @returns {object|null} series with at least one point, else null.
  */
@@ -2024,14 +2110,19 @@ function providerTrend(provider) {
 }
 
 /**
- * The trend's scale and total: the tallest bar is the scale, a series of zeros
- * or nulls collapses to a flat baseline instead of an empty chart.
+ * The trend's windows and bar scale, all derived from the same trailing series.
+ *
+ * The month total sums the last 30 points, the week total the last 7, and the
+ * chart draws exactly those last 7 points — so the bars and the week number
+ * always describe the same days. A shorter series (a young account, or an older
+ * host that capped the history lower) uses what exists rather than padding
+ * zero days the host never sent.
+ *
  * @param {object} series
- * @returns {{ bars: Array<{date: string, cost: number, tokens: number|null}>, max: number, total: number, currency: string }}
+ * @returns {{ bars: Array<{date: string, cost: number, tokens: number|null}>, max: number, weekTotal: number, monthTotal: number, currency: string }}
  */
 function trendScale(series) {
-  const points = series.points.slice(-DAILY_TREND_POINTS);
-  const bars = points.map(function (point) {
+  const bars = series.points.slice(-WEEK_TREND_POINTS).map(function (point) {
     return {
       date: strOrNull(point.date) === null ? "" : point.date,
       cost: isNum(point.cost) ? point.cost : 0,
@@ -2039,12 +2130,16 @@ function trendScale(series) {
     };
   });
   let max = 0;
-  let total = 0;
+  let weekTotal = 0;
   for (const bar of bars) {
     if (bar.cost > max) max = bar.cost;
-    total += bar.cost;
+    weekTotal += bar.cost;
   }
-  return { bars: bars, max: max, total: total, currency: series.currency };
+  let monthTotal = 0;
+  for (const point of series.points.slice(-MONTH_TREND_POINTS)) {
+    monthTotal += isNum(point.cost) ? point.cost : 0;
+  }
+  return { bars: bars, max: max, weekTotal: weekTotal, monthTotal: monthTotal, currency: series.currency };
 }
 
 /**
@@ -2190,7 +2285,14 @@ function providerPricing(provider) {
 }
 
 /**
- * A compact bar chart of recent daily spend, with the window total beside it.
+ * A compact bar chart of the last week's daily spend, with the two trailing
+ * spend totals beside it.
+ *
+ * This is HISTORY, never allowance: the numbers answer "how much was spent"
+ * and never "how much is left". The week total and the bars describe the same
+ * seven days, while the month total widens the same series to 30 days, so a
+ * reader never has to guess which window a number belongs to.
+ *
  * @param {object} props series, t
  */
 function DailyTrend(props) {
@@ -2199,9 +2301,11 @@ function DailyTrend(props) {
   const scale = trendScale(series);
   const bars = scale.bars.map(function (bar, index) {
     const ratio = scale.max > 0 ? bar.cost / scale.max : 0;
-    // A zero day keeps a visible stub, so an all-zero series reads as a flat
-    // baseline rather than as a chart that failed to load.
-    const height = scale.max > 0 ? Math.max(3, Math.round(ratio * 100)) : 3;
+    // A zero-cost day keeps a visible stub so a sparse week still reads as seven
+    // days rather than as a chart that failed to load. The 3% base is floored by
+    // `.ub-trend-bar[data-empty]`'s min-height, the same recipe the standalone
+    // page draws its bars with.
+    const height = Math.max(bar.cost > 0 ? 2 : 3, scale.max > 0 ? Math.round(ratio * 100) : 0);
     const tip = t("daily.pointTip", { date: bar.date, cost: formatMoney(bar.cost, scale.currency) }) +
       (bar.tokens === null ? "" : " \u00b7 " + t("daily.tokens", { value: formatAmount(bar.tokens) }));
     return jsx("span", {
@@ -2213,27 +2317,43 @@ function DailyTrend(props) {
   });
   const first = scale.bars.length === 0 ? "" : scale.bars[0].date;
   const last = scale.bars.length === 0 ? "" : scale.bars[scale.bars.length - 1].date;
-  // The window is spelled out so the chart total can never be mistaken for the
-  // lifetime spend the card also carries.
+  // The window is spelled out so neither total can be mistaken for the other,
+  // or for the lifetime spend the card also carries.
   const range = first === "" || last === "" || scale.bars.length < 2
     ? null
     : t("daily.range", { from: shortDate(first), to: shortDate(last) });
+  const week = formatMoney(scale.weekTotal, scale.currency);
+  const month = formatMoney(scale.monthTotal, scale.currency);
   return jsxs("div", {
     className: "ub-trend",
     children: [
       jsxs("div", {
-        key: "head",
-        className: "ub-trend-head",
+        key: "stats",
+        className: "ub-trend-stats",
         children: [
-          jsx("span", { className: "ub-trend-title", children: t("daily.title", { n: String(bars.length) }) }),
-          jsx("span", { className: "ub-trend-total", children: formatMoney(scale.total, scale.currency) }),
+          jsxs("span", {
+            key: "week",
+            className: "ub-trend-stat",
+            children: [
+              jsx("span", { key: "label", className: "ub-trend-stat-label", children: t("daily.week") }),
+              jsx("span", { key: "value", className: "ub-trend-stat-value", children: week }),
+            ],
+          }),
+          jsxs("span", {
+            key: "month",
+            className: "ub-trend-stat",
+            children: [
+              jsx("span", { key: "label", className: "ub-trend-stat-label", children: t("daily.month") }),
+              jsx("span", { key: "value", className: "ub-trend-stat-value", children: month }),
+            ],
+          }),
         ],
       }),
       jsx("div", {
         key: "bars",
         className: "ub-trend-bars",
         role: "img",
-        "aria-label": t("daily.title", { n: String(bars.length) }) + " " + formatMoney(scale.total, scale.currency) +
+        "aria-label": t("daily.week") + " " + week + ", " + t("daily.month") + " " + month +
           (range === null ? "" : " " + range),
         children: bars,
       }),
@@ -3012,7 +3132,29 @@ function ProviderFailureCard(props) {
   });
 }
 
-/** The whole panel: header, one card per provider slot, footer. */
+/**
+ * The subtitle under the panel title: the services this board covers, in
+ * protocol order. Spelled from PROVIDER_IDS + PROVIDER_LABELS rather than a
+ * locale key so the panel and the standalone page name the same services in the
+ * same order, and so a provider added to the protocol cannot silently go
+ * unannounced here.
+ * @returns {string}
+ */
+function providerSubtitle() {
+  return PROVIDER_IDS.map(function (id) {
+    return providerLabelFor(id);
+  }).join(" \u00b7 ");
+}
+
+/**
+ * The whole panel: header, subtitle, one card per provider slot, footer.
+ *
+ * The section is the full-bleed pane DSH gives the `main` slot; `.ub-inner`
+ * centres its content at the standalone page's reading width, and `.ub-body`
+ * lays the cards out as that page's responsive grid. The panel deliberately
+ * mirrors the standalone page's metrics — same max width, same card padding,
+ * same grid gap — so the two surfaces read as one product.
+ */
 function UsageBoardPanel(props) {
   const t = translateOf(props);
   const board = useUsageBoard();
@@ -3077,34 +3219,46 @@ function UsageBoardPanel(props) {
     ref: board.rootRef,
     "data-phase": board.phase,
     "aria-label": t("panel"),
-    children: [
-      jsxs("header", {
-        key: "head",
-        className: "ub-head",
-        children: [
-          jsxs("div", {
-            className: "ub-head-text",
-            children: [
-              jsx("h1", { className: "ub-title", children: t("panel") }),
-              jsx("p", {
-                className: "ub-updated",
-                children: freshness,
-              }),
-            ],
-          }),
-          refreshButton(t, board),
-        ],
-      }),
-      jsx("div", { key: "body", className: "ub-body", children: body }),
-      jsx("footer", {
-        key: "foot",
-        className: "ub-foot",
-        children: jsx("span", {
-          className: "ub-source",
-          children: hosts.length === 0 ? t("source.none") : t("source.host", { host: hosts.join(" \u00b7 ") }),
+    children: jsxs("div", {
+      // `.ub-inner` is what makes the wide main-area panel look like the
+      // standalone page instead of a full-bleed stack: a centred, max-width
+      // reading column that still owns the whole pane's height so the footer
+      // sits above the body's scroll edge.
+      className: "ub-inner",
+      children: [
+        jsxs("header", {
+          key: "head",
+          className: "ub-head",
+          children: [
+            jsxs("div", {
+              className: "ub-head-text",
+              children: [
+                jsx("h1", { className: "ub-title", children: t("panel") }),
+                jsx("p", {
+                  className: "ub-updated",
+                  children: freshness,
+                }),
+              ],
+            }),
+            refreshButton(t, board),
+          ],
         }),
-      }),
-    ],
+        jsx("p", {
+          key: "subtitle",
+          className: "ub-subtitle",
+          children: providerSubtitle(),
+        }),
+        jsx("div", { key: "body", className: "ub-body", children: body }),
+        jsx("footer", {
+          key: "foot",
+          className: "ub-foot",
+          children: jsx("span", {
+            className: "ub-source",
+            children: hosts.length === 0 ? t("source.none") : t("source.host", { host: hosts.join(" \u00b7 ") }),
+          }),
+        }),
+      ],
+    }),
   });
 }
 

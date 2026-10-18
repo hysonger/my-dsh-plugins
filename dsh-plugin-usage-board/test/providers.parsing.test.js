@@ -510,11 +510,38 @@ describe('glm adapter', () => {
 describe('deepseek adapter', () => {
   const summary = fixture('deepseek-summary.json');
   const cost = fixture('deepseek-cost.json');
+  const costPrev = fixture('deepseek-cost-prev.json');
+  // The adapter reads the current month AND the previous one so the renderers
+  // can show 近一周 / 近一月 totals from a real trailing window. The stub matches
+  // full URLs first, so one month can fail while the other still answers.
+  const COST_CURRENT = `${COST_URL}?month=10&year=2026`;
+  const COST_PREVIOUS = `${COST_URL}?month=9&year=2026`;
   const routes = {
     [SUMMARY_URL]: ok200(summary),
-    [COST_URL]: ok200(cost),
+    [COST_CURRENT]: ok200(cost),
+    [COST_PREVIOUS]: ok200(costPrev),
   };
+  /** Routes where every `/usage/cost` call fails the same way. */
+  const costFailing = (result) => ({ [SUMMARY_URL]: ok200(summary), [COST_URL]: result });
   const grant = { DEEPSEEK_PLATFORM_TOKEN: SECRETS.DEEPSEEK_PLATFORM_TOKEN };
+
+  /**
+   * Recompute one fixture month's day costs independently of the adapter.
+   * @param {any} envelope
+   * @returns {Map<string, number>} date -> cost
+   */
+  function monthCosts(envelope) {
+    const month = envelope.data.biz_data.find((entry) => Array.isArray(entry.days));
+    const costs = new Map();
+    for (const day of month.days) {
+      const total = day.data.reduce(
+        (sum, model) => sum + model.usage.reduce((inner, usage) => inner + Number(usage.amount), 0),
+        0,
+      );
+      costs.set(day.date, Math.round(total * 1e6) / 1e6);
+    }
+    return costs;
+  }
 
   it('normalizes the live platform grant payload', async () => {
     const { snapshot, fetch } = await run('deepseek', { routes, secrets: grant });
@@ -529,7 +556,7 @@ describe('deepseek adapter', () => {
     assert.equal(snapshot.account, null, 'no masked email/phone on a usage dashboard');
     assert.equal(snapshot.meta.host, 'platform.deepseek.com');
     assert.equal(snapshot.meta.source, 'platform-account-api');
-    assert.equal(fetch.calls.length, 2, 'summary + month-to-date cost');
+    assert.equal(fetch.calls.length, 3, 'summary + current-month cost + previous-month cost');
     assertNoSecret(snapshot);
   });
 
@@ -544,56 +571,77 @@ describe('deepseek adapter', () => {
 
   it('sends the grant as x-dsh-auth-token, never as a bearer token on the cost route', async () => {
     const { fetch } = await run('deepseek', { routes, secrets: grant });
-    const [summaryCall, costCall] = fetch.calls;
+    const summaryCall = fetch.calls.find((call) => call.url === SUMMARY_URL);
+    const costCalls = fetch.calls.filter((call) => call.url.startsWith(`${COST_URL}?`));
     assert.equal(summaryCall.options.headers['x-dsh-auth-token'], SECRETS.DEEPSEEK_PLATFORM_TOKEN);
-    assert.equal(costCall.url, `${COST_URL}?month=10&year=2026`, 'month/year come from now()');
-    assert.equal(costCall.options.headers['x-dsh-auth-token'], SECRETS.DEEPSEEK_PLATFORM_TOKEN);
-    assert.equal(costCall.options.headers.Authorization, undefined);
-    assert.equal(costCall.options.headers['x-client-platform'], 'web');
-    assert.equal(costCall.options.maxBodyBytes > 8 * 1024, true, 'a month of cost data exceeds the 8 KiB default');
+    assert.equal(costCalls.length, 2, 'current month + previous month');
+    assert.deepEqual(
+      costCalls.map((call) => call.url).sort(),
+      [COST_CURRENT, COST_PREVIOUS].sort(),
+      'month/year come from now(), in Beijing time',
+    );
+    for (const costCall of costCalls) {
+      assert.equal(costCall.options.headers['x-dsh-auth-token'], SECRETS.DEEPSEEK_PLATFORM_TOKEN);
+      assert.equal(costCall.options.headers.Authorization, undefined);
+      assert.equal(costCall.options.headers['x-client-platform'], 'web');
+      assert.equal(costCall.options.maxBodyBytes > 8 * 1024, true, 'a month of cost data exceeds the 8 KiB default');
+    }
     for (const call of fetch.calls) assert.ok(!call.url.includes(SECRETS.DEEPSEEK_PLATFORM_TOKEN));
   });
 
-  it('derives the month-to-date daily series from the cost endpoint', async () => {
+  it('derives a trailing 30-day series by merging the current and previous month', async () => {
     const { snapshot } = await run('deepseek', { routes, secrets: grant });
     const series = snapshot.meta.dailyUsage;
-    assert.ok(series, 'meta.dailyUsage must be present when the endpoint answers');
+    assert.ok(series, 'meta.dailyUsage must be present when the cost endpoints answer');
     assert.equal(series.currency, 'CNY');
 
-    // Recompute the expected points from the raw fixture, independently.
-    const month = cost.data.biz_data.find((entry) => Array.isArray(entry.days));
-    const expected = month.days.map((day) => ({
-      date: day.date,
-      cost:
-        Math.round(
-          day.data.reduce((sum, model) => sum + model.usage.reduce((inner, usage) => inner + Number(usage.amount), 0), 0) *
-            1e6,
-        ) / 1e6,
-    }));
-    let end = expected.length;
-    while (end > 0 && expected[end - 1].cost === 0) end -= 1;
+    // Merge exactly like the adapter: previous month first (older), then the
+    // current month, dedupe by date, keep elapsed days, trim to today (the
+    // fixture instant is 2026-10-14 in Beijing), cap at the trailing window.
+    const merged = new Map([...monthCosts(costPrev), ...monthCosts(cost)]);
+    const expected = [...merged.entries()]
+      .filter(([date]) => date <= '2026-10-14')
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .slice(-30);
 
-    assert.equal(series.points.length, end);
-    assert.ok(series.days <= MAX_DAILY_USAGE_DAYS);
-    assert.equal(series.days, end, 'days counts the trailing days actually rendered');
+    assert.equal(series.points.length, expected.length);
+    assert.ok(series.points.length <= MAX_DAILY_USAGE_DAYS);
+    assert.equal(series.days, expected.length, 'days counts the trailing days actually shipped');
     assert.deepEqual(
       series.points.map((point) => point.date),
-      expected.slice(0, end).map((point) => point.date),
-      'oldest first, future zero days dropped',
+      expected.map(([date]) => date),
+      'oldest first, future padded days dropped, elapsed zero-cost days kept',
     );
     for (const [index, point] of series.points.entries()) {
-      assert.equal(point.cost, expected[index].cost);
+      assert.equal(point.cost, expected[index][1]);
       assert.equal(point.tokens, null, 'the cost endpoint reports money only');
       assert.equal('date' in point && 'cost' in point && 'tokens' in point, true);
     }
-    assert.ok(series.points.length > 0);
-    assert.ok(!series.points.some((point) => point.cost === 0 && point.date > '2026-10-31'));
+    // The window must actually cross the month boundary, otherwise the 近一月
+    // total would silently be month-to-date.
+    assert.match(series.points[0].date, /^2026-09-/);
+    assert.equal(series.points.at(-1).date, '2026-10-14');
     assertNoSecret(series);
+  });
+
+  it('falls back to month-to-date when the previous month is unavailable', async () => {
+    const { snapshot } = await run('deepseek', {
+      routes: { ...routes, [COST_PREVIOUS]: { json: { code: 500 }, status: 500 } },
+      secrets: grant,
+    });
+    assert.equal(snapshot.status, 'ok');
+    const series = snapshot.meta.dailyUsage;
+    assert.ok(series, 'the current month still answers, so the history is usable');
+    assert.ok(
+      series.points.every((point) => point.date >= '2026-10-01'),
+      'without the previous month the window cannot reach back across the boundary',
+    );
+    assert.equal(series.points.at(-1).date, '2026-10-14');
   });
 
   it('keeps the row ok when the optional cost history fails', async () => {
     const { snapshot } = await run('deepseek', {
-      routes: { ...routes, [COST_URL]: { json: { code: 500 }, status: 500 } },
+      routes: costFailing({ json: { code: 500 }, status: 500 }),
       secrets: grant,
     });
     assert.equal(snapshot.status, 'ok');
@@ -604,7 +652,7 @@ describe('deepseek adapter', () => {
 
   it('keeps the row ok when the cost body is truncated and unparseable', async () => {
     const { snapshot } = await run('deepseek', {
-      routes: { ...routes, [COST_URL]: { json: undefined, status: 200, text: '{"code":0,"data":{"biz_code":0,"biz_' } },
+      routes: costFailing({ json: undefined, status: 200, text: '{"code":0,"data":{"biz_code":0,"biz_' }),
       secrets: grant,
     });
     assert.equal(snapshot.status, 'ok', 'the balance must survive a truncated history body');
@@ -642,8 +690,9 @@ describe('deepseek adapter', () => {
       { currency: 'CNY', available: 27.74750922, bonus: 0, totalSpent: 128.25488682 },
       { currency: 'USD', available: 1.25, bonus: 0, totalSpent: null },
     ]);
-    assert.equal(fetch.calls.length, 3);
-    assert.equal(fetch.calls[2].options.headers.Authorization, `Bearer ${SECRETS.DEEPSEEK_API_KEY}`);
+    assert.equal(fetch.calls.length, 4, 'summary + two cost months + the optional sk- balance');
+    const apiCall = fetch.calls.find((call) => call.url === API_BALANCE_URL);
+    assert.equal(apiCall.options.headers.Authorization, `Bearer ${SECRETS.DEEPSEEK_API_KEY}`);
     assertNoSecret(snapshot);
   });
 

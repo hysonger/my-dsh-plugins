@@ -248,13 +248,13 @@ function loadPanelUnit() {
     "  relativeTime, resetText, windowLabel, statusTone, statusKey,",
     "  normalizeWindow, normalizeBalance, normalizeProvider, normalizeSnapshot,",
     "  describeFailure, collectHosts, translateOf, bindPanelTranslate,",
-    "  providerTrend, trendScale, asErrorLike, DAILY_TREND_POINTS,",
+    "  providerTrend, trendScale, asErrorLike, WEEK_TREND_POINTS, MONTH_TREND_POINTS,",
     "  normalizePricing, pricingStateAt, pricingWhen, pricingCalendarCaveat,",
     "  providerPricing, PricingReminder, PRICING_PHASES,",
     "  providerMessage, derivedPercentOf,",
-    "  providerUrl, providerRowOf, providerLabelFor, panelSlots, orderedProviders,",
+    "  providerUrl, providerRowOf, providerLabelFor, providerSubtitle, panelSlots, orderedProviders,",
     "  mergedEnvelope, viewTtlMs, boardPhase,",
-    "  UsageBoardPanel, UsageBoardPanelIcon, zh, en,",
+    "  UsageBoardPanel, UsageBoardPanelIcon, DailyTrend, zh, en,",
     "};",
   ].join("\n");
   new vm.Script(copySource + "\n" + panelSource + exposure, { filename: "panel-body.js" }).runInContext(context);
@@ -1033,28 +1033,52 @@ test("the daily trend renders history, tolerates nulls and never fabricates a sc
   const scale = unit.trendScale(series);
   assert.equal(scale.bars.length, 4);
   assert.equal(scale.max, 4.92);
-  assert.equal(Math.round(scale.total * 100) / 100, 6.15);
+  // A short series is summed as-is: the week and month windows never invent
+  // days the host did not ship.
+  assert.equal(Math.round(scale.weekTotal * 100) / 100, 6.15);
+  assert.equal(Math.round(scale.monthTotal * 100) / 100, 6.15);
   assert.equal(scale.currency, "CNY");
   for (const bar of scale.bars) {
     assert.equal(typeof bar.cost, "number");
     assert.ok(Number.isFinite(bar.cost), "a null cost must become 0, not NaN");
   }
 
-  const allZero = unit.trendScale(unit.providerTrend(unit.normalizeProvider({
+  const zeroSeries = unit.providerTrend(unit.normalizeProvider({
     id: "d",
     label: "D",
     status: "ok",
     meta: { dailyUsage: { currency: "USD", points: [{ date: "2026-10-01", cost: 0 }, { date: "2026-10-02", cost: null }] } },
-  })));
+  }));
+  const allZero = unit.trendScale(zeroSeries);
   assert.equal(allZero.max, 0);
-  assert.equal(allZero.total, 0);
+  assert.equal(allZero.weekTotal, 0);
+  assert.equal(allZero.monthTotal, 0);
   const t = translateSeat(unit.zh);
-  assert.equal(unit.formatMoney(allZero.total, allZero.currency), "$0.00");
-  assert.ok(t("daily.title", { n: String(allZero.bars.length) }).includes("2"));
+  assert.equal(unit.formatMoney(allZero.weekTotal, allZero.currency), "$0.00");
+  assert.equal(t("daily.week"), "\u8fd1\u4e00\u5468");
+  assert.equal(t("daily.month"), "\u8fd1\u4e00\u6708");
+  // The English dictionary exists for the same keys, so the labels never fall
+  // back to a raw key in an English locale.
+  assert.equal(translateSeat(unit.en)("daily.week"), "Last 7 days");
+  assert.equal(translateSeat(unit.en)("daily.month"), "Last 30 days");
+
+  // An all-zero week still paints both stat rows and one slot per day: the
+  // stub height is what makes an idle week legible instead of empty.
+  const chart = unit.DailyTrend({ series: zeroSeries, t: t });
+  assert.equal(chart.props.children[0].props.children.length, 2, "week and month stats both render");
+  const zeroBars = chart.props.children[1].props.children;
+  assert.equal(zeroBars.length, 2);
+  for (const bar of zeroBars) {
+    assert.equal(bar.props["data-empty"], "true", "a zero-cost day still draws a slot");
+    assert.equal(bar.props.style.height, "3%", "the slot keeps a visible stub height");
+  }
 });
 
-test("the trend keeps only the last fourteen points and defaults its currency", () => {
+test("the trend reports the last week and last month totals from one trailing series", () => {
   const unit = loadPanelUnit();
+  assert.equal(unit.WEEK_TREND_POINTS, 7);
+  assert.equal(unit.MONTH_TREND_POINTS, 30);
+
   const points = [];
   for (let day = 1; day <= 30; day += 1) {
     points.push({ date: "2026-09-" + String(day).padStart(2, "0"), cost: day });
@@ -1066,11 +1090,30 @@ test("the trend keeps only the last fourteen points and defaults its currency", 
     meta: { dailyUsage: { points: points } },
   }));
   const scale = unit.trendScale(series);
-  assert.equal(scale.bars.length, unit.DAILY_TREND_POINTS);
-  assert.equal(scale.bars[0].date, "2026-09-17");
-  assert.equal(scale.bars[13].date, "2026-09-30");
-  assert.equal(scale.max, 30);
+  // Chart = the last 7 points, oldest first.
+  assert.equal(scale.bars.length, unit.WEEK_TREND_POINTS);
+  assert.equal(scale.bars[0].date, "2026-09-24");
+  assert.equal(scale.bars[6].date, "2026-09-30");
+  // Week = 24+25+26+27+28+29+30, month = 1+…+30.
+  assert.equal(scale.weekTotal, 189);
+  assert.equal(scale.monthTotal, 465);
+  assert.ok(scale.monthTotal > scale.weekTotal, "the month stat must widen the week window, not repeat it");
+  assert.equal(scale.max, 30, "the tallest bar is the chart's scale, not the month's");
   assert.equal(scale.currency, "CNY");
+
+  // A 14-point series keeps a 7-bar chart but a wider month total, which is
+  // exactly the case a month-to-date host would produce mid-month.
+  const fortnight = points.slice(0, 14);
+  const short = unit.trendScale(unit.providerTrend(unit.normalizeProvider({
+    id: "d",
+    label: "D",
+    status: "ok",
+    meta: { dailyUsage: { points: fortnight } },
+  })));
+  assert.equal(short.bars.length, 7);
+  assert.equal(short.bars[0].date, "2026-09-08");
+  assert.equal(short.weekTotal, 77);
+  assert.equal(short.monthTotal, 105);
 });
 
 test("failures describe themselves without a stack trace", () => {  const unit = loadPanelUnit();
@@ -1715,7 +1758,7 @@ test("a wallet-only provider explains itself and never calls the trend an allowa
   assert.ok(!text.includes("额度"));
 });
 
-test("a provider with a daily trend shows the chart and drops the wallet-only note", async () => {
+test("a provider with a daily trend shows week/month history and drops the wallet-only note", async () => {
   const renderer = createRenderer({
     body: {
       protocolVersion: 1,
@@ -1731,7 +1774,7 @@ test("a provider with a daily trend shows the chart and drops the wallet-only no
           host: "platform.deepseek.com",
           dailyUsage: {
             currency: "CNY",
-            days: 14,
+            days: 30,
             points: [
               { date: "2026-10-01", cost: 1.23 },
               { date: "2026-10-02", cost: 4.92 },
@@ -1744,19 +1787,29 @@ test("a provider with a daily trend shows the chart and drops the wallet-only no
   });
   const tree = await renderer.render();
   const text = treeText(tree);
-  // The title names the window it actually drew, and the range makes the window
-  // explicit so the total can never be read as the lifetime spend above it.
-  assert.match(text, /近 3 天消耗/);
+  // Both stats describe the same trailing series: a three-point series is
+  // younger than either window, so both totals sum what actually exists.
+  assert.match(text, /近一周\s*\|\s*¥6\.15/);
+  assert.match(text, /近一月\s*\|\s*¥6\.15/);
+  // The range names the days the bars drew, so the totals can never be read as
+  // the lifetime spend the card also carries.
   assert.match(text, /10-01 → 10-03/);
-  assert.match(text, /¥6\.15/);
+  assert.match(text, /总消耗 ¥128\.25/);
   assert.ok(!text.includes("不提供用量窗口"), "the trend answers the question the note was covering");
+  assert.ok(!/近 \d+ 天消耗/.test(text), "the old single-total trend header is gone");
+  assert.ok(!text.includes("剩余") && !text.includes("额度"), "spend history must not read as an allowance");
+
   const bars = findByClass(tree, "ub-trend-bars");
   assert.equal(bars.props.children.length, 3);
+  assert.match(bars.props["aria-label"], /近一周 ¥6\.15/);
+  assert.match(bars.props["aria-label"], /近一月 ¥6\.15/);
+  assert.match(bars.props["aria-label"], /10-01 → 10-03/);
   for (const bar of bars.props.children) {
     assert.equal(typeof bar.props.style.height, "string");
     assert.ok(!bar.props.style.height.includes("NaN"));
+    assert.match(bar.props.title, /^2026-10-0\d · ¥\d+\.\d{2}$/, "every bar keeps its date + amount tooltip");
   }
-  assert.equal(bars.props.children[2].props["data-empty"], "true");
+  assert.equal(bars.props.children[2].props["data-empty"], "true", "a zero-cost day keeps its slot");
 });
 
 test("a failed first request renders the error state with a retry control", async () => {
@@ -2156,10 +2209,12 @@ test("a non-ok card shows Chinese copy for a known messageKey (D-5)", async () =
   assert.ok(!/凭据被服务方拒绝[^|]*Kimi/.test(text), "the two keys must not share wording");
 });
 
-test("a fourteen-point trend is labelled as a fourteen-day window", async () => {
+test("a thirty-point trend shows week/month totals and only the last seven bars", async () => {
   const points = [];
-  for (let day = 1; day <= 14; day += 1) {
-    points.push({ date: "2026-10-" + String(day).padStart(2, "0"), cost: day });
+  for (let day = 1; day <= 30; day += 1) {
+    // 2026-09-24 is a zero-spend day inside the plotted week: it must keep its
+    // slot, still count 0, and leave both window totals unchanged.
+    points.push({ date: "2026-09-" + String(day).padStart(2, "0"), cost: day === 24 ? 0 : day });
   }
   const renderer = createRenderer({
     body: {
@@ -2171,18 +2226,34 @@ test("a fourteen-point trend is labelled as a fourteen-day window", async () => 
         label: "DeepSeek",
         status: "ok",
         windows: [],
-        balances: [{ currency: "CNY", available: 25.38, totalSpent: 130.62 }],
-        meta: { dailyUsage: { currency: "CNY", days: 14, points } },
+        balances: [{ currency: "CNY", available: 25.38, totalSpent: 600 }],
+        meta: { dailyUsage: { currency: "CNY", days: 30, points } },
       }],
     },
   });
   const tree = await renderer.render();
   const text = treeText(tree);
-  assert.match(text, /近 14 天消耗/);
-  assert.match(text, /10-01 → 10-14/);
-  assert.match(text, /¥105\.00/);
-  assert.match(text, /总消耗 ¥130\.62/);
-  assert.equal(findByClass(tree, "ub-trend-bars").props.children.length, 14);
+  // Week = days 24…30 with the zero day in place: 0+25+26+27+28+29+30 = 165.
+  // Month = 1+…+23 plus that week = 441. The month stat must widen the window,
+  // not repeat the plotted week.
+  assert.match(text, /近一周\s*\|\s*¥165\.00/);
+  assert.match(text, /近一月\s*\|\s*¥441\.00/);
+  assert.match(text, /09-24 → 09-30/, "the range names exactly the plotted week");
+  assert.match(text, /总消耗 ¥600\.00/, "lifetime spend still sits beside the window totals");
+  assert.ok(!/近 \d+ 天消耗/.test(text), "the old single-total trend header is gone");
+  assert.ok(!text.includes("剩余") && !text.includes("额度"), "spend history must not read as an allowance");
+
+  const bars = findByClass(tree, "ub-trend-bars");
+  assert.equal(bars.props.children.length, 7, "the chart draws exactly the last 7 days");
+  assert.match(bars.props["aria-label"], /近一周 ¥165\.00/);
+  assert.match(bars.props["aria-label"], /近一月 ¥441\.00/);
+  assert.match(bars.props["aria-label"], /09-24 → 09-30/);
+  const zeroBar = bars.props.children[0];
+  assert.equal(zeroBar.props["data-empty"], "true", "the zero-cost day keeps its bar slot");
+  assert.match(zeroBar.props.title, /2026-09-24 · ¥0\.00/);
+  for (const bar of bars.props.children) {
+    assert.ok(Number.parseFloat(bar.props.style.height) >= 2, "every bar is at least 2% tall");
+  }
 });
 
 test("the sidebar glyph renders at the size the sidebar asks for", () => {
@@ -2196,6 +2267,106 @@ test("the sidebar glyph renders at the size the sidebar asks for", () => {
 });
 
 
+
+test("the wide main panel renders the standalone page's centred card grid", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [
+        { id: "deepseek", label: "DeepSeek", status: "ok", windows: [], balances: [{ currency: "CNY", available: 20 }] },
+        { id: "glm", label: "GLM Coding Plan", status: "ok", windows: [{ id: "glm.5h", limit: 100, used: 20 }], balances: [] },
+        { id: "kimi", label: "Kimi Code", status: "ok", windows: [{ id: "kimi.5h", limit: 100, used: 40 }], balances: [] },
+      ],
+    },
+  });
+  const tree = await renderer.render();
+
+  // One centred column holds header, subtitle, card grid and footer — the
+  // standalone page's reading width, not the full-bleed panel stack it used to
+  // render into the wide main slot.
+  const inners = findAllByClass(tree, "ub-inner");
+  assert.equal(inners.length, 1, "the panel content must live in one centred .ub-inner column");
+  const blocks = (Array.isArray(inners[0].props.children) ? inners[0].props.children : [inners[0].props.children])
+    .filter(Boolean);
+  assert.deepEqual([...blocks.map((block) => block.type)], ["header", "p", "div", "footer"]);
+  assert.equal(blocks[0].props.className, "ub-head");
+  assert.equal(blocks[1].props.className, "ub-subtitle");
+  assert.equal(blocks[1].props.children, "DeepSeek \u00b7 GLM Coding Plan \u00b7 Kimi Code");
+  assert.equal(blocks[2].props.className, "ub-body");
+  assert.equal(blocks[3].props.className, "ub-foot");
+
+  // Exactly ONE grid, and every provider card is one of its direct children:
+  // the full-bleed single-column stack (one flex child after another) is gone.
+  const bodies = findAllByClass(tree, "ub-body");
+  assert.equal(bodies.length, 1, "the panel must render a single grid body");
+  const cards = bodies[0].props.children.filter(Boolean);
+  assert.deepEqual([...cards.map((card) => card.props["data-provider"])], PROVIDER_IDS);
+  for (const card of cards) {
+    assert.equal(card.type, "article");
+    assert.equal(card.props.className, "ub-card");
+  }
+  assert.equal(findByClass(tree, "ub-title").props.children, "用量看板", "the title stays the standalone page's h1");
+});
+
+/**
+ * The flattened body of one CSS rule. Flattening lets a selector span lines in
+ * the stylesheet while the assertion targets the one rule it cares about.
+ * @param {string} source
+ * @param {string} selector
+ * @returns {string}
+ */
+function cssRule(source, selector) {
+  const flat = source.replace(/\s+/g, " ");
+  const pattern = selector.replace(/\s+/g, " ");
+  const index = flat.indexOf(pattern + " {");
+  assert.notEqual(index, -1, `styles.css lost the ${selector} rule`);
+  return flat.slice(index, flat.indexOf("}", index) + 1);
+}
+
+/** Assert every declaration snippet appears inside its own rule block. */
+function assertRule(source, selector, declarations) {
+  const block = cssRule(source, selector);
+  for (const declaration of declarations) {
+    assert.ok(block.includes(declaration), `styles.css: ${selector} lost "${declaration}"`);
+  }
+}
+
+test("the stylesheet carries the standalone page's layout baseline", () => {
+  assertRule(styleSource, ".ub-inner", [
+    "width: 100%;",
+    "max-width: 1100px;",
+    "margin: 0 auto;",
+    "display: flex;",
+    "flex-direction: column;",
+    "flex: 1;",
+    "min-height: 0;",
+  ]);
+  assertRule(styleSource, ".ub-body", [
+    "display: grid;",
+    "grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));",
+    "gap: 16px;",
+    "align-content: start;",
+    "overflow-y: auto;",
+    "min-height: 0;",
+  ]);
+  // A board-level note or the whole-board failure is not a card: it spans the row.
+  assertRule(styleSource, ".ub-body > .ub-note, .ub-body > .ub-failure", ["grid-column: 1 / -1;"]);
+  assertRule(styleSource, ".ub-card", [
+    "padding: 18px 18px 16px;",
+    "border-radius: var(--ub-radius-panel, 14px);",
+  ]);
+  assertRule(styleSource, ".ub-title", ["font-size: 20px;", "font-weight: 600;"]);
+  assertRule(styleSource, ".ub-subtitle", ["font-size: 12px;", "margin: 0 0 20px;"]);
+  // Both zero-spend and tiny nonzero days keep a visible stub in the seven-day
+  // chart: the base rule floors every bar, so a ¥0.10 day cannot render thinner
+  // than the zero-day stub (which otherwise read as "no data" for that day).
+  assertRule(styleSource, ".ub-trend-bar", ["min-height: 2px;"]);
+  assertRule(styleSource, '.ub-trend-bar[data-empty="true"]', ["min-height: 2px;"]);
+  // Narrow contexts fall back to one column so the grid can never overflow.
+  assert.ok(styleSource.includes("@media (max-width: 380px)"), "the grid needs a single-column fallback");
+});
 
 // -------------------------------------------------------------------- CSS ---
 

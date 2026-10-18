@@ -8,6 +8,7 @@
  */
 
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
 
 import { isLoopbackAddress } from '../../src/host/routes.js';
 import { PROVIDER_IDS, PROTOCOL_VERSION, PROVIDER_PATH, PROVIDER_QUERY_PARAM } from '../../src/shared/protocol.js';
@@ -50,6 +51,8 @@ async function liveRoutes() {
   check('B1.4', 'health reads counter is a number', typeof healthBody?.reads === 'number', `reads=${healthBody?.reads}`);
   check('B1.5', 'health.providers lists every provider in display order with additive cache state', JSON.stringify(healthBody?.providers?.map((entry) => entry.id)) === JSON.stringify(PROVIDER_IDS) && (healthBody?.providers ?? []).every((entry) => ['id', 'status', 'fetchedAt', 'expiresAt', 'refreshing'].every((key) => key in entry)), JSON.stringify(healthBody?.providers));
   check('B1.6', 'every health.providers status is one of fresh/stale/missing', (healthBody?.providers ?? []).every((entry) => ['fresh', 'stale', 'missing'].includes(entry.status)), JSON.stringify(healthBody?.providers?.map((entry) => `${entry.id}:${entry.status}`)));
+  const pluginVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
+  check('B1.7', `health.version matches package.json (${pluginVersion})`, healthBody?.version === pluginVersion, `health.version=${healthBody?.version}`);
 
   const snapshotResponse = await request(`${BASE}/api/snapshot`);
   const snapshot = tryJson(snapshotResponse.text);
@@ -335,6 +338,53 @@ async function liveProviderRoutes() {
   check('B11.12', `health.reads grew by ${PROVIDER_IDS.length} per forced per-provider read`, typeof health?.reads === 'number' && health.reads >= PROVIDER_IDS.length * 2, `reads=${health?.reads}`);
 }
 
+/* ------------------------- B12 trailing dailyUsage on the live provider route */
+
+/** Beijing calendar date for "now" (UTC+8, no DST). */
+function beijingToday() {
+  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+}
+
+/** `YYYY-MM-DD` + 1 day (calendar arithmetic without a timezone library). */
+function nextDate(date) {
+  return new Date(new Date(`${date}T00:00:00Z`).getTime() + 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * The live DeepSeek row now carries a trailing 30-day spend series merged from
+ * the current + previous `/usage/cost` month. That is wire data the renderers
+ * sum, so its shape is asserted on the live per-provider route.
+ */
+async function liveDailyUsage() {
+  console.log('\n== B12 live DeepSeek meta.dailyUsage (trailing 30 days) ==');
+  const forced = await request(`${BASE}/api/provider?id=deepseek`, { method: 'POST' });
+  const body = tryJson(forced.text);
+  const row = body?.providers?.[0];
+  check('B12.1', 'POST provider?id=deepseek -> 200, one ok row', forced.status === 200 && row?.id === 'deepseek' && row?.status === 'ok', `HTTP ${forced.status}, status=${row?.status}, message=${row?.message}`);
+  const series = row?.meta?.dailyUsage;
+  check('B12.2', 'the row carries meta.dailyUsage (history, not a window)', series !== null && typeof series === 'object' && Array.isArray(series.points), JSON.stringify(series).slice(0, 160));
+  if (!series) return;
+  const today = beijingToday();
+  const dates = series.points.map((point) => point.date);
+  check('B12.3', 'the series has exactly 30 points (the trailing window)', series.points.length === 30, `${series.points.length} point(s)`);
+  checkEqual('B12.4', 'series.days equals the shipped point count', series.days, series.points.length);
+  check('B12.5', 'oldest first and contiguous', dates.every((date, index) => index === 0 || nextDate(dates[index - 1]) === date), `${dates[0]} -> ${dates.at(-1)}`);
+  checkEqual('B12.6', 'the series ends on today\'s Beijing date', dates.at(-1), today);
+  check('B12.7', 'no future date is present', dates.every((date) => date <= today), `last=${dates.at(-1)}`);
+  const monthStart = `${today.slice(0, 7)}-01`;
+  check('B12.8', 'the window spans the previous month (otherwise 近一月 is month-to-date)', dates[0] < monthStart, `first=${dates[0]}, monthStart=${monthStart}`);
+  check('B12.9', 'elapsed zero-cost days are kept in the live series', series.points.some((point) => point.cost === 0), `${series.points.filter((point) => point.cost === 0).length} zero-cost point(s)`);
+  check('B12.10', 'every point is {date, cost: number, tokens: null}', series.points.every((point) => Object.keys(point).sort().join(',') === 'cost,date,tokens' && /^\d{4}-\d{2}-\d{2}$/.test(point.date) && typeof point.cost === 'number' && Number.isFinite(point.cost) && point.tokens === null), JSON.stringify(series.points[0]));
+  const sum = (points) => Math.round(points.reduce((total, point) => total + point.cost, 0) * 1e6) / 1e6;
+  console.log(`      live series: ${dates[0]} -> ${dates.at(-1)}, week=${sum(series.points.slice(-7))}, month=${sum(series.points.slice(-30))}, zero-cost days=${series.points.filter((point) => point.cost === 0).length}`);
+  check('B12.11', 'the week/month sums are finite positive money values', sum(series.points.slice(-7)) > 0 && sum(series.points.slice(-30)) > 0, `week=${sum(series.points.slice(-7))} month=${sum(series.points.slice(-30))}`);
+  // A warm GET must not change the payload.
+  const warm = tryJson((await request(`${BASE}/api/provider?id=deepseek`)).text);
+  checkEqual('B12.12', 'a warm GET returns the same series (no fabricated drift)', warm?.providers?.[0]?.meta?.dailyUsage?.points?.map((point) => [point.date, point.cost]), series.points.map((point) => [point.date, point.cost]));
+}
+
 /* ---------------------------------------------------------------------- runner */
 
 const snapshot = await liveRoutes();
@@ -343,4 +393,5 @@ await loopbackMatrix();
 await pageDisabled();
 await extraRoutes();
 await liveProviderRoutes();
+await liveDailyUsage();
 process.exit(finish());

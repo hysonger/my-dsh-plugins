@@ -207,7 +207,7 @@ export async function startPluginServer(options = {}) {
   const dispose = registerRoutes(webServer, {
     snapshots,
     log: (message) => logs.push(message),
-    version: '0.3.0-verify',
+    version: '0.4.0-verify',
     credentialsHint: {
       providers: PROVIDERS.map((adapter) => ({ id: adapter.id, label: adapter.label, refs: adapter.credentialRefs ?? [] })),
     },

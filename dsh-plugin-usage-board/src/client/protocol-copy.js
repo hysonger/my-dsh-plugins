@@ -60,7 +60,8 @@ const ROUTE_PREFIX = '/usage-board';
 
 /**
  * Maximum number of trailing days an adapter may put in `meta.dailyUsage`.
- * The UI renders the last 14; the cap keeps a snapshot small.
+ * The UI draws the last 7 and sums the last 30, so the cap keeps a snapshot
+ * small while still covering a full month of history.
  */
 const MAX_DAILY_USAGE_DAYS = 31;
 

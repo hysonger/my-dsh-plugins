@@ -22,7 +22,7 @@
  *
  * DeepSeek Platform exposes no token-usage *window* API (six candidate paths
  * were probed on 2026-10-14 and all 404), so `windows` is always an empty array
- * and usage is never invented. It does expose month-to-date spend history:
+ * and usage is never invented. It does expose spend history:
  *
  * - `GET https://platform.deepseek.com/api/v0/usage/cost?month=<1-12>&year=<YYYY>`
  *   headers `x-dsh-auth-token`, `x-client-platform: web` — note the platform
@@ -30,8 +30,12 @@
  *   -> `data.biz_data[0]` = `{ currency, total[], days[] }`, where each day's
  *      `data[].usage[].amount` is a **money** string in that currency
  *      (verified: the summed days equal the summed `total[]` for the month).
- *   That series is attached as `meta.dailyUsage`; it is history, not a quota
- *   window, and a failure there never affects the row's status.
+ *   The adapter reads the current month **and the previous one**, then merges
+ *   them into a trailing {@link TRAILING_DAYS}-day series ending today. That
+ *   series is attached as `meta.dailyUsage`; it is history, not a quota window,
+ *   and a failure there never affects the row's status. The browsers draw the
+ *   last 7 days and sum the last 7 / last 30 to show 近一周 / 近一月 totals, so
+ *   a month-to-date-only series would have been too short for the month total.
  *
  * Optional secondary source: when an `sk-` key is configured as
  * `DEEPSEEK_API_KEY`, `GET https://api.deepseek.com/user/balance` is merged in
@@ -50,7 +54,7 @@
 
 import { createPricingSnapshot } from '../pricing.js';
 import { loadHolidayCalendar } from '../holiday-calendar.js';
-import { makeBalance, makeDailyUsage, makeProvider } from '../../shared/protocol.js';
+import { MAX_DAILY_USAGE_DAYS, makeBalance, makeDailyUsage, makeProvider } from '../../shared/protocol.js';
 import {
   classifyTransport,
   clock,
@@ -92,6 +96,24 @@ const COST_PRECISION = 6;
  * is not parseable JSON. The host helper accepts this per-call override.
  */
 const COST_MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * How many trailing calendar days `meta.dailyUsage` covers.
+ *
+ * The renderers draw the last 7 days and sum the last 7 / last 30 for the
+ * 近一周 / 近一月 totals, so the window must reach back a full month — which
+ * means reading the previous month as well as the current one. Kept inside the
+ * protocol's {@link MAX_DAILY_USAGE_DAYS} cap.
+ */
+const TRAILING_DAYS = Math.min(30, MAX_DAILY_USAGE_DAYS);
+
+/**
+ * Beijing is UTC+8 all year (no DST), and DeepSeek's cost dates are Beijing
+ * dates. Shifting the clock by this offset lets the trailing window and the
+ * requested month be derived from UTC fields, so the host's own timezone can
+ * never decide that a day is "in the future".
+ */
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /**
  * @typedef {import('./common.js').AdapterFailure} AdapterFailure
@@ -361,13 +383,13 @@ export const deepseekAdapter = {
     const meta = {
       host: 'platform.deepseek.com',
       source: 'platform-account-api',
-      note: 'DeepSeek Platform exposes no quota windows; meta.dailyUsage carries month-to-date spend history.',
+      note: `DeepSeek Platform exposes no quota windows; meta.dailyUsage carries the trailing ${TRAILING_DAYS}-day spend history (current + previous month).`,
     };
     // No identity: the platform's masked email/phone is personal data that adds
     // nothing to a usage dashboard, so the endpoint behind it is never called.
     const account = null;
 
-    // Month-to-date history. Best-effort: the balance above is the primary
+    // Trailing spend history. Best-effort: the balance above is the primary
     // payload and must survive a failure here.
     const daily = await readDailyUsage({ fetchJson, signal, timeoutMs, token, nowMs: clock(now) });
     if (daily.ok) meta.dailyUsage = daily.series;
@@ -414,43 +436,100 @@ function dayCost(day) {
 }
 
 /**
- * Build the trailing daily-spend series from `data.biz_data[0]`, dropping the
- * all-zero future days the platform pads the month with.
+ * One month's raw day costs from a `/usage/cost` envelope.
+ *
+ * Does NOT trim the month's future zero-cost padding: the caller merges both
+ * months and trims by date, so elapsed zero-cost days survive (a spend history
+ * with holes would make the 7-day chart lie about which days it shows).
  *
  * @param {any} payload `data.biz_data` — an array on this endpoint.
- * @returns {import('../../shared/protocol.js').DailyUsageSeries|null}
+ * @returns {{ currency: string, points: Array<{ date: string, cost: number }> }|null}
  */
-function dailyUsageFromPayload(payload) {
+function monthHistoryFromPayload(payload) {
   const month = Array.isArray(payload) ? payload.find((entry) => Array.isArray(entry?.days)) : null;
   if (!month) return null;
 
-  /** @type {Array<{ date: string, cost: number }>} */
   const points = month.days
     .filter((day) => typeof day?.date === 'string' && day.date !== '')
-    .map((day) => ({ date: day.date, cost: dayCost(day) }));
+    .map((day) => ({ date: day.date, cost: dayCost(day) }))
+    // The API returns days in order, but sorting makes the merge below
+    // independent of that promise.
+    .sort((left, right) => (left.date < right.date ? -1 : left.date > right.date ? 1 : 0));
 
-  // The month is padded with zero-cost days that have not happened yet.
-  let end = points.length;
-  while (end > 0 && points[end - 1].cost === 0) end -= 1;
+  return {
+    currency: typeof month.currency === 'string' && month.currency !== '' ? month.currency : 'CNY',
+    points,
+  };
+}
+
+/**
+ * Beijing calendar fields for an instant (see {@link BEIJING_OFFSET_MS}).
+ * @param {number} nowMs
+ * @returns {{ year: number, month: number, date: string }}
+ */
+function beijingCalendar(nowMs) {
+  const shifted = new Date(nowMs + BEIJING_OFFSET_MS);
+  const year = shifted.getUTCFullYear();
+  const month = shifted.getUTCMonth() + 1;
+  const day = shifted.getUTCDate();
+  return {
+    year,
+    month,
+    date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  };
+}
+
+/**
+ * Merge the two month histories into the trailing window that ends today.
+ *
+ * - only days up to `today` are kept: the platform pads the current month with
+ *   zero-cost future days, and those must never show up as "spent nothing yet";
+ * - elapsed zero-cost days are kept, so the 7-day chart always has 7 slots;
+ * - a date present in both months (possible with a fake harness that answers
+ *   the same body for every month) resolves to the newer month;
+ * - the result is capped to {@link TRAILING_DAYS}, oldest first.
+ *
+ * @param {{ current: { currency: string, points: Array<{ date: string, cost: number }> }|null, previous: { currency: string, points: Array<{ date: string, cost: number }> }|null }} months
+ * @param {string} today Beijing `YYYY-MM-DD`.
+ * @returns {import('../../shared/protocol.js').DailyUsageSeries|null}
+ */
+function trailingSeries(months, today) {
+  const current = months.current;
+  // A missing current month means the history source itself is broken: falling
+  // back to the previous month would silently show stale numbers as "recent".
+  if (current === null || current.points.length === 0) return null;
+
+  /** @type {Map<string, number>} */
+  const byDate = new Map();
+  for (const month of [months.previous, current]) {
+    if (month === null) continue;
+    for (const point of month.points) byDate.set(point.date, point.cost);
+  }
+
+  const points = [...byDate.entries()]
+    .filter(([date]) => date <= today)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .slice(-TRAILING_DAYS)
+    .map(([date, cost]) => ({ date, cost, tokens: null }));
 
   return makeDailyUsage({
-    currency: typeof month.currency === 'string' && month.currency !== '' ? month.currency : 'CNY',
-    days: end,
-    points: points.slice(0, end).map((point) => ({ date: point.date, cost: point.cost, tokens: null })),
+    // Both months are the same account/currency in practice; the current month
+    // is the authoritative one for the label.
+    currency: current.currency,
+    days: points.length,
+    points,
   });
 }
 
 /**
- * Best-effort read of the month-to-date daily spend history.
+ * Read one month's spend history.
  *
- * @param {{ fetchJson: Function, signal?: AbortSignal, timeoutMs?: number, token: string, nowMs: number }} context
- * @returns {Promise<{ ok: true, series: import('../../shared/protocol.js').DailyUsageSeries }|{ ok: false, code: string }>}
+ * @param {{ fetchJson: Function, signal?: AbortSignal, timeoutMs?: number, token: string, month: number, year: number }} context
+ * @returns {Promise<{ ok: true, history: { currency: string, points: Array<{ date: string, cost: number }> } }|{ ok: false, code: string }>}
  */
-async function readDailyUsage({ fetchJson, signal, timeoutMs, token, nowMs }) {
+async function readCostMonth({ fetchJson, signal, timeoutMs, token, month, year }) {
   try {
-    const today = new Date(nowMs);
-    const url = `${COST_URL}?month=${today.getMonth() + 1}&year=${today.getFullYear()}`;
-    const result = await fetchJson(url, {
+    const result = await fetchJson(`${COST_URL}?month=${month}&year=${year}`, {
       // No Authorization header: the platform rejects the grant sent as a
       // bearer token on this route with code 40003.
       ...requestOptions(
@@ -464,12 +543,42 @@ async function readDailyUsage({ fetchJson, signal, timeoutMs, token, nowMs }) {
     if (transportFailure) return { ok: false, code: transportFailure.code ?? 'E_TRANSPORT' };
     const parsed = parseEnvelope(result.json, result.text);
     if ('failure' in parsed) return { ok: false, code: parsed.failure.code ?? 'E_ENVELOPE' };
-    const series = dailyUsageFromPayload(parsed.payload);
-    if (!series) return { ok: false, code: 'E_BAD_SHAPE' };
-    return { ok: true, series };
+    const history = monthHistoryFromPayload(parsed.payload);
+    if (!history) return { ok: false, code: 'E_BAD_SHAPE' };
+    return { ok: true, history };
   } catch {
     return { ok: false, code: 'E_INTERNAL' };
   }
+}
+
+/**
+ * Best-effort read of the trailing daily spend history (current + previous
+ * month, merged into one window; see {@link trailingSeries}).
+ *
+ * The current month is required: if it cannot be read the history is reported
+ * as unavailable rather than serving the previous month as if it were recent.
+ * The previous month only widens the window, so its failure degrades to
+ * month-to-date instead of failing the series.
+ *
+ * @param {{ fetchJson: Function, signal?: AbortSignal, timeoutMs?: number, token: string, nowMs: number }} context
+ * @returns {Promise<{ ok: true, series: import('../../shared/protocol.js').DailyUsageSeries }|{ ok: false, code: string }>}
+ */
+async function readDailyUsage({ fetchJson, signal, timeoutMs, token, nowMs }) {
+  const today = beijingCalendar(nowMs);
+  const previous = today.month === 1
+    ? { month: 12, year: today.year - 1 }
+    : { month: today.month - 1, year: today.year };
+  const [current, previousResult] = await Promise.all([
+    readCostMonth({ fetchJson, signal, timeoutMs, token, month: today.month, year: today.year }),
+    readCostMonth({ fetchJson, signal, timeoutMs, token, month: previous.month, year: previous.year }),
+  ]);
+  if (!current.ok) return { ok: false, code: current.code ?? 'E_TRANSPORT' };
+  const series = trailingSeries(
+    { current: current.history, previous: previousResult.ok ? previousResult.history : null },
+    today.date,
+  );
+  if (!series) return { ok: false, code: 'E_BAD_SHAPE' };
+  return { ok: true, series };
 }
 
 /**

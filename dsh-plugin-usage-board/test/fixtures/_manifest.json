@@ -15,6 +15,13 @@
       "status": 200
     },
     {
+      "file": "deepseek-cost-prev.json",
+      "source": "live",
+      "url": "https://platform.deepseek.com/api/v0/usage/cost?month=9&year=2026",
+      "status": 200,
+      "note": "Captured 2026-10-18 so the adapter's trailing 30-day window (current + previous month) can be exercised offline."
+    },
+    {
       "file": "deepseek-unauthorized.json",
       "source": "live",
       "url": "https://platform.deepseek.com/api/v0/users/get_user_summary",

@@ -32,7 +32,9 @@
   --ub-idle: var(--dsw-alias-state-idle-primary, #8a8a8a);
   --ub-info: var(--dsw-alias-state-business-primary, #2f6fed);
   --ub-radius: var(--dsw-radius-md, 8px);
-  --ub-radius-panel: var(--dsw-radius-panel, 12px);
+  /* 14px matches the standalone page's cards; the literal fallback keeps the
+     panel identical when the DSH frame publishes no radius token at all. */
+  --ub-radius-panel: var(--dsw-radius-panel, 14px);
   --ub-focus: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #2f6fed));
 
   box-sizing: border-box;
@@ -75,6 +77,22 @@
   box-sizing: border-box;
 }
 
+/* ---------- layout shell ---------- */
+
+/* The DSH main-area slot is wide; the standalone page is the reading-width
+   baseline the user chose. The .ub-inner rule centres the whole panel at that width
+   (header, subtitle, card grid, footer) while still filling the slot's height,
+   so the body scrolls but the footer stays pinned below it. */
+.ub-inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* ---------- header ---------- */
 
 .ub-head {
@@ -84,7 +102,7 @@
   gap: 12px;
   flex: none;
   padding-left: var(--dsh-frame-leading-clearance, 0px);
-  padding-bottom: 12px;
+  padding-bottom: 6px;
 }
 
 .ub-head-text {
@@ -96,9 +114,9 @@
 
 .ub-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 600;
-  line-height: 24px;
+  line-height: 28px;
   color: var(--ub-fg);
 }
 
@@ -108,6 +126,16 @@
   line-height: 18px;
   color: var(--ub-fg-tertiary);
   font-variant-numeric: tabular-nums;
+}
+
+/* The services this board covers, exactly the standalone page's subtitle line.
+   The 20px bottom margin is that page's spacer between the title block and the
+   card grid; keeping it here makes the two surfaces share one vertical rhythm. */
+.ub-subtitle {
+  margin: 0 0 20px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ub-fg-tertiary);
 }
 
 /* ---------- refresh controls ---------- */
@@ -175,17 +203,32 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  /* The standalone page's card grid: as many equal-width columns as fit, one
+     column when the pane is narrow, and rows that shrink to their content
+     instead of stretching to fill a short pane. */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-content: start;
   padding-right: 2px;
 }
 
+/* The grid's direct children are normally provider cards. A board-level note
+   (a failed refresh) or the whole-board failure is not a card and must not be
+   squeezed into one column: it spans the full row. */
+.ub-body > .ub-note,
+.ub-body > .ub-failure {
+  grid-column: 1 / -1;
+}
+
+/* 14px radius, 18/18/16 padding and a 16px gap are the standalone page's card
+   metrics; the panel copies them so a wide main-area render reads as the same
+   product, not as a different one. */
 .ub-card {
   border: 0.5px solid var(--ub-border);
-  border-radius: var(--ub-radius-panel);
+  border-radius: var(--ub-radius-panel, 14px);
   background: var(--ub-layer);
-  padding: 12px 14px;
+  padding: 18px 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -442,24 +485,35 @@
   gap: 6px;
 }
 
-.ub-trend-head {
+/* Two trailing spend windows side by side: the label stays quiet, the amount
+   carries the emphasis, and both use tabular numerals so the pair lines up
+   across every card. These sizes are the standalone page's trend stats. */
+.ub-trend-stats {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-variant-numeric: tabular-nums;
 }
 
-.ub-trend-title {
+.ub-trend-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
-  font-size: 11.5px;
+}
+
+.ub-trend-stat-label {
+  font-size: 11px;
   line-height: 16px;
   color: var(--ub-fg-secondary);
+  white-space: nowrap;
 }
 
-.ub-trend-total {
-  flex: none;
-  font-size: 12.5px;
-  line-height: 16px;
+.ub-trend-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
   color: var(--ub-fg);
   font-variant-numeric: tabular-nums;
 }
@@ -476,12 +530,20 @@
 .ub-trend-bar {
   flex: 1 1 0;
   min-width: 2px;
+  /* Both ends of the range matter: a zero-cost day is still a day, and a tiny
+     nonzero day must not shrink below the same 2px floor as the zero stub —
+     otherwise a ¥0.10 day reads as an empty slot. */
+  min-height: 2px;
   border-radius: 2px 2px 0 0;
   background: var(--ub-info);
 }
 
+/* A zero-spend day is still a day. The min-height floor keeps all seven slots
+   visible even when the week was mostly idle, so a sparse window cannot be
+   mistaken for a chart that lost its data. */
 .ub-trend-bar[data-empty="true"] {
   background: var(--ub-border-strong);
+  min-height: 2px;
 }
 
 .ub-trend-range {
@@ -713,5 +775,13 @@
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
+  }
+}
+
+/* Below one 300px grid track plus the shell's horizontal padding, a single
+   column is the only layout that cannot overflow horizontally. */
+@media (max-width: 380px) {
+  .ub-body {
+    grid-template-columns: 1fr;
   }
 }

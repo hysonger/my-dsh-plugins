@@ -109,6 +109,25 @@ function healthyPlan(url) {
 
 const PLATFORM_TOKEN = 'qa-platform-grant-do-not-log';
 
+/**
+ * Beijing calendar fields for "now" (UTC+8, no DST — the adapter and the real
+ * dashboard both fix history windows to Beijing dates).
+ * @returns {{year: number, month: number, day: number, date: string, previous: {year: number, month: number}}}
+ */
+function beijingNow() {
+  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  const year = shifted.getUTCFullYear();
+  const month = shifted.getUTCMonth() + 1;
+  const day = shifted.getUTCDate();
+  return {
+    year,
+    month,
+    day,
+    date: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    previous: month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 },
+  };
+}
+
 /** getSecret that resolves the platform grant only. */
 const platformOnly = async (name) => (name === 'DEEPSEEK_PLATFORM_TOKEN' ? PLATFORM_TOKEN : undefined);
 /** getSecret that resolves everything. */
@@ -475,10 +494,24 @@ async function c0() {
   checkEqual('C0.4', 'DeepSeek account is null (no identity request)', ds.row.account, null);
   const series = ds.row.meta?.dailyUsage;
   check('C0.5', 'daily usage series attached to meta', typeof series === 'object' && series !== null, JSON.stringify(series).slice(0, 140));
-  checkEqual('C0.6', 'trailing zero-cost future day is trimmed', series?.days, 3);
+  // v5 (0.4.0): the series is the trailing 30 days merged from current + previous
+  // month. Elapsed zero-cost days are KEPT (a cost history with holes would make
+  // the 7-day chart lie); only days after today (Beijing) are dropped. The
+  // fixture's same body answers both months, so dedupe collapses it to its four
+  // October dates — all elapsed on the date this suite runs.
+  const beijing = beijingNow();
+  const elapsedFixtureDates = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15'].filter((date) => date <= beijing.date);
+  checkEqual('C0.6', 'series keeps elapsed zero-cost days and drops only future padding', series?.points.map((point) => point.date), elapsedFixtureDates);
+  checkEqual('C0.6b', 'series.days counts the shipped (elapsed) points', series?.days, elapsedFixtureDates.length);
   const sum = (series?.points ?? []).reduce((total, point) => total + (point.cost ?? 0), 0);
   checkEqual('C0.7', 'daily costs sum to the fixture total from data[].usage[].amount', Number(sum.toFixed(2)), 3);
-  checkEqual('C0.8', 'DeepSeek makes exactly two upstream calls per fan-out', ds.calls.length, 2);
+  const expectedCostUrls = [
+    `${DS_COST_PREFIX}?month=${beijing.month}&year=${beijing.year}`,
+    `${DS_COST_PREFIX}?month=${beijing.previous.month}&year=${beijing.previous.year}`,
+  ].sort();
+  const costUrls = ds.calls.map((call) => call.url).filter((url) => url.startsWith(DS_COST_PREFIX)).sort();
+  checkEqual('C0.8', 'DeepSeek makes exactly three upstream calls: summary + current-month cost + previous-month cost', ds.calls.length, 3);
+  checkEqual('C0.8b', 'the two cost calls are the current and previous Beijing month', costUrls, expectedCostUrls);
 
   const glm = await direct('glm', { plan: healthyPlan });
   check('C0.9', 'GLM ok', glm.row.status === 'ok', brief(glm.row));
@@ -863,10 +896,130 @@ async function c14() {
   check('C14.10', 'an over-cap upstream body becomes invalid-response, never a throw or a fake ok row', glmHuge.row.status === 'invalid-response', brief(glmHuge.row));
 }
 
+/* ============================ C15 trailing spend history (plugin 0.4.0) ==== */
+
+/**
+ * One `/usage/cost` envelope for a calendar month.
+ *
+ * Elapsed days carry a nonzero amount; every fifth day is zero-cost (elapsed
+ * zero-cost days must survive the merge). Days after `throughDay` are the
+ * platform's future zero-cost padding.
+ * @param {number} year
+ * @param {number} month 1-12
+ * @param {number|null} throughDay last elapsed day, or null for a whole month
+ */
+function monthEnvelope(year, month, throughDay = null) {
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const last = throughDay === null ? daysInMonth : Math.min(throughDay, daysInMonth);
+  const days = [];
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const amount = day > last || day % 5 === 0 ? '0.00' : (day % 3 === 0 ? '0.50' : '1.25');
+    days.push({ date, data: [{ usage: [{ amount }] }] });
+  }
+  return { code: 0, data: { biz_code: 0, biz_data: [{ currency: 'CNY', total: [], days }] } };
+}
+
+/** URL matcher for the current / previous Beijing month's cost call. */
+function costMonthMatcher() {
+  const now = beijingNow();
+  const currentUrl = `${DS_COST_PREFIX}?month=${now.month}&year=${now.year}`;
+  const previousUrl = `${DS_COST_PREFIX}?month=${now.previous.month}&year=${now.previous.year}`;
+  return { now, currentUrl, previousUrl };
+}
+
+/**
+ * A plan that answers the summary and both cost months, with one month's
+ * response overridable (a spec, or `null` to fail it).
+ * @param {{current?: any, previous?: any}} [overrides]
+ */
+function costPlan(overrides = {}) {
+  const { now, currentUrl, previousUrl } = costMonthMatcher();
+  // Values are fakeUpstream specs; the defaults wrap the month envelope so the
+  // fake transport serializes it as the response body.
+  const current = overrides.current === undefined
+    ? { body: monthEnvelope(now.year, now.month, now.day) }
+    : overrides.current;
+  const previous = overrides.previous === undefined
+    ? { body: monthEnvelope(now.previous.year, now.previous.month) }
+    : overrides.previous;
+  return (url) => {
+    if (url === DS_SUMMARY) return { body: DS_OK };
+    if (url === currentUrl) return current;
+    if (url === previousUrl) return previous;
+    return undefined;
+  };
+}
+
+async function c15() {
+  console.log('\n== C15 trailing 30-day spend history: merge source and fallbacks (0.4.0) ==');
+  const { now } = costMonthMatcher();
+
+  // ---- both months answer: the merged window is current + previous, ends today.
+  const healthy = await direct('deepseek', { plan: costPlan() });
+  const series = healthy.row.meta?.dailyUsage;
+  check('C15.1', 'row stays ok when both cost months answer', healthy.row.status === 'ok', brief(healthy.row));
+  check('C15.2', 'the merged series exists and is oldest-first, ending today (Beijing)', Array.isArray(series?.points) && series.points.length > 0 && series.points.at(-1).date === now.date, `points=${series?.points?.length}, last=${series?.points?.at(-1)?.date}, today=${now.date}`);
+  check('C15.3', 'no day after today survives (future zero padding dropped)', (series?.points ?? []).every((point) => point.date <= now.date), `last=${series?.points?.at(-1)?.date}`);
+  check('C15.4', 'the window crosses into the previous month', (series?.points ?? []).some((point) => point.date < `${now.year}-${String(now.month).padStart(2, '0')}-01`), `first=${series?.points?.[0]?.date}`);
+  check('C15.5', 'elapsed zero-cost days are preserved in the series', (series?.points ?? []).some((point) => point.cost === 0), `${series?.points?.filter((point) => point.cost === 0).length} zero-cost day(s)`);
+  const expectedPoints = []; // independently recompute from the two month envelopes above.
+  const byDate = new Map();
+  for (const envelope of [monthEnvelope(now.previous.year, now.previous.month), monthEnvelope(now.year, now.month, now.day)]) {
+    for (const day of envelope.data.biz_data[0].days) {
+      const total = day.data.reduce((sum, model) => sum + model.usage.reduce((inner, usage) => inner + Number(usage.amount), 0), 0);
+      byDate.set(day.date, Math.round(total * 1e6) / 1e6);
+    }
+  }
+  for (const [date, cost] of [...byDate.entries()].filter(([date]) => date <= now.date).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)).slice(-30)) expectedPoints.push({ date, cost });
+  check('C15.6', 'series equals the independently merged window point for point', JSON.stringify(series?.points?.map((point) => ({ date: point.date, cost: point.cost }))) === JSON.stringify(expectedPoints), `${series?.points?.length} vs ${expectedPoints.length} points`);
+  check('C15.7', 'every point is {date, cost: number, tokens: null}', (series?.points ?? []).every((point) => typeof point.date === 'string' && typeof point.cost === 'number' && point.tokens === null), JSON.stringify(series?.points?.[0]));
+  checkEqual('C15.8', 'series.days counts the shipped points', series?.days, series?.points?.length);
+  check('C15.9', 'no dailyUsageError on the healthy path', healthy.row.meta?.dailyUsageError === undefined, `dailyUsageError=${healthy.row.meta?.dailyUsageError}`);
+
+  // ---- previous month fails: degrade to month-to-date, row still ok, no error.
+  const previousDown = await direct('deepseek', { plan: costPlan({ previous: { status: 500, body: { error: 'prev down' } } }) });
+  const previousDownSeries = previousDown.row.meta?.dailyUsage;
+  const monthStart = `${now.year}-${String(now.month).padStart(2, '0')}-01`;
+  check('C15.10', 'previous-month failure leaves the row ok', previousDown.row.status === 'ok', brief(previousDown.row));
+  check('C15.11', 'previous-month failure degrades to a current-month-only series', Array.isArray(previousDownSeries?.points) && previousDownSeries.points.length > 0 && previousDownSeries.points.every((point) => point.date >= monthStart), `points=${previousDownSeries?.points?.length}, first=${previousDownSeries?.points?.[0]?.date}`);
+  check('C15.12', 'previous-month failure is not reported as a series error', previousDown.row.meta?.dailyUsageError === undefined, `dailyUsageError=${previousDown.row.meta?.dailyUsageError}`);
+  check('C15.13', 'the degraded series still ends today', previousDownSeries?.points?.at(-1)?.date === now.date, `last=${previousDownSeries?.points?.at(-1)?.date}`);
+
+  // ---- current month fails: history unavailable, row still ok.
+  const currentDown = await direct('deepseek', { plan: costPlan({ current: { status: 500, body: { error: 'current down' } } }) });
+  check('C15.14', 'current-month failure leaves the row ok', currentDown.row.status === 'ok', brief(currentDown.row));
+  check('C15.15', 'current-month failure sets meta.dailyUsageError', typeof currentDown.row.meta?.dailyUsageError === 'string', `dailyUsageError=${currentDown.row.meta?.dailyUsageError}`);
+  check('C15.16', 'current-month failure ships no dailyUsage series', currentDown.row.meta?.dailyUsage === undefined, JSON.stringify(currentDown.row.meta));
+
+  // ---- previous month malformed (HTTP 200, wrong shape): same degrade as failure.
+  const previousBad = await direct('deepseek', { plan: costPlan({ previous: { status: 200, body: { code: 0, data: { biz_code: 0, biz_data: [] } } } }) });
+  check('C15.17', 'a malformed previous month is treated as unavailable, not as data', previousBad.row.status === 'ok' && Array.isArray(previousBad.row.meta?.dailyUsage?.points), brief(previousBad.row));
+
+  // ---- both months fail: same as current-only failure (no fabricated series).
+  const bothDown = await direct('deepseek', { plan: costPlan({ current: { status: 500, body: {} }, previous: { status: 500, body: {} } }) });
+  check('C15.18', 'both months failing leaves the row ok', bothDown.row.status === 'ok', brief(bothDown.row));
+  check('C15.19', 'both months failing reports meta.dailyUsageError and no series', typeof bothDown.row.meta?.dailyUsageError === 'string' && bothDown.row.meta?.dailyUsage === undefined, JSON.stringify(bothDown.row.meta));
+
+  // ---- the two cost calls are issued in parallel, not one after the other.
+  const slowPlan = (url) => {
+    const spec = costPlan()(url);
+    if (url === DS_SUMMARY) return spec;
+    return spec === undefined ? undefined : { ...spec, delayMs: 400 };
+  };
+  const started = Date.now();
+  const parallel = await direct('deepseek', { plan: slowPlan });
+  const elapsed = Date.now() - started;
+  const costCalls = parallel.calls.filter((call) => call.url.startsWith(DS_COST_PREFIX));
+  check('C15.20', 'the two cost months are fetched in parallel (one 400 ms wait, not two)', parallel.row.status === 'ok' && elapsed < 750, `elapsed=${elapsed} ms with two 400 ms cost responses`);
+  const spread = costCalls.length === 2 ? Math.abs(costCalls[0].at - costCalls[1].at) : -1;
+  check('C15.21', 'both cost requests were started together', costCalls.length === 2 && spread < 100, `spread=${spread} ms`);
+}
+
 /* ---------------------------------------------------------------------- runner */
 
 const only = process.argv[2];
-const sections = { c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14 };
+const sections = { c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15 };
 for (const [name, section] of Object.entries(sections)) {
   if (only && only !== name) continue;
   await section();

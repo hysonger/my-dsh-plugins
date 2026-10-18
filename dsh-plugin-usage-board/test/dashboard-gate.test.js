@@ -20,7 +20,9 @@
  *     per-provider failure cards, and a failed refresh never blanks numbers
  *     already on screen (d7–d10);
  *   - replacing the DeepSeek card drops its billing repaint with it (d11);
- *   - the injected provider contract is honoured, with safe defaults (d12).
+ *   - the injected provider contract is honoured, with safe defaults (d12);
+ *   - the DeepSeek spend history reads as 近一周/近一月 totals over exactly the
+ *     last 7 days of bars, zero-cost days included (d13–d15).
  *
  * The harness is deliberately not a browser: it only implements what this page
  * touches (getElementById/createElement/appendChild/replaceChildren, activity +
@@ -105,6 +107,11 @@ function findAll(node, predicate, found = []) {
   return found;
 }
 
+/** The spend-trend bar slots of a rendered card, in chart order. */
+function chartBars(card) {
+  return findAll(card, (node) => node.className === "bar" || node.className === "bar empty");
+}
+
 /**
  * One row per provider, shaped like the host's normalized snapshot (fixtures are
  * inline because this harness never reads the upstream capture files — it drives
@@ -138,11 +145,42 @@ function fixtureRow(id, nowMs) {
         },
         dailyUsage: {
           currency: "CNY",
-          days: 3,
+          days: 30,
+          // A trailing 30-day series, oldest first (2026-09-19 → 2026-10-18).
+          // First 23 days sum 10.50; the last 7 (the chart window) sum 7.50, so
+          // the month total (18.00) is distinguishable from the week total and
+          // from a 14-point window (also 7.50). Oct 12, 14 and 17 are zero-cost.
           points: [
-            { date: "2026-10-16", cost: 1.25, tokens: null },
+            { date: "2026-09-19", cost: 0.5, tokens: null },
+            { date: "2026-09-20", cost: 0, tokens: null },
+            { date: "2026-09-21", cost: 0, tokens: null },
+            { date: "2026-09-22", cost: 1, tokens: null },
+            { date: "2026-09-23", cost: 0, tokens: null },
+            { date: "2026-09-24", cost: 0, tokens: null },
+            { date: "2026-09-25", cost: 0, tokens: null },
+            { date: "2026-09-26", cost: 2, tokens: null },
+            { date: "2026-09-27", cost: 0, tokens: null },
+            { date: "2026-09-28", cost: 0, tokens: null },
+            { date: "2026-09-29", cost: 0, tokens: null },
+            { date: "2026-09-30", cost: 3, tokens: null },
+            { date: "2026-10-01", cost: 0, tokens: null },
+            { date: "2026-10-02", cost: 0, tokens: null },
+            { date: "2026-10-03", cost: 0, tokens: null },
+            { date: "2026-10-04", cost: 4, tokens: null },
+            { date: "2026-10-05", cost: 0, tokens: null },
+            { date: "2026-10-06", cost: 0, tokens: null },
+            { date: "2026-10-07", cost: 0, tokens: null },
+            { date: "2026-10-08", cost: 0, tokens: null },
+            { date: "2026-10-09", cost: 0, tokens: null },
+            { date: "2026-10-10", cost: 0, tokens: null },
+            { date: "2026-10-11", cost: 0, tokens: null },
+            { date: "2026-10-12", cost: 0, tokens: null },
+            { date: "2026-10-13", cost: 1.5, tokens: null },
+            { date: "2026-10-14", cost: 0, tokens: null },
+            { date: "2026-10-15", cost: 2.25, tokens: null },
+            { date: "2026-10-16", cost: 3, tokens: null },
             { date: "2026-10-17", cost: 0, tokens: null },
-            { date: "2026-10-18", cost: 2.5, tokens: null },
+            { date: "2026-10-18", cost: 0.75, tokens: null },
           ],
         },
       },
@@ -626,4 +664,62 @@ test("(d12) the injected provider contract is used, with safe defaults for an ol
   assert.ok(legacy.requests.every((request) => request.method === "GET"));
   assert.deepEqual(legacy.requests.map((request) => request.id), PROVIDER_IDS);
   assert.equal(legacy.elements.get("updated").textContent, "刚刚更新");
+});
+
+test("(d13) the DeepSeek spend trend is 近一周/近一月 history over the last 7 days", async () => {
+  const page = await boot();
+  await page.flush();
+  const card = page.slots()[0].children[0];
+  const text = page.slotText(0);
+  assert.match(text, /近一周 ¥7\.50/, "the week stat sums the trailing 7 points");
+  assert.match(text, /近一月 ¥18\.00/, "the month stat sums the trailing 30 points, not the plotted window");
+  assert.match(text, /2026-10-12 → 2026-10-18/, "the range note covers exactly the plotted window");
+  assert.ok(!/近 \d+ 天消耗/.test(text), "the old single-total trend header is gone");
+  assert.ok(!/剩余|额度|配额/.test(text), "spend history must never read as remaining allowance");
+
+  const bars = chartBars(card);
+  assert.equal(bars.length, 7, "the chart draws exactly the last 7 days");
+  assert.deepEqual(
+    bars.map((bar) => bar.className === "bar empty"),
+    [true, false, true, false, false, true, false],
+    "zero-cost days keep their slot instead of shortening the chart",
+  );
+  assert.ok(bars.every((bar) => /^2026-10-\d{2} · ¥\d+\.\d{2}$/.test(bar.title)), "every bar keeps its date + amount tooltip");
+});
+
+test("(d14) zero-cost days keep a visible stub and the chart describes itself", async () => {
+  const page = await boot();
+  await page.flush();
+  const card = page.slots()[0].children[0];
+
+  for (const bar of chartBars(card)) {
+    const percent = Number(/height:([\d.]+)%/.exec(bar.style)?.[1]);
+    assert.ok(Number.isFinite(percent) && percent >= 2, "every bar, zero-cost days included, has a visible inline height");
+  }
+  assert.match(dashboardSource, /\.bar\.empty\s*\{[^}]*min-height:\s*2px/, "the empty stub keeps a 2px floor in a short chart");
+
+  const chart = findAll(card, (node) => node.className === "bars")[0];
+  assert.ok(chart, "the chart container exists");
+  const label = chart["aria-label"];
+  assert.match(label, /近 7 天消耗趋势（2026-10-12 → 2026-10-18）/, "the label names the plotted window");
+  assert.match(label, /近一周 ¥7\.50/);
+  assert.match(label, /近一月 ¥18\.00/);
+  assert.ok(!/剩余|额度|配额|remaining|allowance/i.test(label), "the label is history, never allowance");
+});
+
+test("(d15) a shorter series totals only the points the host shipped", async () => {
+  const points = [
+    { date: "2026-10-16", cost: 1.25, tokens: null },
+    { date: "2026-10-17", cost: 0, tokens: null },
+    { date: "2026-10-18", cost: 2.5, tokens: null },
+  ];
+  const page = await boot({
+    providerStatus: { deepseek: { meta: { dailyUsage: { currency: "CNY", days: 7, points } } } },
+  });
+  await page.flush();
+  const text = page.slotText(0);
+  assert.match(text, /近一周 ¥3\.75/, "a week window shorter than 7 days sums what exists");
+  assert.match(text, /近一月 ¥3\.75/, "a month window shorter than 30 days sums what exists");
+  assert.match(text, /2026-10-16 → 2026-10-18/, "the range note follows the shorter series");
+  assert.equal(chartBars(page.slots()[0].children[0]).length, 3, "the chart never invents missing days");
 });
