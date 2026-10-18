@@ -1298,9 +1298,21 @@ function useUsageBoard() {
         // user acting. A follow-up that is *itself* stale schedules nothing, so
         // a host that keeps answering from cache cannot turn this into a poll —
         // the ordinary ttl schedule takes over from there.
-        if (body.stale === true && kind !== "followup" && followUpRef.current === null) {
+        //
+        // The follow-up is still an automatic read, so it only exists while the
+        // gate is open: a gate closed since the stale answer arrived means there
+        // is nobody to show the fresh numbers to, and the reopen catch-up will
+        // pick them up instead. The timer callback re-checks the gate as well;
+        // the gate-closing effect clears the timer outright.
+        if (
+          body.stale === true
+          && kind !== "followup"
+          && followUpRef.current === null
+          && gateAllowsRef.current === true
+        ) {
           followUpRef.current = setTimeout(function () {
             followUpRef.current = null;
+            if (gateAllowsRef.current !== true) return;
             run("followup");
           }, STALE_FOLLOW_UP_MS);
         }
@@ -1340,7 +1352,15 @@ function useUsageBoard() {
     // back, the panel being selected again — is the moment to pick up fresh
     // numbers. The host answers from cache when it still can, so this is cheap
     // even when several gates reopen in quick succession.
-    if (gate.open !== true) return undefined;
+    if (gate.open !== true) {
+      // A closing gate cancels a pending stale follow-up: that read would land
+      // where nobody can see it, and the reopen catch-up below supersedes it.
+      if (followUpRef.current !== null) {
+        clearTimeout(followUpRef.current);
+        followUpRef.current = null;
+      }
+      return undefined;
+    }
     run("auto");
     return undefined;
   }, [gate.open, run]);

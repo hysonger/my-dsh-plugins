@@ -129,6 +129,13 @@
    * becoming visible) picks the data up immediately instead of waiting a ttl.
    */
   const IDLE_AFTER_MS = 3 * 60 * 1000;
+  /**
+   * How often the gate re-evaluates. The only transition no event announces is
+   * "visible but idle"; without this recheck the closed gate would only be
+   * discovered by a ttl tick, so the first input after idling out could wait a
+   * whole ttl for its catch-up read. Same cadence as the sidebar panel.
+   */
+  const GATE_RECHECK_MS = 30 * 1000;
   let lastActivityAt = Date.now();
   let gateOpen = true;
   let loading = false;
@@ -502,7 +509,7 @@
    * load ever — because showing them over known numbers is exactly the latency
    * this page is supposed to avoid.
    */
-  async function load(force) {
+  async function load(force, followUp) {
     if (loading) return;
     loading = true;
     refreshBtn.disabled = true;
@@ -525,13 +532,18 @@
       const staleNote = body.stale === true ? ' · 后台刷新中' : '';
       updatedEl.textContent = relative(body.generatedAt) + (body.ok ? '' : ' · 部分服务异常') + staleNote;
       footerEl.textContent = '插件 v' + boot.version + ' · 缓存 ' + Math.round(ttlMs / 1000) + ' 秒 · 协议 v' + body.protocolVersion;
-      // A stale body means the host is already refreshing behind us; read once
-      // more shortly so the fresh numbers land without the user acting.
-      if (body.stale === true && !staleFollowUpPending) {
+      // A stale body means the host is already refreshing behind us; one short
+      // follow-up picks up the fresh numbers without the user acting. It is
+      // single-shot — a stale follow-up response schedules nothing, exactly like
+      // the sidebar panel — and gated: when nobody is watching, the gate's
+      // reopen catch-up fetches instead. Without those two guards a host that
+      // stays stale for a few seconds turns this into a 1.5 s poll.
+      if (body.stale === true && followUp !== true && !staleFollowUpPending && gateAllows()) {
         staleFollowUpPending = true;
         setTimeout(function () {
           staleFollowUpPending = false;
-          load(false);
+          if (!gateAllows()) return;
+          load(false, true);
         }, 1500);
       }
     } catch (error) {
@@ -561,6 +573,10 @@
       // upstream traffic happens while nobody can see the page; the gate's
       // event listeners trigger the catch-up read the moment that changes.
       if (!gateAllows()) {
+        // Remember the closed gate so the first input/visibility event reads
+        // as a real false→true reopen and reloads immediately, instead of the
+        // user waiting out the next ttl tick.
+        gateOpen = false;
         schedule();
         return;
       }
@@ -580,6 +596,9 @@
     if (document.visibilityState === 'visible') lastActivityAt = Date.now();
     evaluateGate();
   });
+  // Idling out is the one transition no DOM event announces; this is what closes
+  // the gate while the page is visible so the next input triggers a catch-up.
+  setInterval(evaluateGate, GATE_RECHECK_MS);
   // Live billing countdowns. Pure local text repaints: no requests, and a
   // hidden page does no work at all.
   setInterval(() => {

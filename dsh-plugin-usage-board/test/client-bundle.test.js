@@ -1200,6 +1200,26 @@ test("(g4) the one-second freshness ticker freezes with the panel off-screen", a
   assert.equal(renderer.renderCount, frozen, "an off-screen panel must not re-render every second");
 });
 
+test("(g5) a pending stale follow-up is dropped while the gate is closed", async () => {
+  const renderer = createRenderer({ browser: true, body: storedEnvelope({ stale: true }) });
+  await renderer.render();
+  assert.equal(renderer.requests.length, 1, "the mount read resolves and schedules a follow-up");
+
+  // Walk away before the 1.5 s follow-up fires: closing the gate must cancel it.
+  renderer.document.visibilityState = "hidden";
+  renderer.fire("visibilitychange");
+  await renderer.settle();
+  await renderer.advance(3000);
+  assert.equal(renderer.requests.length, 1, "a hidden panel must not send the follow-up read");
+
+  // The reopen catch-up replaces it: one read, immediately, instead of waiting
+  // for the ordinary ttl.
+  renderer.document.visibilityState = "visible";
+  renderer.fire("visibilitychange");
+  await renderer.settle();
+  assert.equal(renderer.requests.length, 2, "coming back must issue the catch-up read instead");
+});
+
 test("(e) storage being unavailable never breaks the panel", async () => {
   const throwing = {
     getItem() {
