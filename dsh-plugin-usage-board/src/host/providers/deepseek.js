@@ -38,9 +38,18 @@
  * (`meta.source: 'both'`). It is strictly best-effort — a failure there can
  * never turn a good row into a failure.
  *
+ * The row also carries the peak/off-peak billing schedule in `meta.pricing`
+ * (see `../pricing.js`). It is attached to **every** row, including failures:
+ * the schedule describes DeepSeek's list price, not this account, so it is
+ * useful even when the credential is missing or rejected. Computing it is local
+ * and best-effort; a failure simply omits the field and the browser half hides
+ * the reminder.
+ *
  * @module dsh-plugin-usage-board/host/providers/deepseek
  */
 
+import { createPricingSnapshot } from '../pricing.js';
+import { loadHolidayCalendar } from '../holiday-calendar.js';
 import { makeBalance, makeDailyUsage, makeProvider } from '../../shared/protocol.js';
 import {
   classifyTransport,
@@ -261,8 +270,31 @@ export const deepseekAdapter = {
    */
   async read({ getSecret, credentials, fetchJson, signal, now, timeoutMs } = {}) {
     const startedAt = Date.now();
+    const nowMs = clock(now);
+
+    // Billing schedule: computed once per read, from the host clock and the
+    // optional third-party holiday calendar. It is deliberately allowed to
+    // fail to null — the reminder is decoration on top of the balance, never a
+    // reason for the row to fail.
+    /** @type {import('../../shared/protocol.js').PricingSchedule|null} */
+    let pricing = null;
+    try {
+      pricing = createPricingSnapshot(nowMs, await loadHolidayCalendar());
+    } catch {
+      pricing = null;
+    }
+
     const row = (seed) =>
-      makeProvider({ id: ID, label: LABEL, fetchedAt: clock(now), latencyMs: Date.now() - startedAt, ...seed });
+      makeProvider({
+        id: ID,
+        label: LABEL,
+        fetchedAt: nowMs,
+        latencyMs: Date.now() - startedAt,
+        ...seed,
+        // Spread first so the pricing key survives every failure branch, then
+        // merge the branch's own diagnostics over it.
+        meta: { ...(pricing === null ? {} : { pricing }), ...(seed.meta ?? {}) },
+      });
 
     const auth = { getSecret, credentials };
     /** @type {string|undefined} */

@@ -19,6 +19,11 @@
  *   every resolution, so a composition without the credential seam still loads
  *   and reports each provider as `not-configured` rather than failing.
  *
+ * The single runtime dependency is optional, too: `chinese-days` is imported
+ * lazily by the DeepSeek adapter to make the peak/off-peak reminder holiday-
+ * aware. A missing install degrades that reminder to the plain weekday rule
+ * (and says so in `meta.pricing`) instead of preventing the plugin from loading.
+ *
  * @module dsh-plugin-usage-board
  */
 
@@ -32,7 +37,7 @@ import {
 import { SnapshotService } from '../src/host/snapshot.js';
 
 /** Plugin version reported by `/usage-board/api/health`. */
-export const PLUGIN_VERSION = '0.1.0';
+export const PLUGIN_VERSION = '0.2.0';
 
 /**
  * Normalize the plugin's configuration.

@@ -4,7 +4,7 @@
 
 | 服务 | 显示内容 | 数据来源 |
 |---|---|---|
-| **DeepSeek** | 账户余额、累计消耗、近 14 天每日消耗趋势 | `platform.deepseek.com` 账号接口（复用 DSH 已登录的授权） |
+| **DeepSeek** | 账户余额、累计消耗、近 14 天每日消耗趋势，以及**峰谷计费时段提示**（高峰 / 空闲 · 5 折 + 距切换倒计时） | `platform.deepseek.com` 账号接口（复用 DSH 已登录的授权） |
 | **GLM Coding Plan** | 套餐名、5 小时窗口、每周窗口（已用 / 总量 / 剩余 / 重置倒计时） | `open.bigmodel.cn` 官方额度接口 |
 | **Kimi Code** | 5 小时窗口、每周窗口（已用百分比 / 剩余 / 重置倒计时） | `api.kimi.com` Kimi Code 订阅接口 |
 
@@ -14,6 +14,14 @@
 
 上图是真实运行截图：DeepSeek 卡片显示余额与近 14 天消耗柱状图，GLM 卡片显示 5 小时/每周两条额度条与重置倒计时，Kimi 卡片显示同样两条额度条。
 
+DeepSeek 卡片顶部新增了一个**峰谷计费时段提示器**：当前是高峰还是空闲、对应什么价格档位，以及距下次涨价/降价的倒计时。提示语是个谐音梗——高峰时段是「现在是**梁文峰**时段！」，空闲时段把创始人的名字换成「**梁文谷**」：
+
+| 高峰（标准价） | 空闲（5 折） |
+|---|---|
+| ![高峰时段提示](docs/images/pricing-reminder-peak.png) | ![空闲时段提示](docs/images/pricing-reminder-offpeak.png) |
+
+时段规则取自 [DeepSeek 官方价格页](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)：北京时间周一至周五（不含法定节假日）09:00–12:00、14:00–18:00 为高峰，其余时间（含周末与节假日全天）为空闲、价格为高峰价的一半。法定节假日由第三方日历库 [`chinese-days`](https://github.com/vsme/chinese-days) 判定，不需要手工维护节假日表。
+
 ---
 
 ## 1. 安装
@@ -21,6 +29,14 @@
 插件是一个标准的 DSH 插件包，安装方式就是把**本目录的绝对路径**交给 DSH。
 
 ### 方式 A：用 DSH 图形界面安装（推荐）
+
+> **先装依赖。** 本插件用第三方包 `chinese-days` 判定中国法定节假日，DSH 的本地路径安装
+> （pnpm `link:`）不会替插件安装依赖，所以第一次安装前要先在插件目录里执行一次 `npm install`：
+>
+> ```bash
+> cd /path/to/dsh-plugin-usage-board
+> npm install
+> ```
 
 1. 打开 DeepSeek Harness，在左侧边栏点 **插件 / Plugins**。
 2. 点 **添加插件 / Add plugin**。
@@ -39,6 +55,9 @@
 ### 方式 B：命令行安装（DSH Desktop 关闭时）
 
 ```bash
+cd /path/to/dsh-plugin-usage-board
+npm install   # 必须先装：chinese-days 不会由 DSH 代为安装
+
 DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 "$DSH" plugin --profile desktop add \
   /Users/songer/Documents/deepseek-harness/default-workspace/dsh-plugin-usage-board
@@ -64,6 +83,7 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 
 侧边栏点 **用量看板**，或用独立页面 <http://127.0.0.1:19387/usage-board/>（端口取决于 DSH 实际监听端口）。
 
+- **峰谷提示**：DeepSeek 卡片顶部显示当前计费时段与距下次切换的倒计时，高峰/空闲分别按标准价、5 折计；跨到周末或法定节假日时倒计时会直接指向下一个工作日的切换点。
 - **打开即有数**：进入面板先显示已有数据，后台再去刷新，新数据到了原地替换，不会先清空再等。
 - **自动刷新**：默认 60 秒一次，但只在「有人看」的时候才刷——窗口可见、面板在屏幕上、且最近 3 分钟内有鼠标/键盘操作。DSH 空闲（无操作超时）、切到其他侧边栏面板、或窗口隐藏时自动暂停，不会有任何上游请求；恢复操作（动一下鼠标、切回面板、回到窗口）会立刻补刷一次。手动刷新不受此限制，随时可用。
 - **手动刷新**：面板右上角 **刷新** 按钮，会强制绕过缓存重新请求。
@@ -73,6 +93,13 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 ### 各家的具体表现
 
 **DeepSeek** — 显示余额（¥）与累计消耗，并画出近 14 天的每日消耗柱状图。DeepSeek 官方**没有**提供「额度窗口」类接口，所以这张卡片没有进度条，只有余额和趋势。
+
+卡片顶部的**峰谷计费时段提示器**用来回答「现在调用贵不贵」：
+
+- 左边是时段与一句玩梗：高峰「现在是梁文峰时段！」，空闲「现在是梁文谷时段！」（把「峰」换成「谷」）。
+- 右边是价格档位：**高峰 · 标准价** / **空闲 · 5 折**。
+- 第二行是**距下次切换的倒计时**：高峰时说「距降价」，空闲时说「距涨价」，并注明按北京时间计算。
+- 时段由主机侧按官方规则计算后随快照下发（`meta.pricing`），浏览器只按绝对时刻推算，所以面板/独立页面在缓存快照上也能准时翻转，周末和法定节假日不会误报高峰。鼠标悬停可以看到完整规则；如果节假日日历还没覆盖当前年份（或 12 月的计划区间伸进了次年），会明确标注「暂按工作日估算」。
 
 **GLM Coding Plan** — 两条进度条：5 小时滚动窗口和每周窗口，显示「已用 / 总量」、「剩余」、「X 小时后重置」。套餐名直接取自 GLM 的订阅接口（例如 `GLM Coding Lite`）。
 
@@ -115,6 +142,23 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
     verbose: false      # 打开后会把每次请求的结果写进 DSH 日志
 ```
 
+### 节假日日历（第三方依赖）
+
+峰谷时段要区分「工作日的高峰」和「法定节假日全天空闲」，节假日表不能硬编码——国务院每年都会
+重新公布放假与调休安排，手写一份表过一年就会在长假期间给出错误结论。所以判断交给
+[`chinese-days`](https://github.com/vsme/chinese-days)（MIT、零传递依赖）：
+
+- **精确锁版本。** `package.json` 里写的是 `1.5.9` 而不是 `^1.5.9`：节假日数据决定计费提示的
+  对错，一次不经意的重装不应该悄悄换掉它。
+- **更新。** 等国务院公布下一年安排、上游库发版后，在插件目录执行
+  `npm run update-holidays`（等价于 `npm install chinese-days@latest --save-exact` 再跑一遍节假日
+  测试），然后**重载插件（或重启 DSH）**：主机侧对依赖的 `import` 在进程内只做一次，刷新浏览器
+  不会重新加载它。
+- **自检。** `node --test test/holidays.test.js` 会拿官方 2026 年放假表逐日核对（含 19 个落在
+  工作日的节假日和 6 个调休上班日），并检查「数据没覆盖该年时降级为按工作日估算」的提示。
+- **依赖缺失也不崩。** 日历是可选增强：没有 `node_modules` 时插件照常工作，只按周一至周五估算，
+  面板会显示「未安装节假日日历，暂按工作日估算」；不会把整个看板拖垮。
+
 ---
 
 ## 5. 出问题时
@@ -127,6 +171,8 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 | DeepSeek 显示「未授权」 | DSH 里的 DeepSeek 登录已失效，重新登录即可。 |
 | 独立页面打不开 | 检查 DSH 是否在运行，以及实际端口（`allowRemote: false` 时只接受本机访问）。 |
 | 数字长时间不变 | 缓存未过期属正常；点「刷新」可强制更新。若 `verbose: true`，DSH 日志里能看到每次刷新结果。 |
+| 时段提示显示「节假日日历尚未覆盖完整计划区间」 | 上游节假日库还没收录该年（通常是 12 月，计划区间伸进了次年），或依赖没装。先 `npm install`，再按上一节更新 `chinese-days` 并重载插件。 |
+| 卡片没有时段提示器 | 主机侧没算出来（`snapshot` 里 DeepSeek 行的 `meta.pricing` 缺失）或客户端 bundle 未刷新。先确认 `curl -s …/usage-board/api/snapshot` 里有 `pricing`，再刷新 DSH 页面。 |
 
 自检接口：
 
@@ -149,9 +195,15 @@ curl -s http://127.0.0.1:19387/usage-board/api/health
 ```bash
 cd dsh-plugin-usage-board
 
-node --test test/                  # 全部单元测试与静态检查（离线）
+npm install                        # chinese-days（节假日日历）等依赖
+npm run build                      # 由 src/client/* 重新生成 lib/client.js
+npm test                           # 全部单元测试与静态检查（离线）
 node test/providers.live.mjs       # 用真实凭据打三家官方接口，打印实际数值
 ```
+
+峰谷计费相关的测试分两层：`test/pricing.test.js` 用桩日历覆盖时段边界、周末/节假日/调休与
+跨年切换；`test/holidays.test.js` 用真实 `chinese-days` 数据核对官方 2026 年放假表、验证时区
+无关性，并守住「依赖精确锁版本」这条约束。
 
 架构、协议、以及为什么这样设计，见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；
 独立验证报告见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。

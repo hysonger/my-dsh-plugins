@@ -565,6 +565,93 @@
   opacity: 0.55;
 }
 
+/* ---------- DeepSeek peak / off-peak billing reminder ---------- */
+
+.ub-price {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--ub-radius);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-price[data-phase="peak"] {
+  background: var(--ub-warn-soft);
+}
+
+.ub-price[data-phase="offpeak"] {
+  background: var(--ub-ok-soft);
+}
+
+.ub-price-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ub-price-icon {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ub-warn);
+}
+
+.ub-price[data-phase="offpeak"] .ub-price-icon {
+  color: var(--ub-ok);
+}
+
+.ub-price-slogan {
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--ub-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-price-chip {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ub-layer-3);
+  color: var(--ub-fg-secondary);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ub-price[data-phase="peak"] .ub-price-chip {
+  color: var(--ub-warn);
+}
+
+.ub-price[data-phase="offpeak"] .ub-price-chip {
+  color: var(--ub-ok);
+}
+
+.ub-price-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--ub-fg-tertiary);
+}
+
+.ub-price-when {
+  color: var(--ub-fg-secondary);
+}
+
+.ub-price-caveat {
+  color: var(--ub-warn);
+}
+
 /* ---------- footer ---------- */
 
 /* One child only — the host line. The refresh control lives in the header, so

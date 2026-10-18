@@ -572,9 +572,12 @@ async function c11() {
     const afterDispose = await pending;
     check('C11.1', 'an in-flight read still resolves after dispose (no hang)', afterDispose?.providers?.length === 1, `${afterDispose?.providers?.length} row(s)`);
     const second = await service.get();
-    check('C11.2', 'v2: the disposed service refuses to serve the pre-dispose snapshot from cache', calls === 2, `${calls} upstream call(s) — 2 means the finishing read was not cached, 1 would mean it was`);
-    check('C11.3', 'the next get() after dispose is a fresh read, not the stale snapshot', second.generatedAt >= afterDispose.generatedAt, `${afterDispose.generatedAt} / ${second.generatedAt}`);
-    console.log('      v2: `#disposed` blocks the finishing read from re-caching, so a disposed service cannot hand out the snapshot built before disposal.');
+    // The shipped dispose contract: the read that finished after disposal is
+    // not cached, and a later get() returns the explicit empty envelope instead
+    // of starting a read a disposed plugin has no business starting.
+    check('C11.2', 'v2: the disposed service refuses to serve the pre-dispose snapshot from cache', calls === 1 && second.providers.length === 0, `${calls} upstream call(s), ${second.providers.length} row(s) — expected the empty disposed envelope and no new read`);
+    check('C11.3', 'the next get() after dispose is an explicit empty envelope, not the stale snapshot', second.generatedAt >= afterDispose.generatedAt && second.providers.length === 0, `${afterDispose.generatedAt} / ${second.generatedAt}`);
+    console.log('      v2: `#disposed` blocks the finishing read from re-caching, and a disposed service answers with an empty envelope instead of reading again.');
   } finally {
     PROVIDERS.length = 0;
     PROVIDERS.push(...saved);

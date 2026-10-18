@@ -74,6 +74,20 @@
   .bar { flex: 1; min-width: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .85; }
   .bar:hover { opacity: 1; }
   .bar.empty { background: var(--track); opacity: 1; }
+  /* DeepSeek peak / off-peak billing reminder. The tinted card says "cheap"
+     (green) or "full price" (amber) at a glance; the countdown text is updated
+     once a second by the page's wall-clock ticker. */
+  .price { border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+  .price.peak { background: rgba(217, 119, 6, .13); }
+  .price.offpeak { background: rgba(22, 163, 74, .13); }
+  .price-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .price-slogan { min-width: 0; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .price-chip { flex: none; margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--track); color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+  .price.peak .price-chip { color: var(--warn); }
+  .price.offpeak .price-chip { color: var(--ok); }
+  .price-foot { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; color: var(--faint); }
+  .price-when { color: var(--muted); }
+  .price-caveat { color: var(--warn); }
   .err-box { color: var(--muted); font-size: 12px; }
   .err-box code { color: var(--faint); font-size: 11px; }
   .skeleton { height: 140px; border-radius: 14px; background: linear-gradient(90deg, var(--track), var(--card), var(--track)); background-size: 200% 100%; animation: pulse 1.4s ease-in-out infinite; }
@@ -178,6 +192,130 @@
     'status.disabled': '这家服务已被停用。',
   };
   const SYMBOL = { CNY: '¥', USD: '$' };
+
+  /**
+   * DeepSeek peak / off-peak billing reminder (same schedule the sidebar panel
+   * renders). The host ships the schedule in `row.meta.pricing` as absolute
+   * transition instants; this page only walks them against the wall clock, so
+   * a cached snapshot still flips on the right second. The pun swaps one
+   * character of DeepSeek founder 梁文峰's name: peak keeps 峰, off-peak
+   * becomes 梁文谷.
+   */
+  const PRICING_DEFAULT_OFFSET_MINUTES = 480;
+  const PRICING_PHASES = ['peak', 'offpeak'];
+  const PRICING_SLOGAN = { peak: '现在是梁文峰时段！', offpeak: '现在是梁文谷时段！' };
+  const PRICING_CHIP = { peak: '高峰 · 标准价', offpeak: '空闲 · 5 折' };
+  const PRICING_RULE = '北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰时段；其余时间（含周末与法定节假日）为空闲时段，空闲价为高峰价的一半。';
+  /** Per-card reminder repaint functions, rebuilt on every load(). */
+  let pricingTickers = [];
+
+  function normalizePricing(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (PRICING_PHASES.indexOf(raw.phase) === -1) return null;
+    const transitions = [];
+    if (Array.isArray(raw.transitions)) {
+      for (const entry of raw.transitions) {
+        if (!entry || typeof entry !== 'object') continue;
+        if (typeof entry.at !== 'number' || !Number.isFinite(entry.at)) continue;
+        if (PRICING_PHASES.indexOf(entry.phase) === -1) continue;
+        transitions.push({ at: entry.at, phase: entry.phase });
+      }
+    }
+    transitions.sort((left, right) => left.at - right.at);
+    const calendar = raw.holidayCalendar && typeof raw.holidayCalendar === 'object' && typeof raw.holidayCalendar.through === 'number'
+      ? {
+        source: raw.holidayCalendar.source,
+        through: raw.holidayCalendar.through,
+        coversHorizon: typeof raw.holidayCalendar.coversHorizon === 'boolean' ? raw.holidayCalendar.coversHorizon : null,
+      }
+      : null;
+    return {
+      phase: raw.phase,
+      utcOffsetMinutes: typeof raw.utcOffsetMinutes === 'number' ? raw.utcOffsetMinutes : PRICING_DEFAULT_OFFSET_MINUTES,
+      holidayCalendar: calendar,
+      transitions,
+    };
+  }
+
+  /** Phase at `nowMs` plus the next change, from the shipped transitions. */
+  function pricingStateAt(pricing, nowMs) {
+    let phase = pricing.phase;
+    for (const transition of pricing.transitions) {
+      if (transition.at <= nowMs) { phase = transition.phase; continue; }
+      return { phase, nextAt: transition.at, nextPhase: transition.phase };
+    }
+    return { phase, nextAt: null, nextPhase: null };
+  }
+
+  /** "2 小时 8 分" / "22 分钟" / "38 秒" — at most two units. */
+  function pricingWhenText(nextAt, nowMs) {
+    const remaining = nextAt - nowMs;
+    if (!(remaining > 0)) return '即将切换';
+    // Completed units only: rounding a 65-second wait up to "2 分钟" or a
+    // 23:59:59 wait up to "1 天" looks like a bug to anyone watching it.
+    const seconds = Math.floor(remaining / 1000);
+    if (seconds < 60) return seconds === 0 ? '即将切换' : seconds + ' 秒';
+    const totalMinutes = Math.floor(remaining / 60000);
+    if (totalMinutes < 60) return totalMinutes + ' 分钟';
+    const totalHours = Math.floor(remaining / 3600000);
+    if (totalHours < 24) {
+      const minutes = Math.floor((remaining - totalHours * 3600000) / 60000);
+      return minutes === 0 ? totalHours + ' 小时' : totalHours + ' 小时 ' + minutes + ' 分';
+    }
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    return hours === 0 ? days + ' 天' : days + ' 天 ' + hours + ' 小时';
+  }
+
+  function pricingCaveat(pricing, nowMs) {
+    if (!pricing.holidayCalendar) return '未安装节假日日历，暂按工作日估算。';
+    // In late December the shipped horizon reaches into next year; if that
+    // year's arrangement is not in the calendar yet, the far edge of the
+    // countdown is an estimate even though the current phase is right.
+    if (pricing.holidayCalendar.coversHorizon === false) return '节假日日历尚未覆盖完整计划区间，暂按工作日估算。';
+    if (pricing.holidayCalendar.coversHorizon === null) {
+      const offsetMs = (typeof pricing.utcOffsetMinutes === 'number' ? pricing.utcOffsetMinutes : PRICING_DEFAULT_OFFSET_MINUTES) * 60000;
+      const year = new Date(nowMs + offsetMs).getUTCFullYear();
+      if (pricing.holidayCalendar.through < year) return '节假日日历尚未覆盖完整计划区间，暂按工作日估算。';
+    }
+    return null;
+  }
+
+  /**
+   * Build the reminder node and register its once-a-second repaint. Returns
+   * null when the row carries no usable schedule.
+   */
+  function pricingBadge(raw) {
+    const pricing = normalizePricing(raw);
+    if (pricing === null) return null;
+    const node = el('div', { class: 'price' });
+    const render = () => {
+      const nowMs = Date.now();
+      const state = pricingStateAt(pricing, nowMs);
+      const peak = state.phase === 'peak';
+      node.className = 'price ' + (peak ? 'peak' : 'offpeak');
+      node.setAttribute('data-phase', peak ? 'peak' : 'offpeak');
+      const caveat = pricingCaveat(pricing, nowMs);
+      node.title = caveat === null ? PRICING_RULE : PRICING_RULE + ' ' + caveat;
+      const foot = [];
+      if (state.nextAt !== null) {
+        const verb = state.nextPhase === 'peak' ? '距涨价 ' : '距降价 ';
+        foot.push(el('span', { class: 'price-when', text: verb + pricingWhenText(state.nextAt, nowMs) }));
+      }
+      foot.push(el('span', { text: '北京时间' }));
+      if (caveat !== null) foot.push(el('span', { class: 'price-caveat', text: caveat }));
+      node.replaceChildren(
+        el('div', { class: 'price-main' }, [
+          el('span', { class: 'price-slogan', text: PRICING_SLOGAN[peak ? 'peak' : 'offpeak'] }),
+          el('span', { class: 'price-chip', text: PRICING_CHIP[peak ? 'peak' : 'offpeak'] }),
+        ]),
+        el('div', { class: 'price-foot' }, foot),
+      );
+    };
+    render();
+    pricingTickers.push(render);
+    return node;
+  }
 
   function el(tag, props, children) {
     const node = document.createElement(tag);
@@ -307,6 +445,12 @@
       el('span', { class: 'pill ' + (STATUS_CLASS[row.status] || 'idle'), text: STATUS_TEXT[row.status] || row.status }),
     ]));
     if (row.plan) node.appendChild(el('p', { class: 'plan', text: '套餐：' + row.plan }));
+    // DeepSeek's billing phase describes the list price, not this account, so
+    // the reminder stays on the card even when the row itself failed.
+    if (row.id === 'deepseek' && row.meta) {
+      const badge = pricingBadge(row.meta.pricing);
+      if (badge) node.appendChild(badge);
+    }
 
     if (row.balances && row.balances.length > 0) {
       for (const balance of row.balances) {
@@ -375,6 +519,7 @@
       if (!response.ok || !Array.isArray(body.providers)) throw new Error('HTTP ' + response.status);
       ttlMs = typeof body.ttlMs === 'number' ? body.ttlMs : 60000;
       lastGeneratedAt = body.generatedAt;
+      pricingTickers = [];
       grid.replaceChildren();
       for (const row of body.providers) grid.appendChild(card(row));
       const staleNote = body.stale === true ? ' · 后台刷新中' : '';
@@ -435,6 +580,12 @@
     if (document.visibilityState === 'visible') lastActivityAt = Date.now();
     evaluateGate();
   });
+  // Live billing countdowns. Pure local text repaints: no requests, and a
+  // hidden page does no work at all.
+  setInterval(() => {
+    if (document.visibilityState === 'hidden') return;
+    for (const repaint of pricingTickers) repaint();
+  }, 1000);
   evaluateGate();
   load(false);
  })();

@@ -704,6 +704,36 @@ describe('deepseek adapter', () => {
     assert.equal(snapshot.status, 'upstream-error');
     assert.equal(snapshot.code, 'E_INTERNAL');
   });
+
+  it('attaches the peak/off-peak billing schedule to the row', async () => {
+    const { snapshot } = await run('deepseek', { routes, secrets: grant });
+    const pricing = snapshot.meta.pricing;
+    assert.equal(pricing.phase, 'peak', 'the fixture instant is 15:00 on a Wednesday in Beijing');
+    assert.equal(pricing.asOf, FIXTURE_NOW);
+    assert.equal(pricing.utcOffsetMinutes, 480);
+    assert.equal(pricing.offPeakMultiplier, 0.5);
+    assert.deepEqual(pricing.holidayCalendar, { source: 'chinese-days', through: 2026, coversHorizon: true });
+    // The schedule is absolute instants: 18:00 Beijing closes the peak window,
+    // then the weekend is skipped and Monday 09:00 reopens it.
+    assert.deepEqual(
+      pricing.transitions.slice(0, 2),
+      [
+        { at: Date.parse('2026-10-14T10:00:00Z'), phase: 'offpeak' },
+        { at: Date.parse('2026-10-15T01:00:00Z'), phase: 'peak' },
+      ],
+    );
+    assertNoSecret(snapshot);
+  });
+
+  it('keeps the schedule on a failed row: list price is not account state', async () => {
+    const { snapshot } = await run('deepseek', {
+      routes: { ...routes, [SUMMARY_URL]: ok200(fixture('deepseek-unauthorized.json')) },
+      secrets: grant,
+    });
+    assert.equal(snapshot.status, 'unauthorized');
+    assert.equal(snapshot.meta.pricing.phase, 'peak');
+    assert.equal(snapshot.meta.pricing.holidayCalendar.source, 'chinese-days');
+  });
 });
 
 // ── Kimi ────────────────────────────────────────────────────────────────────

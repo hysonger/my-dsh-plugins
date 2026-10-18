@@ -623,3 +623,96 @@ Harnesses: `_lib.mjs` (plumbing), `adversarial.mjs` (C), `routes-live.mjs` (B), 
   read Kimi's sentence), and it captured a loading skeleton instead of the rendered cards — both fixed by
   line-anchored card slicing and content polling before any of the numbers above were produced.
 - The verifier scanned its own deliverables for all three real secrets (full, first-8, last-8): clean.
+
+---
+
+## 7. Addendum — DeepSeek peak / off-peak billing reminder (2026-10-18)
+
+**Feature:** both renderers show the current DeepSeek billing phase, a punny slogan
+(`现在是梁文峰时段！` in peak, `现在是梁文谷时段！` in off-peak), the price tier, and a live countdown to
+the next change. The rule is computed on the host from the official pricing page and a third-party holiday
+calendar; the browser halves only walk the host-shipped absolute transition instants.
+
+### What was verified
+
+| # | Check | Evidence |
+|---|---|---|
+| 1 | Unit / contract suite | `npm test` → **169/169 pass**, including 13 new pricing-policy cases (boundaries, weekends, National-Day break, make-up Saturday, year rollover, horizon coverage, calendar-null fallback), 8 holiday-calendar cases, and 14 new renderer cases (both slogans, countdown, phase flip at the boundary, non-ok row, stale/missing calendar caveat) |
+| 2 | Bundle assembly | `node scripts/build-client.mjs --check` → `lib/client.js matches the client sources` |
+| 3 | Live host integration in the desktop DSH instance | `GET /usage-board/api/snapshot` carried `meta.pricing` on the DeepSeek row: `phase: offpeak`, `holidayCalendar: {source: 'chinese-days', through: 2026}`, 40 transitions; the sidebar panel rendered the banner from that row |
+| 4 | Real browser — sidebar panel | off-peak: `现在是梁文谷时段！` / `空闲 · 5 折` / `距涨价 21 小时 55 分` / `北京时间`; then the page clock was forced to Monday 10:00 Beijing and the same panel flipped to `现在是梁文峰时段！` / `高峰 · 标准价` / `距降价 2 小时` without a refetch. The schedule was the real host read; only `Date.now` was overridden for the peak shot. |
+| 5 | Real browser — standalone page | same banner in light and dark media, countdown repainting once per second |
+| 6 | Holiday truth | `chinese-days@1.5.9` matches the official 2026 arrangement: all 19 weekday holidays are off, the 6 make-up workdays are workdays to the calendar (and still off-peak to this rule, which keys on Mon–Fri), Oct 8 is peak again |
+| 7 | Timezone independence | the same instant yields the same phase under `TZ=Asia/Shanghai`, `UTC`, `America/New_York`, `Pacific/Kiritimati` (child-process probe in `test/holidays.test.js`) |
+| 8 | Degradation | missing/broken calendar → weekday estimate with `holidayCalendar: null` or `through < current year`, and the UI says `暂按工作日估算`; covered by unit tests, not forced in a live browser |
+| 9 | Offline adversarial suite | `node test/verify/adversarial.mjs` → **186/186 pass** |
+
+Screenshots (real desktop sidebar panel):
+
+- `docs/images/pricing-reminder-peak.png`
+- `docs/images/pricing-reminder-offpeak.png`
+
+### Independent review and fixes (same day)
+
+An independent verifier re-ran the suites and the policy invariants (525,600 minute-level checks across
+2026 against the official notice, 17,247 transitions over 486 snapshots, 5 timezones), plus a live
+headless-browser check of the standalone page. It found no blockers and three issues, all fixed before
+commit:
+
+1. **Cross-year coverage caveat ignored the horizon.** In mid/late December the host legitimately ships
+   transitions into the next year, but the renderers only compared `holidayCalendar.through` with the
+   *current* year. A snapshot on 2026-12-31 would render a confident "距涨价 15 小时" toward 2027-01-01
+   09:00 — New Year's Day, i.e. off-peak — with no caveat. Fixed by adding `coversHorizon` to
+   `meta.pricing.holidayCalendar` on the host (does the calendar cover every shipped transition?) and
+   making both renderers show the estimate caveat when it is false; the field stays additive and older
+   hosts fall back to the year comparison. New tests cover 2026-12-01 (covered) vs 2026-12-18 (horizon
+   crosses into unannounced 2027) in both the policy and the renderer, and the fix was re-checked
+   end-to-end against a pinned-clock demo host at 2026-12-18: the snapshot reports
+   `coversHorizon: false` and the standalone banner shows the caveat under the countdown.
+2. **README overstated reload semantics.** A dependency update cannot be picked up by a browser refresh:
+   the host imports `chinese-days` once per process. The README now says "reload the plugin / restart DSH"
+   and quotes the actual caveat strings.
+3. **Countdown rounded up across unit boundaries** (65 s → "2 分钟", 23:59:59 → "1 天"). Both formatters
+   now truncate to completed units (65 s → "1 分钟", 23:59:59 → "23 小时 59 分", last second →
+   "即将切换"), with unit tests for the boundaries.
+
+The verifier also confirmed the incidental `test/verify/adversarial.mjs` C11 correction mentioned at the
+end of this addendum.
+
+### What this addendum did NOT verify
+
+1. **2027 holiday data.** The State Council announces the next year's arrangement in late autumn; the
+   installed calendar only covers 2026, so 2027 weekdays fall back to the estimate. The test pins
+   `coversYear(2027) === false` on purpose so upgrading the dependency becomes a deliberate act, and the
+   UI now flags a horizon that crosses into the unannounced year (`coversHorizon: false`). This is verified
+   by unit and renderer tests at a forced December instant, not by a live clock set to December.
+2. **English copy in a real UI.** Both dictionaries carry the slogans and countdown strings (asserted by
+   tests); the panel was only exercised in Chinese.
+3. **The exact host-half reload trigger.** After the host sources changed and the GUI was reloaded, the live
+   instance served `meta.pricing`; whether the plugin manager remounted the host or the reload was incidental
+   was not instrumented.
+4. **`browser-e2e.mjs` / `routes-live.mjs` on a fresh QA profile.** This addendum used the desktop instance
+   read-only through an authenticated local browser session; the earlier harnesses cover route and message
+   behaviour that this change does not touch.
+5. **Dark mode in the sidebar panel.** Dark mode was checked on the standalone page; the panel uses the same
+   DSH theme tokens and was not separately screenshotted in dark mode.
+
+Incidental finding while re-running the offline verification: the baseline commit also fails `C11.2` in
+`test/verify/adversarial.mjs` (its expectation predates the shipped v2 dispose envelope). The check was
+corrected to assert the documented contract — a disposed service answers with an empty envelope and starts
+no read — and the suite is now 186/186 on both the baseline and the current tree.
+
+### Reproduce
+
+```bash
+cd /path/to/dsh-plugin-usage-board
+npm install
+npm test
+node scripts/build-client.mjs --check
+
+# real calendar + rule spot checks
+node --test test/holidays.test.js test/pricing.test.js
+
+# offline adversarial suite
+node test/verify/adversarial.mjs
+```

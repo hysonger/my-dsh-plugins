@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-usage-board",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "DSH usage board: one dashboard for DeepSeek, GLM Coding Plan, and Kimi Code quota and balance",
+  "description": "DSH usage board: DeepSeek (balance, spend trend, peak/off-peak billing reminder), GLM Coding Plan and Kimi Code quota, in one sidebar panel",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -37,7 +37,13 @@
   },
   "scripts": {
     "test": "node --test test/",
-    "live": "node test/providers.live.mjs"
+    "build": "node scripts/build-client.mjs",
+    "check": "node scripts/build-client.mjs --check && node --test test/",
+    "live": "node test/providers.live.mjs",
+    "update-holidays": "npm install chinese-days@latest --save-exact && node --test test/holidays.test.js"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "chinese-days": "1.5.9"
+  }
 }

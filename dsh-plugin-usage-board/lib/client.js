@@ -598,6 +598,93 @@ window.__ModuleLoader__.load({
   opacity: 0.55;
 }
 
+/* ---------- DeepSeek peak / off-peak billing reminder ---------- */
+
+.ub-price {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--ub-radius);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-price[data-phase="peak"] {
+  background: var(--ub-warn-soft);
+}
+
+.ub-price[data-phase="offpeak"] {
+  background: var(--ub-ok-soft);
+}
+
+.ub-price-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ub-price-icon {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ub-warn);
+}
+
+.ub-price[data-phase="offpeak"] .ub-price-icon {
+  color: var(--ub-ok);
+}
+
+.ub-price-slogan {
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--ub-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-price-chip {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ub-layer-3);
+  color: var(--ub-fg-secondary);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ub-price[data-phase="peak"] .ub-price-chip {
+  color: var(--ub-warn);
+}
+
+.ub-price[data-phase="offpeak"] .ub-price-chip {
+  color: var(--ub-ok);
+}
+
+.ub-price-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--ub-fg-tertiary);
+}
+
+.ub-price-when {
+  color: var(--ub-fg-secondary);
+}
+
+.ub-price-caveat {
+  color: var(--ub-warn);
+}
+
 /* ---------- footer ---------- */
 
 /* One child only — the host line. The refresh control lives in the header, so
@@ -917,6 +1004,12 @@ const DIAGNOSTIC_MAX = 140;
 /** How many trailing days of `meta.dailyUsage` the trend chart draws. */
 const DAILY_TREND_POINTS = 14;
 
+/** Billing phases the DeepSeek reminder understands. */
+const PRICING_PHASES = ["peak", "offpeak"];
+
+/** Beijing offset assumed when a host omits `meta.pricing.utcOffsetMinutes`. */
+const PRICING_DEFAULT_OFFSET_MINUTES = 480;
+
 /** Currency symbol per ISO-4217 code; unknown codes render the code itself. */
 const CURRENCY_SYMBOLS = {
   CNY: "\u00a5",
@@ -1014,6 +1107,23 @@ const zh = {
   "daily.range": "{from} \u2192 {to}",
   "daily.pointTip": "{date} \u00b7 {cost}",
   "daily.tokens": "{value} tokens",
+  "pricing.peakChip": "\u9ad8\u5cf0 \u00b7 \u6807\u51c6\u4ef7",
+  "pricing.offpeakChip": "\u7a7a\u95f2 \u00b7 5 \u6298",
+  "pricing.peakSlogan": "\u73b0\u5728\u662f\u6881\u6587\u5cf0\u65f6\u6bb5\uff01",
+  "pricing.offpeakSlogan": "\u73b0\u5728\u662f\u6881\u6587\u8c37\u65f6\u6bb5\uff01",
+  "pricing.countdown.raise": "\u8ddd\u6da8\u4ef7 {when}",
+  "pricing.countdown.drop": "\u8ddd\u964d\u4ef7 {when}",
+  "pricing.when.soon": "\u5373\u5c06\u5207\u6362",
+  "pricing.when.seconds": "{n} \u79d2",
+  "pricing.when.minutes": "{n} \u5206\u949f",
+  "pricing.when.hours": "{h} \u5c0f\u65f6 {m} \u5206",
+  "pricing.when.hoursExact": "{h} \u5c0f\u65f6",
+  "pricing.when.days": "{d} \u5929 {h} \u5c0f\u65f6",
+  "pricing.when.daysExact": "{d} \u5929",
+  "pricing.timeZone": "\u5317\u4eac\u65f6\u95f4",
+  "pricing.rule": "\u5317\u4eac\u65f6\u95f4\u5468\u4e00\u81f3\u5468\u4e94 09:00\u201312:00\u300114:00\u201318:00 \u4e3a\u9ad8\u5cf0\u65f6\u6bb5\uff1b\u5176\u4f59\u65f6\u95f4\uff08\u542b\u5468\u672b\u4e0e\u6cd5\u5b9a\u8282\u5047\u65e5\uff09\u4e3a\u7a7a\u95f2\u65f6\u6bb5\uff0c\u7a7a\u95f2\u4ef7\u4e3a\u9ad8\u5cf0\u4ef7\u7684\u4e00\u534a\u3002",
+  "pricing.calendarUnavailable": "\u672a\u5b89\u88c5\u8282\u5047\u65e5\u65e5\u5386\uff0c\u6682\u6309\u5de5\u4f5c\u65e5\u4f30\u7b97\u3002",
+  "pricing.calendarStale": "\u8282\u5047\u65e5\u65e5\u5386\u5c1a\u672a\u8986\u76d6\u5b8c\u6574\u8ba1\u5212\u533a\u95f4\uff0c\u6682\u6309\u5de5\u4f5c\u65e5\u4f30\u7b97\u3002",
 };
 
 const en = {
@@ -1081,6 +1191,27 @@ const en = {
   "daily.range": "{from} \u2192 {to}",
   "daily.pointTip": "{date} \u00b7 {cost}",
   "daily.tokens": "{value} tokens",
+  "pricing.peakChip": "Peak \u00b7 full price",
+  "pricing.offpeakChip": "Off-peak \u00b7 50% off",
+  // The Chinese verbatim the slogan translates: the founder's name 梁文峰
+  // (Liang Wenfeng) contains 峰 ("peak"), so off-peak becomes 梁文谷 — swapping
+  // that one character for 谷 ("valley") is the whole joke. English keeps a
+  // literal transliteration; there is nothing better to do with a name pun.
+  "pricing.peakSlogan": "It's Liang Wenfeng hour!",
+  "pricing.offpeakSlogan": "It's Liang Wengu hour!",
+  "pricing.countdown.raise": "Price rises in {when}",
+  "pricing.countdown.drop": "Price drops in {when}",
+  "pricing.when.soon": "moments",
+  "pricing.when.seconds": "{n}s",
+  "pricing.when.minutes": "{n} min",
+  "pricing.when.hours": "{h} h {m} min",
+  "pricing.when.hoursExact": "{h} h",
+  "pricing.when.days": "{d} d {h} h",
+  "pricing.when.daysExact": "{d} d",
+  "pricing.timeZone": "Beijing time",
+  "pricing.rule": "Peak: Beijing time, Monday\u2013Friday 09:00\u201312:00 and 14:00\u201318:00, excluding Chinese statutory holidays. All other times, including weekends and holidays, are off-peak at half the peak price.",
+  "pricing.calendarUnavailable": "No holiday calendar is installed; weekday estimate only.",
+  "pricing.calendarStale": "The holiday calendar does not cover the full shipped window yet; weekday estimate only.",
 };
 
 /** Translate seat bound in `apply`, used when the slot renderer passes no `t`. */
@@ -1614,6 +1745,148 @@ function trendScale(series) {
 }
 
 /**
+ * Coerce `provider.meta.pricing` (host-shipped, additive) onto the shape the
+ * reminder renders. A row without it, or with a phase this build does not
+ * understand, yields null and the reminder simply does not render: an unknown
+ * schedule is not an error worth a card of its own.
+ *
+ * @param {unknown} raw
+ * @returns {object|null}
+ */
+function normalizePricing(raw) {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const phase = strOrNull(raw.phase);
+  if (phase === null || PRICING_PHASES.indexOf(phase) === -1) return null;
+  const transitions = [];
+  if (Array.isArray(raw.transitions)) {
+    for (const entry of raw.transitions) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const at = numOrNull(entry.at);
+      const target = strOrNull(entry.phase);
+      if (at === null || target === null || PRICING_PHASES.indexOf(target) === -1) continue;
+      transitions.push({ at: at, phase: target });
+    }
+  }
+  transitions.sort(function (left, right) {
+    return left.at - right.at;
+  });
+  const offset = numOrNull(raw.utcOffsetMinutes);
+  const calendar = raw.holidayCalendar !== null && typeof raw.holidayCalendar === "object" && !Array.isArray(raw.holidayCalendar)
+    ? {
+      source: strOrNull(raw.holidayCalendar.source),
+      through: numOrNull(raw.holidayCalendar.through),
+      // Optional additive flag: an older host omits it, and the caveat below
+      // then falls back to the current-year check.
+      coversHorizon: typeof raw.holidayCalendar.coversHorizon === "boolean" ? raw.holidayCalendar.coversHorizon : null,
+    }
+    : null;
+  return {
+    phase: phase,
+    asOf: numOrNull(raw.asOf),
+    utcOffsetMinutes: offset === null ? PRICING_DEFAULT_OFFSET_MINUTES : offset,
+    holidayCalendar: calendar !== null && calendar.through !== null ? calendar : null,
+    transitions: transitions,
+  };
+}
+
+/**
+ * The phase at `nowMs` and the next change, derived from the host-shipped
+ * absolute transitions rather than from `asOf`.
+ *
+ * This is what keeps the reminder honest on a cached or restored snapshot: the
+ * host's read may be minutes old, but the browser clock decides where in the
+ * schedule "now" falls, so the banner flips exactly on the boundary.
+ *
+ * @param {object} pricing Normalized schedule.
+ * @param {number} nowMs Epoch ms.
+ * @returns {{ phase: string, nextAt: number|null, nextPhase: string|null }}
+ */
+function pricingStateAt(pricing, nowMs) {
+  let phase = pricing.phase;
+  for (const transition of pricing.transitions) {
+    if (transition.at <= nowMs) {
+      phase = transition.phase;
+      continue;
+    }
+    return { phase: phase, nextAt: transition.at, nextPhase: transition.phase };
+  }
+  // Beyond the shipped horizon (a snapshot older than the horizon): keep the
+  // last known phase and show no countdown instead of inventing one.
+  return { phase: phase, nextAt: null, nextPhase: null };
+}
+
+/**
+ * Human-readable duration until the next phase change, at most two units.
+ * @param {Function} t
+ * @param {number} nextAt Epoch ms.
+ * @param {number} nowMs Epoch ms.
+ * @returns {string}
+ */
+function pricingWhen(t, nextAt, nowMs) {
+  const remaining = nextAt - nowMs;
+  if (!isNum(remaining) || remaining <= 0) return t("pricing.when.soon");
+  // Count completed units, not rounded-up ones: a countdown that says "2 分钟"
+  // with 65 seconds left, or "1 天" with one second short of a day, reads like
+  // a glitch. The last second before a switch is "即将切换".
+  const seconds = Math.floor(remaining / 1000);
+  if (seconds < 60) return seconds === 0 ? t("pricing.when.soon") : t("pricing.when.seconds", { n: String(seconds) });
+  const totalMinutes = Math.floor(remaining / 60000);
+  if (totalMinutes < 60) return t("pricing.when.minutes", { n: String(totalMinutes) });
+  const totalHours = Math.floor(remaining / 3600000);
+  if (totalHours < 24) {
+    const hours = totalHours;
+    const minutes = Math.floor((remaining - totalHours * 3600000) / 60000);
+    if (minutes === 0) return t("pricing.when.hoursExact", { h: String(hours) });
+    return t("pricing.when.hours", { h: String(hours), m: String(minutes) });
+  }
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (hours === 0) return t("pricing.when.daysExact", { d: String(days) });
+  return t("pricing.when.days", { d: String(days), h: String(hours) });
+}
+
+/**
+ * The caveat shown when the schedule is only a weekday estimate: no calendar
+ * at all, or one that has not been updated to the current Beijing year.
+ *
+ * The wording matters — the host's fallback still bills ordinary weekdays as
+ * peak, so a stale calendar must never read as "today is definitely cheap".
+ *
+ * @param {Function} t
+ * @param {object} pricing Normalized schedule.
+ * @param {number} nowMs Epoch ms.
+ * @returns {string|null}
+ */
+function pricingCalendarCaveat(t, pricing, nowMs) {
+  const calendar = pricing.holidayCalendar;
+  if (calendar === null) return t("pricing.calendarUnavailable");
+  // The host ships a rolling horizon, so in late December the countdown can
+  // point at an unannounced next year while the current phase is still
+  // accurate. `coversHorizon` is the host's answer to that; the year comparison
+  // is the fallback for a host that predates the field.
+  if (calendar.coversHorizon === false) return t("pricing.calendarStale");
+  if (calendar.coversHorizon === null) {
+    const year = new Date(nowMs + pricing.utcOffsetMinutes * 60000).getUTCFullYear();
+    if (calendar.through < year) return t("pricing.calendarStale");
+  }
+  return null;
+}
+
+/**
+ * The raw `meta.pricing` of a provider row, only for DeepSeek (the one provider
+ * with a published peak/off-peak schedule). Other rows return null so the
+ * reminder can never leak onto a card it has nothing to do with.
+ * @param {object} provider Normalized provider row.
+ * @returns {unknown}
+ */
+function providerPricing(provider) {
+  if (provider.id !== "deepseek") return null;
+  const meta = provider.meta;
+  if (meta === null || typeof meta !== "object" || Array.isArray(meta)) return null;
+  return meta.pricing === undefined ? null : meta.pricing;
+}
+
+/**
  * A compact bar chart of recent daily spend, with the window total beside it.
  * @param {object} props series, t
  */
@@ -1662,6 +1935,113 @@ function DailyTrend(props) {
         children: bars,
       }),
       range === null ? null : jsx("span", { key: "range", className: "ub-trend-range", children: range }),
+    ],
+  });
+}
+
+/* ------------------------------------------------------------------------- *
+ * DeepSeek peak / off-peak billing reminder
+ *
+ * DeepSeek bills 09:00–12:00 and 14:00–18:00 Beijing time on workdays at full
+ * price, and every other instant (nights, weekends, statutory holidays) at
+ * half price. The host computes the schedule and ships it as
+ * `meta.pricing.transitions`; this half only walks those absolute instants
+ * against the panel's ticking clock, so the banner is live even on a snapshot
+ * restored from sessionStorage.
+ * ------------------------------------------------------------------------- */
+
+/** Sun: the peak-price marker. */
+function PeakGlyph() {
+  return jsxs("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.4,
+    strokeLinecap: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    children: [
+      jsx("circle", { key: "disc", cx: 8, cy: 8, r: 3.1 }),
+      jsx("path", { key: "rays", d: "M8 1.3v1.5M8 13.2v1.5M1.3 8h1.5M13.2 8h1.5M3.3 3.3l1 1M11.7 11.7l1 1M12.7 3.3l-1 1M4.3 11.7l-1 1" }),
+    ],
+  });
+}
+
+/** Crescent: the off-peak (cheap) marker. */
+function OffpeakGlyph() {
+  return jsx("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.4,
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    children: jsx("path", { d: "M12.7 10a5.4 5.4 0 0 1-6.3-6.6 5.4 5.4 0 1 0 6.3 6.6Z" }),
+  });
+}
+
+/**
+ * The DeepSeek billing reminder: current phase, the punny slogan the user asked
+ * for, and a live countdown to the next price change.
+ *
+ * The Chinese slogan swaps one character of DeepSeek founder 梁文峰's name:
+ * peak (峰) keeps it, off-peak (谷) makes him 梁文谷. The English dictionary
+ * transliterates the same swap.
+ *
+ * @param {object} props `pricing` (raw meta.pricing), `now` (epoch ms), `t`.
+ */
+function PricingReminder(props) {
+  const t = props.t;
+  const pricing = normalizePricing(props.pricing);
+  if (pricing === null) return null;
+  const nowMs = isNum(props.now) ? props.now : Date.now();
+  const state = pricingStateAt(pricing, nowMs);
+  const peak = state.phase === "peak";
+  const caveat = pricingCalendarCaveat(t, pricing, nowMs);
+  const countdown = state.nextAt === null
+    ? null
+    : t(state.nextPhase === "peak" ? "pricing.countdown.raise" : "pricing.countdown.drop", {
+      when: pricingWhen(t, state.nextAt, nowMs),
+    });
+  const foot = compact([
+    countdown === null ? null : jsx("span", { key: "when", className: "ub-price-when", children: countdown }),
+    jsx("span", { key: "tz", className: "ub-price-tz", children: t("pricing.timeZone") }),
+    caveat === null ? null : jsx("span", { key: "caveat", className: "ub-price-caveat", children: caveat }),
+  ]);
+  const title = caveat === null ? t("pricing.rule") : t("pricing.rule") + " " + caveat;
+  return jsxs("div", {
+    className: "ub-price",
+    "data-phase": peak ? "peak" : "offpeak",
+    title: title,
+    children: [
+      jsxs("div", {
+        key: "main",
+        className: "ub-price-main",
+        children: [
+          jsx("span", {
+            key: "icon",
+            className: "ub-price-icon",
+            "aria-hidden": "true",
+            children: peak ? jsx(PeakGlyph, {}) : jsx(OffpeakGlyph, {}),
+          }),
+          jsx("span", {
+            key: "slogan",
+            className: "ub-price-slogan",
+            children: t(peak ? "pricing.peakSlogan" : "pricing.offpeakSlogan"),
+          }),
+          jsx("span", {
+            key: "chip",
+            className: "ub-price-chip",
+            children: t(peak ? "pricing.peakChip" : "pricing.offpeakChip"),
+          }),
+        ],
+      }),
+      jsx("div", { key: "foot", className: "ub-price-foot", children: foot }),
     ],
   });
 }
@@ -2050,6 +2430,13 @@ function ProviderCard(props) {
     ? strOrNull(provider.account.masked)
     : null;
   const body = [];
+  // The billing reminder belongs to the DeepSeek card and to every state of it:
+  // the schedule describes DeepSeek's list price, not this account, so it is
+  // still true when the credential is missing or the upstream failed.
+  const pricing = providerPricing(provider);
+  if (pricing !== null) {
+    body.push(jsx(PricingReminder, { pricing: pricing, t: t, now: props.now }, "pricing"));
+  }
   if (!ok) {
     body.push(jsxs("div", {
       key: "state",

@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import vm from "node:vm";
 
+import { createPricingSnapshot } from "../src/host/pricing.js";
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relative) => readFileSync(join(ROOT, relative), "utf8");
 
@@ -25,6 +27,7 @@ const copySource = read("src/client/protocol-copy.js");
 const panelSource = read("src/client/panel.js");
 const styleSource = read("src/client/styles.css");
 const bundleSource = read("lib/client.js");
+const dashboardSource = read("src/host/web/dashboard.html");
 const manifest = JSON.parse(read("package.json"));
 
 const BUNDLE_ID = "dsh-plugin-usage-board";
@@ -224,6 +227,8 @@ function loadPanelUnit() {
     "  normalizeWindow, normalizeBalance, normalizeProvider, normalizeSnapshot,",
     "  describeFailure, collectHosts, translateOf, bindPanelTranslate,",
     "  providerTrend, trendScale, asErrorLike, DAILY_TREND_POINTS,",
+    "  normalizePricing, pricingStateAt, pricingWhen, pricingCalendarCaveat,",
+    "  providerPricing, PricingReminder, PRICING_PHASES,",
     "  providerMessage, derivedPercentOf,",
     "  UsageBoardPanel, UsageBoardPanelIcon, zh, en,",
     "};",
@@ -289,7 +294,8 @@ function findByClass(tree, className) {
  *   leave the request pending, `storage` to install a sessionStorage stand-in
  *   (pass `null` for "no storage at all", or a throwing stub), `browser` to add
  *   a fake `document`, IntersectionObserver and clock so the auto-refresh gate
- *   becomes drivable.
+ *   becomes drivable, `now` to freeze the clock at an instant (the billing
+ *   reminder renders from `Date.now()`, so its tests need a chosen moment).
  * @returns {object} mount/settle/advance plus the request log and the storage.
  */
 function createRenderer(options = {}) {
@@ -302,7 +308,7 @@ function createRenderer(options = {}) {
   let hookIndex = 0;
   let dirty = false;
   let tree = null;
-  let nowMs = 0;
+  let nowMs = typeof options.now === "number" ? options.now : 0;
   let timerSeq = 0;
   let renderCount = 0;
   let intervalSeq = 0;
@@ -429,12 +435,20 @@ function createRenderer(options = {}) {
     },
     console,
   });
+  if (options.browser === true || typeof options.now === "number") {
+    // The gate reads Date.now() for idleness and the billing reminder reads it
+    // for the countdown; freeze now() to the harness clock so both are
+    // drivable, while keeping a real constructor for `new Date(...)`.
+    class HarnessDate extends Date {
+      static now() {
+        return nowMs;
+      }
+    }
+    context.Date = HarnessDate;
+  }
   if (options.browser === true) {
     context.document = fakeDocument;
     context.IntersectionObserver = ioSink.klass;
-    // The gate reads Date.now() for idleness; freeze it to the harness clock so
-    // `advance()` moves idleness deterministically.
-    context.Date = { now: () => nowMs };
   }
   if (options.storage === null) {
     // Deliberately leave `sessionStorage` undefined in the VM global.
@@ -1766,4 +1780,265 @@ test("the stylesheet styles with DSH alias tokens and always keeps a fallback", 
   const bare = [...styleSource.matchAll(/var\(\s*(--d(?:sw|sh)-[a-zA-Z0-9-]+)\s*\)/g)].map((match) => match[1]);
   assert.deepEqual(bare, [], `these frame tokens are read without a fallback: ${bare.join(", ")}`);
   assert.ok(!styleSource.includes("`") && !styleSource.includes("${"), "styles.css must stay embeddable");
+});
+
+// --------------------------------------- DeepSeek peak / off-peak reminder ---
+
+/**
+ * A Beijing wall-clock instant as epoch ms. The tests spell times in Beijing
+ * time because that is the timezone the official rule is defined in; reading
+ * them in the local timezone would make the suite TZ-dependent.
+ * @param {string} iso e.g. '2026-10-19T08:59:30'
+ * @returns {number}
+ */
+const bj = (iso) => Date.parse(`${iso}+08:00`);
+
+/** Stub holiday calendar: the 2026 arrangement is "covered", nothing is a holiday. */
+const weekdayCalendar = {
+  source: "stub-calendar",
+  isWorkday(dateKey) {
+    const weekday = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
+    return weekday !== 0 && weekday !== 6;
+  },
+  coversYear(year) {
+    return year <= 2026;
+  },
+};
+
+/**
+ * One-provider envelope with the billing schedule the host would attach.
+ * @param {number} nowMs The host read instant (and the pricing schedule's asOf).
+ * @param {{calendar?: object|null, status?: string, provider?: object, includePricing?: boolean}} [options]
+ */
+function billingBody(nowMs, options = {}) {
+  const status = options.status ?? "ok";
+  const provider = options.provider ?? {
+    id: "deepseek",
+    label: "DeepSeek",
+    status,
+    balances: status === "ok" ? [{ currency: "CNY", available: 43.38, bonus: 44.59, totalSpent: 163.84 }] : [],
+    windows: [],
+  };
+  const meta = { host: "platform.deepseek.com" };
+  if (options.includePricing !== false) {
+    meta.pricing = createPricingSnapshot(nowMs, options.calendar === undefined ? weekdayCalendar : options.calendar);
+  }
+  return {
+    protocolVersion: 1,
+    ok: status === "ok",
+    ttlMs: 60_000,
+    providers: [{ ...provider, meta }],
+  };
+}
+
+test("the DeepSeek card reminds you which side of the peak the bill is on", async () => {
+  const now = bj("2026-10-19T10:00:00"); // Monday, inside the 09:00–12:00 peak
+  const renderer = createRenderer({ now, body: billingBody(now) });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /现在是梁文峰时段！/, "the peak slogan (the 峰 pun) must be on the card");
+  assert.match(text, /高峰 · 标准价/);
+  assert.match(text, /距降价 2 小时/, "peak ends at 12:00, so the next move is a price drop");
+  assert.match(text, /北京时间/);
+  const reminder = findByClass(tree, "ub-price");
+  assert.ok(reminder !== null, "the reminder must render on the DeepSeek card");
+  assert.equal(reminder.props["data-phase"], "peak");
+  assert.match(reminder.props.title, /周一至周五 09:00–12:00、14:00–18:00/);
+  assert.equal(findByClass(tree, "ub-card").props["data-provider"], "deepseek");
+});
+
+test("off-peak renders the valley pun, the 5折 chip and a rise countdown", async () => {
+  const now = bj("2026-10-18T10:51:57"); // Sunday: off-peak all day
+  const renderer = createRenderer({ now, body: billingBody(now) });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /现在是梁文谷时段！/, "off-peak swaps 峰 for 谷 in the founder's name");
+  assert.match(text, /空闲 · 5 折/);
+  assert.match(text, /距涨价/, "the next change is Monday 09:00, a price rise");
+  const reminder = findByClass(tree, "ub-price");
+  assert.equal(reminder.props["data-phase"], "offpeak");
+  assert.ok(!text.includes("现在是梁文峰时段！"), "the two slogans are mutually exclusive per render");
+});
+
+test("the reminder flips on the boundary from the panel's own clock, without a refetch", async () => {
+  const now = bj("2026-10-19T08:59:30"); // 30s before the Monday peak opens
+  const renderer = createRenderer({ now, body: billingBody(now) });
+  let tree = await renderer.render();
+  assert.match(treeText(tree), /现在是梁文谷时段！/);
+  assert.match(treeText(tree), /距涨价 30 秒/);
+  assert.equal(renderer.requests.length, 1);
+
+  await renderer.advance(30_000); // now == 09:00:00 Beijing
+  renderer.fireInterval(1000); // the panel's one-second clock
+  tree = await renderer.settle();
+
+  assert.match(treeText(tree), /现在是梁文峰时段！/, "the banner must flip exactly on the boundary");
+  assert.match(treeText(tree), /距降价 3 小时/);
+  assert.equal(findByClass(tree, "ub-price").props["data-phase"], "peak");
+  assert.equal(renderer.requests.length, 1, "flipping the banner must not trigger a request");
+});
+
+test("the reminder only ever appears on the DeepSeek card", async () => {
+  const now = bj("2026-10-19T10:00:00");
+  const renderer = createRenderer({
+    now,
+    body: billingBody(now, {
+      provider: { id: "glm", label: "GLM Coding Plan", status: "ok", windows: [], balances: [] },
+    }),
+  });
+  const tree = await renderer.render();
+  assert.equal(findByClass(tree, "ub-price"), null, "a schedule must not leak onto another provider's card");
+});
+
+test("a host without the additive schedule renders the card without the reminder", async () => {
+  const now = bj("2026-10-19T10:00:00");
+  const renderer = createRenderer({ now, body: billingBody(now, { includePricing: false }) });
+  const tree = await renderer.render();
+  assert.equal(findByClass(tree, "ub-price"), null);
+  assert.match(treeText(tree), /余额/, "the rest of the DeepSeek card still renders");
+});
+
+test("the reminder survives a non-ok DeepSeek row: the list price is not account state", async () => {
+  const now = bj("2026-10-19T10:00:00");
+  const renderer = createRenderer({
+    now,
+    body: billingBody(now, {
+      status: "unauthorized",
+      provider: { id: "deepseek", label: "DeepSeek", status: "unauthorized", code: "401", windows: [], balances: [] },
+    }),
+  });
+  const tree = await renderer.render();
+  assert.match(treeText(tree), /现在是梁文峰时段！/);
+  assert.match(treeText(tree), /未授权/);
+});
+
+test("a holiday calendar that does not cover the year is disclosed, never silently trusted", async () => {
+  const now = bj("2026-10-19T10:00:00");
+  const staleCalendar = { ...weekdayCalendar, coversYear: (year) => year <= 2025 };
+  const renderer = createRenderer({ now, body: billingBody(now, { calendar: staleCalendar }) });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /节假日日历尚未覆盖完整计划区间，暂按工作日估算。/);
+  assert.match(text, /现在是梁文峰时段！/, "the weekday estimate still renders");
+  const reminder = findByClass(tree, "ub-price");
+  assert.match(reminder.props.title, /暂按工作日估算/, "the caveat is also in the hover description");
+});
+
+test("a countdown that reaches an unannounced year is disclosed as an estimate", async () => {
+  // Mid-December: the shipped horizon reaches into 2027, which the 2026-only
+  // calendar cannot vouch for. The banner must keep the countdown but add the
+  // caveat — otherwise it would promise a cheap window on New Year's Day.
+  const now = bj("2026-12-18T10:00:00");
+  const renderer = createRenderer({ now, body: billingBody(now) });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /现在是梁文峰时段！/);
+  assert.match(text, /节假日日历尚未覆盖完整计划区间，暂按工作日估算。/);
+  assert.match(text, /距降价|距涨价/, "the countdown is still shown");
+  void renderer;
+});
+
+test("no holiday calendar at all is disclosed as an estimate", async () => {
+  const now = bj("2026-10-19T10:00:00");
+  const renderer = createRenderer({ now, body: billingBody(now, { calendar: null }) });
+  const tree = await renderer.render();
+  assert.match(treeText(tree), /未安装节假日日历，暂按工作日估算。/);
+  assert.equal(findByClass(tree, "ub-price").props["data-phase"], "peak");
+});
+
+test("normalizePricing rejects a schedule this build cannot read", () => {
+  const unit = loadPanelUnit();
+  for (const hostile of [null, undefined, 42, "peak", [], {}, { phase: "cheap" }, { phase: null }]) {
+    assert.equal(unit.normalizePricing(hostile), null, `accepted ${JSON.stringify(hostile)}`);
+  }
+  const normalized = plain(unit.normalizePricing({
+    phase: "offpeak",
+    asOf: 1000,
+    utcOffsetMinutes: 480,
+    transitions: [
+      { at: 3000, phase: "peak" },
+      { at: 2000, phase: "offpeak" },
+      { at: "nope", phase: "peak" },
+      { at: 4000, phase: "weird" },
+    ],
+    holidayCalendar: { source: "chinese-days", through: 2026, coversHorizon: true },
+  }));
+  assert.equal(normalized.phase, "offpeak");
+  assert.deepEqual(normalized.transitions.map((entry) => entry.at), [2000, 3000], "transitions are sorted and hostile rows dropped");
+  assert.deepEqual(normalized.holidayCalendar, { source: "chinese-days", through: 2026, coversHorizon: true });
+  // A malformed calendar is treated as "no calendar" rather than half-used.
+  assert.equal(plain(unit.normalizePricing({ phase: "peak", holidayCalendar: { through: "2026" } })).holidayCalendar, null);
+});
+
+test("pricingStateAt and the countdown strings cover the units a user can see", () => {
+  const unit = loadPanelUnit();
+  const schedule = plain(unit.normalizePricing({
+    phase: "offpeak",
+    transitions: [{ at: 10_000, phase: "peak" }, { at: 20_000, phase: "offpeak" }],
+  }));
+  assert.deepEqual(plain(unit.pricingStateAt(schedule, 5_000)), { phase: "offpeak", nextAt: 10_000, nextPhase: "peak" });
+  assert.deepEqual(plain(unit.pricingStateAt(schedule, 10_000)), { phase: "peak", nextAt: 20_000, nextPhase: "offpeak" });
+  assert.deepEqual(plain(unit.pricingStateAt(schedule, 25_000)), { phase: "offpeak", nextAt: null, nextPhase: null });
+
+  const t = translateSeat(unit.zh);
+  const startsAt = (offset) => 1_000_000 + offset;
+  const now = 1_000_000;
+  assert.equal(unit.pricingWhen(t, startsAt(45_000), now), "45 秒");
+  assert.equal(unit.pricingWhen(t, startsAt(65_000), now), "1 分钟", "65s must not round up to 2 minutes");
+  assert.equal(unit.pricingWhen(t, startsAt(30 * 60_000), now), "30 分钟");
+  assert.equal(unit.pricingWhen(t, startsAt(3 * 3_600_000), now), "3 小时");
+  assert.equal(unit.pricingWhen(t, startsAt((2 * 60 + 8) * 60_000), now), "2 小时 8 分");
+  assert.equal(unit.pricingWhen(t, startsAt((24 * 3_600 - 1) * 1000), now), "23 小时 59 分", "one second short of a day is not 1 天");
+  assert.equal(unit.pricingWhen(t, startsAt(26 * 3_600_000), now), "1 天 2 小时");
+  assert.equal(unit.pricingWhen(t, startsAt(48 * 3_600_000), now), "2 天");
+  assert.equal(unit.pricingWhen(t, now - 1, now), "即将切换");
+  assert.equal(unit.pricingWhen(t, now + 400, now), "即将切换", "the last second reads as imminent, not 0 秒");
+});
+
+test("both renderers ship the same DeepSeek billing copy and honour the schedule", () => {
+  const unit = loadPanelUnit();
+  for (const key of ["pricing.peakSlogan", "pricing.offpeakSlogan", "pricing.peakChip", "pricing.offpeakChip"]) {
+    assert.ok(dashboardSource.includes(unit.zh[key]), `standalone page lost the zh copy for ${key}`);
+  }
+  for (const phrase of ["距涨价", "距降价", "北京时间"]) {
+    assert.ok(dashboardSource.includes(phrase), `standalone page lost the countdown wording: ${phrase}`);
+  }
+  // Both renderers must derive the live phase from the host-shipped transitions
+  // instead of trusting `asOf`; a static slogan alone would go stale.
+  assert.ok(dashboardSource.includes("pricingStateAt"));
+  assert.ok(dashboardSource.includes("row.meta.pricing"));
+  assert.ok(dashboardSource.includes("coversHorizon"), "both renderers must honour the horizon-coverage flag");
+});
+
+test("the billing reminder is styled for both phases", () => {
+  assert.ok(styleSource.includes(".ub-price[data-phase=\"peak\"]"));
+  assert.ok(styleSource.includes(".ub-price[data-phase=\"offpeak\"]"));
+  assert.ok(styleSource.includes(".ub-price-slogan"));
+  assert.ok(styleSource.includes(".ub-price-chip"));
+  assert.ok(styleSource.includes("var(--ub-warn-soft)"));
+  assert.ok(styleSource.includes("var(--ub-ok-soft)"));
+});
+
+test("the reminder has complete English copy too", () => {
+  const unit = loadPanelUnit();
+  const now = bj("2026-10-18T10:51:57");
+  const tree = unit.PricingReminder({
+    pricing: createPricingSnapshot(now, weekdayCalendar),
+    now,
+    t: translateSeat(unit.en),
+  });
+  const text = treeText(tree);
+  assert.match(text, /It's Liang Wengu hour!/);
+  assert.match(text, /Off-peak · 50% off/);
+  assert.match(text, /Price rises in /);
+  assert.match(text, /Beijing time/);
+  // The peak branch uses the other transliteration and the full-price chip.
+  const peak = unit.PricingReminder({
+    pricing: createPricingSnapshot(bj("2026-10-19T10:00:00"), weekdayCalendar),
+    now: bj("2026-10-19T10:00:00"),
+    t: translateSeat(unit.en),
+  });
+  assert.match(treeText(peak), /It's Liang Wenfeng hour!/);
+  assert.match(treeText(peak), /Peak · full price/);
+  assert.match(treeText(peak), /Price drops in /);
 });

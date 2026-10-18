@@ -93,7 +93,9 @@ export const QUOTA_PROVIDER_IDS = ['glm', 'kimi'];
  * @property {Balance[]} balances Empty array, never null.
  * @property {object|null} account Non-secret account identity, e.g. `{ masked: 'hy****er@hotmail.com' }`.
  * @property {object} meta Adapter-specific extras that have no normalized home, e.g.
- *   `{ host: 'open.bigmodel.cn', source: 'quota-api' }`. Never null.
+ *   `{ host: 'open.bigmodel.cn', source: 'quota-api' }`. Never null. The
+ *   DeepSeek row additionally carries `pricing`, the peak/off-peak billing
+ *   schedule documented as {@link PricingSchedule} below.
  * @property {number|null} fetchedAt Epoch ms of the upstream read backing this row.
  * @property {number|null} latencyMs
  */
@@ -151,6 +153,50 @@ export const MAX_DAILY_USAGE_DAYS = 31;
  * @property {string} currency
  * @property {number} days Count of trailing days requested.
  * @property {DailyUsagePoint[]} points At most {@link MAX_DAILY_USAGE_DAYS}, oldest first.
+ */
+
+/**
+ * DeepSeek's peak / off-peak billing phase.
+ *
+ * Peak is Beijing time (UTC+8), Monday–Friday excluding Chinese statutory
+ * holidays, 09:00–12:00 and 14:00–18:00; everything else — weekends and
+ * holidays all day included — is off-peak, at half the peak price.
+ *
+ * @typedef {'peak'|'offpeak'} PricingPhase
+ */
+
+/**
+ * One upcoming billing phase change, as an absolute instant.
+ * @typedef {object} PricingTransition
+ * @property {number} at Epoch ms at which `phase` starts.
+ * @property {PricingPhase} phase
+ */
+
+/**
+ * Peak/off-peak billing schedule attached to the DeepSeek row as
+ * `meta.pricing`. Additive metadata: a consumer that does not know it ignores
+ * it, and its absence means "no schedule available", never an error.
+ *
+ * All instants are absolute epoch milliseconds and the rule is fixed to Beijing
+ * time (`utcOffsetMinutes`), so a renderer needs only its own clock. The host
+ * recomputes the schedule on every read and ships a rolling horizon of
+ * transitions; a renderer walks them to find the phase at *its* current instant
+ * and the next change, which keeps the reminder live on a cached snapshot and
+ * spares the browser half from carrying a holiday calendar.
+ *
+ * @typedef {object} PricingSchedule
+ * @property {PricingPhase} phase Phase at `asOf`.
+ * @property {number} asOf Epoch ms the schedule was computed for.
+ * @property {number} utcOffsetMinutes 480 — the rule is defined in Beijing time.
+ * @property {number} offPeakMultiplier 0.5 — off-peak price / peak price.
+ * @property {{ source: string, through: number, coversHorizon: boolean }|null}
+ *   holidayCalendar The third-party holiday calendar backing the rule, the
+ *   latest announced year it covers, and whether that covers every instant in
+ *   `transitions` (`coversHorizon` is false when the shipped horizon reaches
+ *   into a year with no announced arrangement yet). Null when no calendar was
+ *   available at all, in which case the schedule fell back to the plain
+ *   weekday rule (and the UI says so).
+ * @property {PricingTransition[]} transitions Upcoming phase changes, oldest first.
  */
 
 /**

@@ -23,6 +23,8 @@ dsh-plugin-usage-board/
     │   ├── credentials.js    凭据读取
     │   ├── fetch-json.js     有界的 JSON HTTP 客户端
     │   ├── snapshot.js       快照组装 + 缓存
+    │   ├── pricing.js        DeepSeek 峰谷计费规则（时段边界 + 未来切换时刻）
+    │   ├── holiday-calendar.js  第三方节假日日历（chinese-days）的可选桥接
     │   ├── providers/        三家服务各自的适配器
     │   └── web/dashboard.html 独立页面（纯 HTML，不依赖面板）
     └── client/               浏览器半边源码（打包进 lib/client.js）
@@ -154,6 +156,12 @@ dsh-plugin-usage-board/
 }
 ```
 
+`meta` 里唯一有形状约定的扩展是 DeepSeek 行的 `pricing`（详见 `src/shared/protocol.js` 的
+`PricingSchedule`）：`phase`（当前时段）、`asOf`、`utcOffsetMinutes`（480，规则固定按北京时间）、
+`offPeakMultiplier`（0.5）、`holidayCalendar`（第三方日历、已覆盖到哪一年、是否覆盖整个计划区间）、以及 `transitions[]`
+（未来 14 天的绝对切换时刻，按时间升序）。它只增不改、缺失即「没有时段数据」，不认识它的消费者
+忽略即可。
+
 **`windows` 和 `balances` 都可以为空，而且这是正常状态，不是错误。** 这正是三家的差异所在：
 GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须能干净地渲染「这家不提供这类数据」，
 而不是把它当成失败。
@@ -188,6 +196,19 @@ GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须�
 - 每日历史：`/api/v0/usage/cost?month=&year=` → `data.biz_data[0].days[]`，31 天，金额是**字符串**。
 - 信封规则固定：`code === 0 && data.biz_code === 0`，载荷在 `data.biz_data`。
 - **没有额度窗口接口**，所以 `windows` 永远为空。不要为了「看起来完整」而编造一个。
+- **峰谷计费由主机侧计算、随快照下发。** 官方规则是：北京时间周一至周五（不含中国法定节假日）
+  09:00–12:00、14:00–18:00 为高峰，其余时间（含周末与节假日全天）为空闲，空闲价为高峰价的一半
+  （核对于 2026-10-18，来源见 `src/host/pricing.js` 的 `PRICING_SOURCE_URL`）。适配器把
+  `meta.pricing` 附加到**每一行**（包括失败行——这是 DeepSeek 的挂牌价，不是账户状态），其中
+  `transitions` 是未来 14 天的绝对切换时刻。前端不实现规则、也不带节假日表，只按浏览器时钟在
+  `transitions` 上取当前阶段和下次切换：这样缓存或从 `sessionStorage` 恢复的旧快照也能准时翻转，
+  并且两个渲染器读的是同一份数据，不会各算各的。
+- **节假日用第三方库，不手写表。** `chinese-days`（MIT、零传递依赖、精确锁版本）提供国务院公布的
+  放假与调休安排；`holiday-calendar.js` 用受保护的动态 `import()` 桥接它。依赖缺失、API 变形或
+  日历没覆盖当前年份时，规则降级为「只看周一至周五」，并把这个事实写进
+  `meta.pricing.holidayCalendar`（null，或 `coversHorizon: false`——12 月的计划区间会伸进尚未公布
+  放假的次年），界面据此显示「暂按工作日估算」，
+  而不是假装知道。调休上班日虽然被日历标为工作日，但规则只认周一至周五，所以它们保持空闲价。
 
 ### Kimi Code
 
@@ -238,3 +259,8 @@ GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须�
 - **`used + remaining` 不等于 `limit`。** GLM 实测 `656 + 1343 = 1999`，而 `usage` 是 `2000`（每周窗口同理：`5831 + 4168 = 9999 / 10000`）。这是上游自己少 1，我们**原样展示，不做任何补偿**——擅自把某个数字加减 1 会让卡片与官方后台对不上，反而更难排查。
 - **百分比以「用 `used / limit` 算出来的值」为准。** 上游上报的 `percentage` 是有意取整的（GLM 在 `656 / 2000` 时报 32，实际 32.8%）。协议里 `percent` 保留上游原值、`derivedPercent` 是本地算出的比例，界面优先用后者，这样「百分比」与旁边的 `656 / 2000` 永远自洽。上游原值不丢，便于核对。
 - **价格/金额不做汇率换算**：接口给什么币种就显示什么币种。
+- **峰谷规则与节假日数据都会变。** 高峰窗口取自 DeepSeek 官方价格页（核对于 2026-10-18），官方
+  调整时段后要同步改 `src/host/pricing.js`；国务院每年重新公布放假安排，插件把 `chinese-days`
+  精确锁版本，需要按 README 的步骤主动升级，否则新一年的法定节假日会先按工作日估算（界面有明确
+  标注）。`test/holidays.test.js` 用官方 2026 年放假表逐日核对，并故意断言「2027 年数据尚未收录」，
+  升级依赖时这条断言会提醒你重新核对。
