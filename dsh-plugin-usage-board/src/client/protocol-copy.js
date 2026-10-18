@@ -31,6 +31,30 @@ const SNAPSHOT_PATH = '/usage-board/api/snapshot';
  */
 const REFRESH_PATH = '/usage-board/api/refresh';
 
+/**
+ * HTTP path the host half serves ONE provider's envelope on.
+ *
+ * This is the decoupled read that lets a renderer paint each provider the
+ * moment *that* provider answers: a slow or hanging upstream holds back its own
+ * card only, never the whole board.
+ *
+ * - `GET` is the serving read and follows the same never-hide-numbers rule as
+ *   {@link SNAPSHOT_PATH}: a fresh cached row is returned at once, an expired
+ *   row is returned with `stale: true` while the host refreshes it behind the
+ *   response, and only a provider with no cached row makes the caller wait.
+ * - `POST` forces a fresh read of that one provider and waits for it.
+ *
+ * The body is a {@link UsageSnapshot} narrowed to exactly one row
+ * (`providers.length === 1`, `ok` derived from it, same `ttlMs`/`stale`/
+ * `refreshing` fields). The provider is selected by the `id` query parameter
+ * ({@link PROVIDER_QUERY_PARAM}); a missing or unknown id is a transport-level
+ * 400, never a provider failure, so it must not be rendered as a degraded row.
+ */
+const PROVIDER_PATH = '/usage-board/api/provider';
+
+/** Query parameter selecting the provider for {@link PROVIDER_PATH}. */
+const PROVIDER_QUERY_PARAM = 'id';
+
 /** HTTP prefix owning every route this plugin registers. */
 const ROUTE_PREFIX = '/usage-board';
 

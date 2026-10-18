@@ -214,6 +214,39 @@
   gap: 10px;
 }
 
+/* ---------- first-paint skeletons ---------- */
+
+/* One placeholder card per provider until that provider's own row lands. A
+   single global "loading…" line would hide which services are still coming;
+   these lines keep the card's rhythm so the numbers do not jump in later. */
+.ub-card[data-skeleton="true"] {
+  min-height: 104px;
+}
+
+.ub-skeleton-line,
+.ub-skeleton-bar {
+  display: block;
+  border-radius: 4px;
+  background: var(--ub-layer-3);
+}
+
+.ub-skeleton-line {
+  height: 10px;
+}
+
+.ub-skeleton-line[data-width="short"] {
+  width: 38%;
+}
+
+.ub-skeleton-line[data-width="wide"] {
+  width: 88%;
+}
+
+.ub-skeleton-bar {
+  height: 6px;
+  border-radius: 999px;
+}
+
 .ub-card-title-row {
   display: flex;
   align-items: baseline;

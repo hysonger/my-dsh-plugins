@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import vm from "node:vm";
 
 import { createPricingSnapshot } from "../src/host/pricing.js";
+import { PROVIDER_PATH, PROVIDER_QUERY_PARAM } from "../src/shared/protocol.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relative) => readFileSync(join(ROOT, relative), "utf8");
@@ -33,6 +34,25 @@ const manifest = JSON.parse(read("package.json"));
 const BUNDLE_ID = "dsh-plugin-usage-board";
 const NS = "usageBoard";
 const PANEL_ID = "usage-board";
+
+/** Known provider ids, in display order, mirroring the shared protocol. */
+const PROVIDER_IDS = ["deepseek", "glm", "kimi"];
+
+/** The URL the panel must use for one provider's envelope. */
+const providerUrl = (id) => `${PROVIDER_PATH}?${PROVIDER_QUERY_PARAM}=${encodeURIComponent(id)}`;
+
+/** The provider ids a request log touched, in issue order. */
+const requestIds = (renderer) => renderer.requests.map((request) => request.id);
+
+/** Every request the harness recorded for one provider. */
+const requestsFor = (renderer, id) => renderer.requests.filter((request) => request.id === id);
+
+/**
+ * Display labels the host adapters emit. The harness's fallback row for a
+ * provider absent from a fixture body uses them, so a partial fixture still
+ * behaves like the real host, which always answers with a row per requested id.
+ */
+const PROVIDER_LABELS = { deepseek: "DeepSeek", glm: "GLM Coding Plan", kimi: "Kimi Code" };
 
 /** Module aliases the shell's frozen platform table answers for every bundle. */
 const PLATFORM_ALIASES = [
@@ -89,6 +109,8 @@ const SHARED_DECLARATIONS = [
   "QUOTA_PROVIDER_IDS",
   "SNAPSHOT_PATH",
   "REFRESH_PATH",
+  "PROVIDER_PATH",
+  "PROVIDER_QUERY_PARAM",
   "ROUTE_PREFIX",
   "MAX_DAILY_USAGE_DAYS",
   "makeDailyUsage",
@@ -230,6 +252,8 @@ function loadPanelUnit() {
     "  normalizePricing, pricingStateAt, pricingWhen, pricingCalendarCaveat,",
     "  providerPricing, PricingReminder, PRICING_PHASES,",
     "  providerMessage, derivedPercentOf,",
+    "  providerUrl, providerRowOf, providerLabelFor, panelSlots, orderedProviders,",
+    "  mergedEnvelope, viewTtlMs, boardPhase,",
     "  UsageBoardPanel, UsageBoardPanelIcon, zh, en,",
     "};",
   ].join("\n");
@@ -274,29 +298,77 @@ function treeText(tree) {
   return parts.join(" | ");
 }
 
-/** First element carrying `className`, or null. */
-function findByClass(tree, className) {
-  let found = null;
+/** Every element carrying `className` in the tree, in walk order. */
+function findAllByClass(tree, className) {
+  const found = [];
   walk(tree, (node) => {
     const value = node.props.className;
-    if (found === null && typeof value === "string" && value.split(" ").includes(className)) found = node;
+    if (typeof value === "string" && value.split(" ").includes(className)) found.push(node);
   });
   return found;
 }
 
+/** First element carrying `className`, or null. */
+function findByClass(tree, className) {
+  return findAllByClass(tree, className)[0] ?? null;
+}
+
+/** First element inside `node` carrying `className`, or null. */
+function findByClassIn(node, className) {
+  return findByClass(node, className);
+}
+
+/** The provider card carrying `data-provider="id"`, or null. */
+function findCard(tree, id) {
+  let found = null;
+  walk(tree, (node) => {
+    if (found === null && node.props["data-provider"] === id) found = node;
+  });
+  return found;
+}
+
+/** Every provider card id currently rendered, in DOM order. */
+function cardIds(tree) {
+  const ids = [];
+  walk(tree, (node) => {
+    if (typeof node.props["data-provider"] === "string" && node.props.className === "ub-card") ids.push(node.props["data-provider"]);
+  });
+  return ids;
+}
+
+/** The skeleton card ids currently rendered, in DOM order. */
+function skeletonIds(tree) {
+  const ids = [];
+  walk(tree, (node) => {
+    if (node.props["data-skeleton"] === "true") ids.push(node.props["data-provider"]);
+  });
+  return ids;
+}
+
 /**
  * A stand-in for React: enough of the hook contract to mount UsageBoardPanel,
- * resolve fetches, advance fake timers, and hand back the element tree it
- * renders. The point is to exercise the branches a live host cannot produce on
- * demand — an empty card, a non-ok provider, a failed request, a stale answer,
- * a restored cache, a broken sessionStorage.
- * @param {object} [options] ok/status/body/reject for the fetch stub, `hold` to
- *   leave the request pending, `storage` to install a sessionStorage stand-in
- *   (pass `null` for "no storage at all", or a throwing stub), `browser` to add
- *   a fake `document`, IntersectionObserver and clock so the auto-refresh gate
- *   becomes drivable, `now` to freeze the clock at an instant (the billing
- *   reminder renders from `Date.now()`, so its tests need a chosen moment).
- * @returns {object} mount/settle/advance plus the request log and the storage.
+ * resolve per-provider fetches, advance fake timers, and hand back the element
+ * tree it renders. The point is to exercise the branches a live host cannot
+ * produce on demand — an empty card, a non-ok provider, a held/slow provider, a
+ * failed provider, a stale answer, a restored cache, a broken sessionStorage.
+ *
+ * The fetch stub speaks the real per-provider contract: every request must hit
+ * PROVIDER_PATH with a PROVIDER_QUERY_PARAM id, and the answer is the fixture
+ * envelope narrowed to that provider's row. A provider absent from the fixture
+ * gets the host's own "not-configured" row instead, because the real host always
+ * has a row for every id it is asked about.
+ *
+ * @param {object} [options]
+ *   - `body`: envelope every synthetic one-row answer is narrowed from.
+ *   - `ok`/`status`/`reject`/`hold`: global response controls. `reject` and
+ *     `hold` also accept an array of provider ids to target them independently.
+ *   - `providers`: per-provider overrides, e.g. `{ glm: { hold: true } }`.
+ *   - `storage`: sessionStorage stand-in (`null` for "no storage at all").
+ *   - `browser`: add a fake `document`, IntersectionObserver and clock so the
+ *     auto-refresh gate becomes drivable.
+ *   - `now`: freeze the clock at an instant (the billing reminder reads
+ *     `Date.now()`, so its tests need a chosen moment).
+ * @returns {object} mount/settle/advance/release plus the request log and storage.
  */
 function createRenderer(options = {}) {
   const slots = {};
@@ -305,6 +377,8 @@ function createRenderer(options = {}) {
   const intervals = [];
   const requests = [];
   const store = new Map();
+  const heldById = new Map();
+  const providerConfig = new Map(Object.entries(options.providers ?? {}));
   let hookIndex = 0;
   let dirty = false;
   let tree = null;
@@ -313,15 +387,14 @@ function createRenderer(options = {}) {
   let renderCount = 0;
   let intervalSeq = 0;
   const timers = new Map();
-  let pending = null;
   const ioSink = makeIntersectionObserverSink();
   const fakeDocument = makeFakeDocument();
   let payload = {
     ok: options.ok !== false,
     status: options.status ?? 200,
     body: options.body,
-    reject: options.reject === true,
-    hold: options.hold === true,
+    reject: options.reject ?? false,
+    hold: options.hold ?? false,
   };
 
   // A real-enough sessionStorage: the panel must work with one, without one,
@@ -337,6 +410,39 @@ function createRenderer(options = {}) {
       },
     }
     : options.storage;
+
+  /** A control that is either "for every provider" or a provider-id list. */
+  const flagFor = (value, id) => value === true || (Array.isArray(value) && value.includes(id));
+
+  /**
+   * Narrow the fixture envelope to the one row a PROVIDER_PATH answer carries,
+   * exactly like the host's per-provider route. A provider missing from the
+   * fixture gets a not-configured row so tests only spell out the providers
+   * they assert on.
+   */
+  const providerResponse = (id, sourceBody) => {
+    const source = sourceBody !== null && typeof sourceBody === "object" ? sourceBody : {};
+    const rows = Array.isArray(source.providers) ? source.providers : [];
+    const match = rows.find((row) => row !== null && typeof row === "object" && row.id === id);
+    const row = match ?? {
+      id: id,
+      label: PROVIDER_LABELS[id] ?? id,
+      status: "not-configured",
+      messageKey: "notConfigured",
+      windows: [],
+      balances: [],
+    };
+    const body = {
+      protocolVersion: typeof source.protocolVersion === "number" ? source.protocolVersion : 1,
+      generatedAt: typeof source.generatedAt === "number" ? source.generatedAt : nowMs,
+      ok: row.status === "ok",
+      ttlMs: typeof source.ttlMs === "number" ? source.ttlMs : 60_000,
+      providers: [row],
+    };
+    if (source.stale === true) body.stale = true;
+    if (source.refreshing === true) body.refreshing = true;
+    return body;
+  };
 
   const react = {
     useState(initial) {
@@ -388,25 +494,59 @@ function createRenderer(options = {}) {
     }
     return element;
   };
+  /**
+   * Current response controls for one provider. Evaluated at answer time, not
+   * only at request time: a test that holds a request, calls setPayload(), and
+   * then releases it expects the NEW body — exactly like a real server reading
+   * its state when it finally answers.
+   */
+  const configFor = (id) => {
+    const override = providerConfig.get(id) ?? {};
+    const has = (key) => Object.prototype.hasOwnProperty.call(override, key);
+    return {
+      ok: has("ok") ? override.ok : payload.ok,
+      status: has("status") ? override.status : payload.status,
+      reject: has("reject") ? override.reject : flagFor(payload.reject, id),
+      hold: has("hold") ? override.hold : flagFor(payload.hold, id),
+      body: has("body") ? override.body : payload.body,
+    };
+  };
+  const settleResponse = (id) => {
+    const config = configFor(id);
+    if (config.reject === true) return Promise.reject(new TypeError("Failed to fetch"));
+    if (config.reject === "timeout") {
+      // The shape requestJson classifies as a timeout: an AbortError.
+      const aborted = new Error("The operation was aborted.");
+      aborted.name = "AbortError";
+      return Promise.reject(aborted);
+    }
+    return Promise.resolve({
+      ok: config.ok,
+      status: config.status,
+      json: () => Promise.resolve(providerResponse(id, config.body)),
+    });
+  };
   const context = vm.createContext({
     react,
     jsxRuntime: { jsx: createElement, jsxs: createElement, Fragment: "Fragment" },
     fetch(url, init) {
-      requests.push({ url: String(url), method: init !== undefined && init.method ? init.method : "GET" });
-      if (payload.reject === true) return Promise.reject(new TypeError("Failed to fetch"));
-      if (payload.hold === true) {
-        return new Promise((resolve) => {
-          pending = () => resolve({
-            ok: payload.ok,
-            status: payload.status,
-            json: () => Promise.resolve(payload.body),
-          });
-        });
+      const target = new URL(String(url), "http://usage-board.test");
+      const id = target.searchParams.get(PROVIDER_QUERY_PARAM);
+      if (target.pathname !== PROVIDER_PATH || id === null) {
+        // The panel must never touch the aggregate routes any more: a regression
+        // has to fail the test loudly instead of quietly passing an aggregate
+        // body off as one provider's answer.
+        throw new TypeError(`the panel fetched a non-provider URL: ${String(url)}`);
       }
-      return Promise.resolve({
-        ok: payload.ok,
-        status: payload.status,
-        json: () => Promise.resolve(payload.body),
+      const method = init !== undefined && init.method ? init.method : "GET";
+      requests.push({ url: String(url), method, id });
+      if (configFor(id).hold !== true) return settleResponse(id);
+      return new Promise((resolve, reject) => {
+        const queue = heldById.get(id) ?? [];
+        queue.push(() => {
+          settleResponse(id).then(resolve, reject);
+        });
+        heldById.set(id, queue);
       });
     },
     AbortController: function AbortController() {
@@ -504,11 +644,19 @@ function createRenderer(options = {}) {
     setPayload(next) {
       payload = { ...payload, ...next };
     },
-    /** Release a request started with `hold: true`. */
-    release() {
-      const resolve = pending;
-      pending = null;
-      if (resolve !== undefined) resolve();
+    /** Override one provider's response controls from here on. */
+    setProviderOptions(id, patch) {
+      providerConfig.set(id, { ...(providerConfig.get(id) ?? {}), ...patch });
+    },
+    /** Release held responses: one specific provider's, or every held one. */
+    release(id) {
+      const ids = id === undefined ? [...heldById.keys()] : [id];
+      for (const key of ids) {
+        const queue = heldById.get(key);
+        heldById.delete(key);
+        if (queue === undefined) continue;
+        for (const resolve of queue) resolve();
+      }
     },
     /** Mount without letting anything settle: this is the first painted frame. */
     mount() {
@@ -541,7 +689,7 @@ function createRenderer(options = {}) {
       nowMs = until;
       return this.settle(3);
     },
-    /** Mount, let the fetch settle, and render again with the resulting state. */
+    /** Mount, let the fetches settle, and render again with the resulting state. */
     async render() {
       this.mount();
       return this.settle();
@@ -661,7 +809,16 @@ test("protocol-copy.js and lib/client.js carry every shared declaration verbatim
 
 test("the copied constants keep their shared values", () => {
   const line = (source, prefix) => source.split("\n").find((entry) => entry.trim().startsWith(prefix));
-  for (const name of ["PROTOCOL_VERSION", "PROVIDER_IDS", "QUOTA_PROVIDER_IDS", "SNAPSHOT_PATH", "REFRESH_PATH", "ROUTE_PREFIX"]) {
+  for (const name of [
+    "PROTOCOL_VERSION",
+    "PROVIDER_IDS",
+    "QUOTA_PROVIDER_IDS",
+    "SNAPSHOT_PATH",
+    "REFRESH_PATH",
+    "PROVIDER_PATH",
+    "PROVIDER_QUERY_PARAM",
+    "ROUTE_PREFIX",
+  ]) {
     assert.equal(
       line(copySource, `const ${name} =`),
       line(sharedSource, `export const ${name} =`).replace(/^export /, ""),
@@ -961,19 +1118,24 @@ test("(a) a snapshot restored from sessionStorage paints in the FIRST frame, wit
   assert.match(firstText, /32\.8%/, "the cached numbers must be on screen before any request settles");
   assert.match(firstText, /656 \/ 2,000/);
   assert.match(firstText, /GLM Coding Lite/);
+  // Providers the cache does not carry get their own skeletons, not one global
+  // loading paragraph: the panel says which services are still coming.
+  assert.deepEqual(skeletonIds(first), ["deepseek", "kimi"]);
   assert.ok(!firstText.includes("正在读取用量数据"), "a restored snapshot must not show the loading copy");
   assert.equal(findByClass(first, "ub-root").props["data-phase"], "ready");
-  // The mount fetch is still allowed to be in flight — the cache is a head
-  // start, not a substitute for revalidating.
-  assert.equal(renderer.requests.length, 1, "the panel must still revalidate on mount");
+  // One revalidation read per provider is still allowed to be in flight — the
+  // cache is a head start, not a substitute for revalidating.
+  assert.deepEqual(requestIds(renderer), PROVIDER_IDS, "the panel must revalidate every provider on mount");
 });
 
-test("(a2) a genuinely empty visit is the only thing that shows the loading copy", async () => {
+test("(a2) a genuinely empty first visit paints one skeleton card per provider", async () => {
   const renderer = createRenderer({ hold: true });
   const first = renderer.mount();
-  const text = treeText(first);
-  assert.match(text, /正在读取用量数据/);
   assert.equal(findByClass(first, "ub-root").props["data-phase"], "loading");
+  assert.deepEqual(cardIds(first), PROVIDER_IDS, "one loading card per known provider, in display order");
+  assert.deepEqual(skeletonIds(first), PROVIDER_IDS);
+  assert.equal(findByClass(first, "ub-note"), null, "there must be no single global loading paragraph");
+  assert.deepEqual(requestIds(renderer), PROVIDER_IDS, "the first paint asks every provider concurrently");
 });
 
 test("(b) a corrupt or wrong-version stored payload falls back to loading without throwing", async () => {
@@ -990,7 +1152,7 @@ test("(b) a corrupt or wrong-version stored payload falls back to loading withou
     renderer.storage.setItem(renderer.storeKey, raw);
     const first = renderer.mount();
     assert.equal(findByClass(first, "ub-root").props["data-phase"], "loading", `${label} must not be trusted`);
-    assert.match(treeText(first), /正在读取用量数据/, label);
+    assert.deepEqual(skeletonIds(first), PROVIDER_IDS, label);
   }
 });
 
@@ -1000,8 +1162,11 @@ test("(b2) a corrupt stored payload is replaced once a real answer arrives", asy
   const tree = await renderer.render();
   assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
   assert.match(treeText(tree), /32\.8%/);
-  // The good answer is written back for the next visit.
-  assert.equal(JSON.parse(renderer.storage.getItem(renderer.storeKey)).protocolVersion, 1);
+  // The good merged answer is written back for the next visit: one row for
+  // every provider the host answered for (the fixture only spells out GLM).
+  const stored = JSON.parse(renderer.storage.getItem(renderer.storeKey));
+  assert.equal(stored.protocolVersion, 1);
+  assert.deepEqual(stored.providers.map((row) => row.id), PROVIDER_IDS);
 });
 
 test("(c) an in-flight refresh keeps the previous numbers on screen", async () => {
@@ -1013,6 +1178,7 @@ test("(c) an in-flight refresh keeps the previous numbers on screen", async () =
   assert.match(whileBusy, /32\.8%/, "the previous numbers must survive an in-flight request");
   assert.ok(!whileBusy.includes("正在读取用量数据"));
   assert.match(whileBusy, /正在刷新…/, "busy is expressed on the freshness line, not by blanking the body");
+  assert.deepEqual(skeletonIds(renderer.mount()), ["deepseek", "kimi"], "only the uncached providers are still loading");
   const button = findByClass(renderer.mount(), "ub-refresh");
   assert.equal(button.props.disabled, true, "the busy state lives on the header control");
   assert.equal(button.props["aria-busy"], "true");
@@ -1027,29 +1193,49 @@ test("(c2) a failing background refresh keeps the restored numbers and adds the 
   assert.ok(!text.includes("重试"));
   assert.match(text, /刷新失败/);
   assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
+  assert.deepEqual(cardIds(tree), PROVIDER_IDS, "every provider keeps its slot on a refresh failure");
+  assert.equal(findCard(tree, "glm").props["data-status"], "ok", "the restored row is still rendered");
+  // A provider with no old numbers gets its own local failure card instead of
+  // one board-wide error: the failed read must not blank the working providers.
+  assert.equal(findCard(tree, "deepseek").props["data-status"], "network-error");
+  assert.match(treeText(findCard(tree, "deepseek")), /无法连接实例的用量服务/);
 });
 
-test("(d) a stale answer earns exactly one follow-up read, and never becomes a poll", async () => {
+test("(d) a stale answer earns exactly one follow-up read per provider, and never becomes a poll", async () => {
   const renderer = createRenderer({ hold: true });
-  renderer.mount();
-  await renderer.settle();
-  assert.equal(renderer.requests.length, 1);
+  await renderer.render();
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length);
 
-  // The host answers from a cache it is refreshing behind.
+  // Every host answer comes from a cache it is refreshing behind.
   renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true, refreshing: true }) });
   renderer.release();
   await renderer.settle();
-  assert.equal(renderer.requests.length, 1, "the stale body itself is already the first read");
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length, "the stale bodies are already the first reads");
 
   await renderer.advance(1400);
-  assert.equal(renderer.requests.length, 1, "the follow-up must wait for its delay, not fire immediately");
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length,
+    "the follow-up must wait for its delay, not fire immediately",
+  );
 
-  // The follow-up fires, and the host answers stale AGAIN: no second follow-up.
+  // The follow-ups fire and the host answers stale AGAIN: no second follow-up.
   renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true, refreshing: true }) });
   await renderer.advance(200);
-  assert.equal(renderer.requests.length, 2, "exactly one follow-up per stale answer");
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length * 2,
+    "exactly one follow-up per stale provider",
+  );
+  for (const id of PROVIDER_IDS) {
+    assert.equal(requestsFor(renderer, id).length, 2, `${id} must have exactly one follow-up`);
+  }
   await renderer.advance(30_000);
-  assert.equal(renderer.requests.length, 2, "a still-stale host must not turn the follow-up into a busy loop");
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length * 2,
+    "a still-stale host must not turn the follow-up into a busy loop",
+  );
 });
 
 test("(d2) a fresh answer after the follow-up replaces the cached numbers in place", async () => {
@@ -1079,18 +1265,25 @@ test("(d2) a fresh answer after the follow-up replaces the cached numbers in pla
   assert.match(text, /50\.0%/, "the follow-up must land the fresh numbers");
   assert.match(text, /1,000 \/ 2,000/);
   assert.ok(!text.includes("32.8%"), "the stale reading must be replaced, not merged");
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length * 2,
+    "only the three fresh follow-ups ran after the stale mount reads",
+  );
 });
 
-test("(d3) a manual refresh that answers stale still earns its one follow-up", async () => {
+test("(d3) a manual refresh that answers stale still earns one follow-up per provider", async () => {
   const renderer = createRenderer({ hold: true });
-  renderer.mount();
-  await renderer.settle();
+  await renderer.render();
   renderer.setPayload({ hold: false, body: storedEnvelope({ stale: true }) });
   renderer.release();
   await renderer.settle();
   await renderer.advance(2000);
-  const afterStaleCycle = renderer.requests.length;
-  assert.equal(afterStaleCycle, 2);
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length * 2,
+    "the mount's stale answers each earned one follow-up",
+  );
 
   // Now the user presses refresh; the POST waits server-side, so a stale flag
   // there is unusual, but the follow-up contract still holds.
@@ -1098,9 +1291,28 @@ test("(d3) a manual refresh that answers stale still earns its one follow-up", a
   const tree = renderer.mount();
   findByClass(tree, "ub-refresh").props.onClick();
   await renderer.settle();
-  assert.equal(renderer.requests.length, 3);
-  assert.equal(renderer.requests[2].url, "/usage-board/api/refresh");
-  assert.equal(renderer.requests[2].method, "POST");
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length * 3,
+    "manual refresh is one POST per provider",
+  );
+  for (const id of PROVIDER_IDS) {
+    const calls = requestsFor(renderer, id);
+    assert.equal(calls.length, 3);
+    assert.equal(calls[2].url, providerUrl(id));
+    assert.equal(calls[2].method, "POST");
+    assert.equal(calls[0].method, "GET", "automatic reads are GETs");
+  }
+
+  // The stale POST answers earn their own bounded follow-ups, still GETs.
+  await renderer.advance(2000);
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length * 4);
+  for (const id of PROVIDER_IDS) {
+    const calls = requestsFor(renderer, id);
+    assert.equal(calls.length, 4);
+    assert.equal(calls[3].url, providerUrl(id));
+    assert.equal(calls[3].method, "GET");
+  }
 });
 
 // ------------------------------------------- auto-refresh gate (idle pause) ---
@@ -1119,7 +1331,7 @@ const IDLE_TEST_MS = 4 * 60 * 1000;
 test("(g1) an idle panel skips the auto poll, and one input event picks it back up", async () => {
   const renderer = createRenderer({ browser: true, body: storedEnvelope() });
   await renderer.render();
-  assert.equal(renderer.requests.length, 1, "the mount read still happens");
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length, "the mount read still happens per provider");
 
   // Walk away: no input at all, the clock runs past the idle budget, the gate
   // recheck (no events announce idling out) closes the gate.
@@ -1128,26 +1340,34 @@ test("(g1) an idle panel skips the auto poll, and one input event picks it back 
   const quiet = renderer.requests.length;
   renderer.fireInterval(AUTO_REFRESH_INTERVAL_MS);
   await renderer.settle();
-  assert.equal(renderer.requests.length, quiet, "an idle panel must skip the upstream read");
+  assert.equal(renderer.requests.length, quiet, "an idle panel must skip the upstream reads");
 
   // Come back: a single input reopens the gate, and the reopen itself is the
   // catch-up read — no waiting a full ttl first.
   renderer.fire("pointerdown");
   await renderer.settle();
-  assert.equal(renderer.requests.length, quiet + 1, "activity must trigger the catch-up read");
-  assert.equal(renderer.requests[quiet].url, "/usage-board/api/snapshot");
+  assert.equal(
+    renderer.requests.length,
+    quiet + PROVIDER_IDS.length,
+    "activity must trigger the catch-up read for every provider",
+  );
+  assert.deepEqual(requestIds(renderer).slice(quiet), PROVIDER_IDS);
 
   // The ordinary ttl schedule resumes from there.
   await renderer.advance(AUTO_REFRESH_INTERVAL_MS + 1000);
   renderer.fireInterval(AUTO_REFRESH_INTERVAL_MS);
   await renderer.settle();
-  assert.equal(renderer.requests.length, quiet + 2, "the ttl schedule resumes once the gate is open");
+  assert.equal(
+    renderer.requests.length,
+    quiet + PROVIDER_IDS.length * 2,
+    "the ttl schedule resumes once the gate is open",
+  );
 });
 
 test("(g2) a hidden document stops the poll even with fresh activity", async () => {
   const renderer = createRenderer({ browser: true, body: storedEnvelope() });
   await renderer.render();
-  assert.equal(renderer.requests.length, 1);
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length);
 
   renderer.document.visibilityState = "hidden";
   renderer.fire("visibilitychange");
@@ -1160,7 +1380,11 @@ test("(g2) a hidden document stops the poll even with fresh activity", async () 
   renderer.document.visibilityState = "visible";
   renderer.fire("visibilitychange");
   await renderer.settle();
-  assert.equal(renderer.requests.length, quiet + 1, "coming back to the window must pick the data up");
+  assert.equal(
+    renderer.requests.length,
+    quiet + PROVIDER_IDS.length,
+    "coming back to the window must pick every provider up",
+  );
 });
 
 test("(g3) a panel the sidebar hides stops polling until it is shown again", async () => {
@@ -1178,7 +1402,11 @@ test("(g3) a panel the sidebar hides stops polling until it is shown again", asy
 
   renderer.observers[0].emit(true); // selected again
   await renderer.settle();
-  assert.equal(renderer.requests.length, quiet + 1, "reselecting the panel must refresh it");
+  assert.equal(
+    renderer.requests.length,
+    quiet + PROVIDER_IDS.length,
+    "reselecting the panel must refresh every provider",
+  );
 });
 
 test("(g4) the one-second freshness ticker freezes with the panel off-screen", async () => {
@@ -1203,21 +1431,29 @@ test("(g4) the one-second freshness ticker freezes with the panel off-screen", a
 test("(g5) a pending stale follow-up is dropped while the gate is closed", async () => {
   const renderer = createRenderer({ browser: true, body: storedEnvelope({ stale: true }) });
   await renderer.render();
-  assert.equal(renderer.requests.length, 1, "the mount read resolves and schedules a follow-up");
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length,
+    "the mount reads resolve and each schedules a follow-up",
+  );
 
-  // Walk away before the 1.5 s follow-up fires: closing the gate must cancel it.
+  // Walk away before the 1.5 s follow-ups fire: closing the gate must cancel them.
   renderer.document.visibilityState = "hidden";
   renderer.fire("visibilitychange");
   await renderer.settle();
   await renderer.advance(3000);
-  assert.equal(renderer.requests.length, 1, "a hidden panel must not send the follow-up read");
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length, "a hidden panel must not send the follow-up reads");
 
-  // The reopen catch-up replaces it: one read, immediately, instead of waiting
-  // for the ordinary ttl.
+  // The reopen catch-up replaces them: one read per provider, immediately,
+  // instead of waiting for the ordinary ttl.
   renderer.document.visibilityState = "visible";
   renderer.fire("visibilitychange");
   await renderer.settle();
-  assert.equal(renderer.requests.length, 2, "coming back must issue the catch-up read instead");
+  assert.equal(
+    renderer.requests.length,
+    PROVIDER_IDS.length * 2,
+    "coming back must issue the catch-up reads instead",
+  );
 });
 
 test("(e) storage being unavailable never breaks the panel", async () => {
@@ -1253,18 +1489,205 @@ test("(e) storage being unavailable never breaks the panel", async () => {
   assert.match(treeText(tree), /32\.8%/);
 });
 
+// ------------------------------------ progressive per-provider rendering ---
+//
+// The point of the per-provider reads: a card paints when ITS provider answers,
+// never only when the slowest one does. These tests hold, fail and update
+// providers independently through the harness's per-provider controls.
+
+/** A three-provider envelope with distinct, assertable numbers on every card. */
+function fullEnvelope() {
+  return {
+    protocolVersion: 1,
+    generatedAt: 1_700_000_000_000,
+    ok: true,
+    ttlMs: 60_000,
+    providers: [
+      {
+        id: "deepseek",
+        label: "DeepSeek",
+        status: "ok",
+        windows: [],
+        balances: [{ currency: "CNY", available: 27.75 }],
+        meta: { host: "platform.deepseek.com" },
+      },
+      {
+        id: "glm",
+        label: "GLM Coding Plan",
+        status: "ok",
+        windows: [{ id: "glm.5h", labelKey: "glm.5h", limit: 2000, used: 656, remaining: 1343 }],
+        balances: [],
+      },
+      {
+        id: "kimi",
+        label: "Kimi Code",
+        status: "ok",
+        windows: [{ id: "kimi.5h", labelKey: "kimi.5h", limit: 100, used: 36, remaining: 64 }],
+        balances: [],
+      },
+    ],
+  };
+}
+
+test("(p1) a slow provider holds back only its own card, never the other providers", async () => {
+  const renderer = createRenderer({ hold: ["glm"], body: fullEnvelope() });
+  const tree = await renderer.render();
+  const text = treeText(tree);
+  assert.match(text, /¥27\.75/, "the fast providers must paint without waiting for the slow one");
+  assert.match(text, /36\.0%/, "every provider that answered is already on screen");
+  assert.ok(!text.includes("656 / 2,000"), "the held provider's numbers must not be invented");
+  assert.deepEqual(skeletonIds(tree), ["glm"], "the slow provider keeps its own skeleton");
+  assert.equal(findCard(tree, "deepseek").props["data-status"], "ok");
+  assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
+  assert.deepEqual(requestIds(renderer), PROVIDER_IDS, "one concurrent read per provider");
+  for (const id of PROVIDER_IDS) {
+    assert.equal(requestsFor(renderer, id)[0].url, providerUrl(id));
+    assert.equal(requestsFor(renderer, id)[0].method, "GET");
+  }
+
+  // The slow provider's response finally lands: only its card changes.
+  renderer.release("glm");
+  const after = await renderer.settle();
+  assert.match(treeText(after), /32\.8%/, "the released provider paints its own card");
+  assert.match(treeText(after), /656 \/ 2,000/);
+  assert.deepEqual(skeletonIds(after), []);
+  assert.deepEqual(cardIds(after), PROVIDER_IDS, "cards stay in display order with no duplicates");
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length, "releasing a held answer must not trigger a retry");
+});
+
+test("(p2) a failed or timed-out provider read keeps the other cards and stays local", async () => {
+  for (const [label, override, expected] of [
+    ["a rejected read", { reject: true }, /无法连接实例的用量服务/],
+    ["a timed-out read", { reject: "timeout" }, /请求超时/],
+  ]) {
+    const renderer = createRenderer({ body: fullEnvelope(), providers: { glm: override } });
+    const tree = await renderer.render();
+    const text = treeText(tree);
+    assert.match(text, /¥27\.75/, label);
+    assert.match(text, /36\.0%/, label);
+    assert.ok(!text.includes("32.8%"), `${label}: a failed provider must not fabricate numbers`);
+    const glmCard = findCard(tree, "glm");
+    assert.ok(glmCard !== null, `${label}: the failed provider keeps its slot`);
+    assert.equal(glmCard.props["data-status"], "network-error", label);
+    assert.match(treeText(glmCard), expected, label);
+    assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready", `${label}: the board stays up`);
+    assert.equal(findByClass(tree, "ub-retry"), null, `${label}: a local failure is not a board-wide error`);
+    assert.equal(renderer.requests.length, PROVIDER_IDS.length, label);
+  }
+});
+
+test("(p3) a refresh replaces only the provider row that changed", async () => {
+  const renderer = createRenderer({ body: fullEnvelope() });
+  let tree = await renderer.render();
+  assert.match(treeText(tree), /32\.8%/);
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length);
+
+  // The next read returns fresh numbers for GLM only; the other rows are
+  // unchanged, so any change to their cards would be a merge bug.
+  const updated = fullEnvelope();
+  updated.generatedAt = 1_700_000_100_000;
+  updated.providers = updated.providers.map((row) => (row.id === "glm"
+    ? { ...row, windows: [{ id: "glm.5h", labelKey: "glm.5h", limit: 2000, used: 1000, remaining: 1000 }] }
+    : row));
+  renderer.setPayload({ body: updated });
+
+  findByClass(tree, "ub-refresh").props.onClick();
+  tree = await renderer.settle();
+  const text = treeText(tree);
+  assert.match(text, /50\.0%/, "the changed card takes the new row");
+  assert.match(text, /1,000 \/ 2,000/);
+  assert.ok(!text.includes("32.8%"), "the changed card must not keep the old numbers");
+  assert.match(text, /¥27\.75/, "an unchanged provider keeps its numbers");
+  assert.match(text, /36\.0%/);
+  assert.deepEqual(cardIds(tree), PROVIDER_IDS, "three cards exactly, in display order");
+
+  // The manual refresh is one POST per provider; no per-card request is lost.
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length * 2);
+  for (const id of PROVIDER_IDS) {
+    const calls = requestsFor(renderer, id);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].url, providerUrl(id));
+    assert.equal(calls[1].method, "POST");
+  }
+});
+
+test("(p4) an in-flight refresh never blanks the numbers already on screen", async () => {
+  const renderer = createRenderer({ body: fullEnvelope() });
+  let tree = await renderer.render();
+  assert.match(treeText(tree), /32\.8%/);
+
+  // Hold the refresh answers (manual POSTs), then press refresh: every row the
+  // user is reading must survive the round trip.
+  for (const id of PROVIDER_IDS) renderer.setProviderOptions(id, { hold: true });
+  findByClass(tree, "ub-refresh").props.onClick();
+  tree = await renderer.settle();
+  let text = treeText(tree);
+  assert.match(text, /¥27\.75/);
+  assert.match(text, /32\.8%/);
+  assert.match(text, /36\.0%/);
+  assert.match(text, /正在刷新…/, "busy is said in the header, not by emptying the cards");
+  assert.deepEqual(skeletonIds(tree), [], "a refresh must not turn loaded cards back into skeletons");
+  assert.equal(findCard(tree, "deepseek").props["data-status"], "ok");
+
+  // The answers land one provider at a time; each card keeps its own slot.
+  for (const id of PROVIDER_IDS) {
+    renderer.release(id);
+    tree = await renderer.settle();
+  }
+  text = treeText(tree);
+  assert.match(text, /¥27\.75/);
+  assert.match(text, /32\.8%/);
+  assert.match(text, /36\.0%/);
+  assert.deepEqual(skeletonIds(tree), []);
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length * 2, "one POST per provider, nothing else");
+});
+
+test("provider slots keep PROVIDER_IDS first and append unknown restored rows", () => {
+  const unit = loadPanelUnit();
+  const row = (id) => unit.normalizeProvider({ id: id, label: id.toUpperCase(), status: "ok" });
+  const view = {
+    providers: Object.create(null),
+    updatedAt: Object.create(null),
+    failures: Object.create(null),
+    pending: Object.create(null),
+    ttl: Object.create(null),
+    ttlMs: 60_000,
+  };
+  // A cache written by a build that knew one provider more than this one.
+  view.providers.zeta = row("zeta");
+  view.providers.glm = row("glm");
+  const slots = Array.from(unit.panelSlots(view), (slot) => `${slot.kind}:${slot.id}`);
+  assert.deepEqual(slots, ["skeleton:deepseek", "provider:glm", "skeleton:kimi", "provider:zeta"]);
+  assert.deepEqual(Array.from(unit.orderedProviders(view), (providerRow) => providerRow.id), ["glm", "zeta"]);
+  // The merged cache envelope keeps that order and the protocol version.
+  const envelope = plain(unit.mergedEnvelope(view));
+  assert.equal(envelope.protocolVersion, 1);
+  assert.deepEqual(envelope.providers.map((providerRow) => providerRow.id), ["glm", "zeta"]);
+});
+
+test("providerRowOf accepts only the matching row of a one-provider envelope", () => {
+  const unit = loadPanelUnit();
+  const body = { protocolVersion: 1, ok: true, ttlMs: 60_000, providers: [{ id: "glm", label: "GLM", status: "ok" }] };
+  assert.equal(unit.providerRowOf(body, "glm").id, "glm");
+  assert.equal(unit.providerRowOf(body, "kimi"), null, "a missing row is a shape failure, not a fabricated row");
+  assert.equal(unit.providerRowOf({ providers: "nope" }, "glm"), null);
+  assert.equal(unit.providerRowOf(null, "glm"), null);
+  assert.equal(unit.providerUrl("glm"), providerUrl("glm"));
+  assert.equal(unit.providerUrl("a b"), `${PROVIDER_PATH}?${PROVIDER_QUERY_PARAM}=a%20b`);
+});
+
 // ------------------------------------------------------------- rendering ---
 
 test("an ok provider with no windows and no balances reads as an explanation, not an error", async () => {
   const renderer = createRenderer({
-    body: { protocolVersion: 1, ok: true, ttlMs: 60_000, providers: [{ id: "x", label: "X", status: "ok" }] },
+    body: { protocolVersion: 1, ok: true, ttlMs: 60_000, providers: [{ id: "deepseek", label: "DeepSeek", status: "ok" }] },
   });
   const tree = await renderer.render();
   const text = treeText(tree);
   assert.match(text, /该服务不提供用量窗口/);
   assert.ok(!text.includes("重试"), "an empty card must not offer a retry");
   assert.ok(!text.includes("error."), "no locale key leaked into the render");
-  assert.equal(findByClass(tree, "ub-card").props["data-status"], "ok");
+  assert.equal(findCard(tree, "deepseek").props["data-status"], "ok");
   assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
 });
 
@@ -1542,8 +1965,9 @@ test("a non-ok provider renders its explanation and diagnostic code", async () =
   const text = treeText(tree);
   assert.match(text, /未授权/);
   assert.match(text, /401/);
-  assert.equal(findByClass(tree, "ub-card").props["data-status"], "unauthorized");
-  assert.equal(findByClass(tree, "ub-pill").props["data-tone"], "danger");
+  const glmCard = findCard(tree, "glm");
+  assert.equal(glmCard.props["data-status"], "unauthorized");
+  assert.equal(findByClassIn(glmCard, "ub-pill").props["data-tone"], "danger");
 });
 
 test("quota windows render a labelled bar, used/limit, remainder and reset countdown", async () => {
@@ -1673,28 +2097,25 @@ test("a true 0% is data, not an absence: it prints 0.0% and draws an empty bar",
   assert.match(text, /0\.0%/, "a zero share must print 0.0%, not fall through to no-data");
   assert.match(text, /0 \/ 100/);
   assert.match(text, /剩余 100/);
-
-  const fills = [];
-  walk(tree, (node) => {
-    const className = node.props.className;
-    if (typeof className === "string" && className.split(" ").includes("ub-bar-fill")) fills.push(node.props);
-  });
-  assert.equal(fills.length, 2);
-  assert.equal(fills[0].style.width, "0.0%");
-  assert.equal(fills[0]["data-empty"], "true", "a 0% bar must collapse, not show the minimum-width stub");
-  assert.equal(fills[0]["data-level"], "ok", "0% used is healthy, not unknown");
-  const bars = [];
-  walk(tree, (node) => {
-    if (node.props.role === "progressbar") bars.push(node.props);
-  });
-  assert.equal(bars[0]["aria-valuenow"], 0);
-  assert.equal(bars[0]["aria-valuetext"], "0.0%");
+  // Display order is the protocol's PROVIDER_IDS order, not the fixture order.
+  assert.deepEqual(cardIds(tree), PROVIDER_IDS);
+  const kimiCard = findCard(tree, "kimi");
+  const glmCard = findCard(tree, "glm");
+  const kimiFill = findByClassIn(kimiCard, "ub-bar-fill");
+  const glmFill = findByClassIn(glmCard, "ub-bar-fill");
+  assert.equal(kimiFill.props.style.width, "0.0%");
+  assert.equal(kimiFill.props["data-empty"], "true", "a 0% bar must collapse, not show the minimum-width stub");
+  assert.equal(kimiFill.props["data-level"], "ok", "0% used is healthy, not unknown");
+  const kimiBar = findByClassIn(kimiCard, "ub-bar");
+  assert.equal(kimiBar.props["aria-valuenow"], 0);
+  assert.equal(kimiBar.props["aria-valuetext"], "0.0%");
   // The genuinely unknown window still renders the em dash and carries no value.
   assert.match(text, /—/);
-  assert.equal(fills[1]["data-level"], "unknown");
-  assert.equal(fills[1]["data-empty"], "true");
-  assert.equal(bars[1]["aria-valuenow"], undefined);
-  assert.equal(bars[1]["aria-valuetext"], "—");
+  assert.equal(glmFill.props["data-level"], "unknown");
+  assert.equal(glmFill.props["data-empty"], "true");
+  const glmBar = findByClassIn(glmCard, "ub-bar");
+  assert.equal(glmBar.props["aria-valuenow"], undefined);
+  assert.equal(glmBar.props["aria-valuetext"], "—");
 });
 
 test("a non-ok card shows Chinese copy for a known messageKey (D-5)", async () => {
@@ -1802,6 +2223,17 @@ test("the stylesheet styles with DSH alias tokens and always keeps a fallback", 
   assert.ok(!styleSource.includes("`") && !styleSource.includes("${"), "styles.css must stay embeddable");
 });
 
+test("the first-paint skeleton cards have their own minimal styling", () => {
+  for (const selector of [
+    '.ub-card[data-skeleton="true"]',
+    ".ub-skeleton-line",
+    ".ub-skeleton-bar",
+    '.ub-skeleton-line[data-width="short"]',
+  ]) {
+    assert.ok(styleSource.includes(selector), `styles.css lost ${selector}`);
+  }
+});
+
 // --------------------------------------- DeepSeek peak / off-peak reminder ---
 
 /**
@@ -1886,7 +2318,7 @@ test("the reminder flips on the boundary from the panel's own clock, without a r
   let tree = await renderer.render();
   assert.match(treeText(tree), /现在是梁文谷时段！/);
   assert.match(treeText(tree), /距涨价 30 秒/);
-  assert.equal(renderer.requests.length, 1);
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length);
 
   await renderer.advance(30_000); // now == 09:00:00 Beijing
   renderer.fireInterval(1000); // the panel's one-second clock
@@ -1895,7 +2327,7 @@ test("the reminder flips on the boundary from the panel's own clock, without a r
   assert.match(treeText(tree), /现在是梁文峰时段！/, "the banner must flip exactly on the boundary");
   assert.match(treeText(tree), /距降价 3 小时/);
   assert.equal(findByClass(tree, "ub-price").props["data-phase"], "peak");
-  assert.equal(renderer.requests.length, 1, "flipping the banner must not trigger a request");
+  assert.equal(renderer.requests.length, PROVIDER_IDS.length, "flipping the banner must not trigger a request");
 });
 
 test("the reminder only ever appears on the DeepSeek card", async () => {

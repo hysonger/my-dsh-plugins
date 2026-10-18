@@ -19,10 +19,10 @@ dsh-plugin-usage-board/
 └── src/
     ├── shared/protocol.js    冻结的线上协议（两边共同的事实来源）
     ├── host/                 主机半边实现
-    │   ├── routes.js         HTTP 路由与响应
+    │   ├── routes.js         HTTP 路由与响应（单家 + 聚合）
     │   ├── credentials.js    凭据读取
     │   ├── fetch-json.js     有界的 JSON HTTP 客户端
-    │   ├── snapshot.js       快照组装 + 缓存
+    │   ├── snapshot.js       按服务商读取 / 缓存 / 去重 + 信封组装
     │   ├── pricing.js        DeepSeek 峰谷计费规则（时段边界 + 未来切换时刻）
     │   ├── holiday-calendar.js  第三方节假日日历（chinese-days）的可选桥接
     │   ├── providers/        三家服务各自的适配器
@@ -43,11 +43,14 @@ dsh-plugin-usage-board/
 
 ## 2. 数据流
 
+渲染器按**服务商**读取，而不是等一个聚合响应：
+
 ```
 浏览器（侧边栏面板 / 独立页面）
-        │  GET /usage-board/api/snapshot        POST /usage-board/api/refresh
+        │  GET  /usage-board/api/provider?id=deepseek|glm|kimi   （三家并发，各自返回）
+        │  POST /usage-board/api/provider?id=…                  （手动刷新，单家强制）
         ▼
-   routes.js ──► snapshot.js（TTL 缓存，同一服务商的并发请求合并为一次）
+   routes.js ──► snapshot.js（按服务商缓存 + 按服务商 in-flight 合并）
                         │
                         ├─ deepseek.js ─► platform.deepseek.com  账号接口
                         ├─ glm.js      ─► open.bigmodel.cn        额度接口
@@ -56,35 +59,66 @@ dsh-plugin-usage-board/
                    credentials.js（凭据服务的引用层 + 记录层）
 ```
 
+兼容的聚合读取仍然存在，并复用同一份按服务商缓存：
+
+```
+GET  /usage-board/api/snapshot     （聚合；语义与旧版一致）
+POST /usage-board/api/refresh      （聚合强制；语义与旧版一致）
+```
+
+### 逐家加载（为什么不再用一个 Promise.all 响应）
+
+最初的设计是「一个快照 = 三家都读完」，因为界面一次性渲染整块面板。它把三家的延迟绑在
+了一起：`Promise.all` 必须等最慢的那家（上限 12 秒），只要一家挂起，整块面板就停在旧数据
+上。现在把读取单元降到**单个服务商**：
+
+- 主机侧的 `SnapshotService` 为每个服务商维护独立的缓存条目、独立的 in-flight 合并和独立的
+  AbortController；`getProvider(id)` 只等这一个服务商。
+- 浏览器半边（面板与独立页面）对三家**并发**发请求，每收到一家就合并这一行、只重画对应的
+  卡片。慢的那家只让自己的卡片停在骨架/加载态，其余卡片立即显示。
+- 首次进入且没有本地缓存时，先按服务商画出占位卡片，谁先返回谁先变成真实数据。
+- 手动刷新同样逐家强制：`POST /api/provider?id=…` 三家并发，各自返回后原地替换。
+
+聚合接口仍保留，供脚本或旧消费者使用（`GET /api/snapshot` / `POST /api/refresh`），它仍然
+等整块面板；但它是兼容路径，不再是渲染器的热路径。两条路径共用缓存与并发合并，所以从两种
+入口刷新都不会把上游多打一遍。
+
 ### 缓存与「先显示、后刷新」
 
-- 默认 60 秒（`ttlMs`，可配 15–300 秒）。
-- **同一服务商的并发请求会合并**：10 个并发刷新只产生 1 次上游调用。
-- `POST /refresh` 绕过缓存，并且**等结果**——它代表用户明确要求「现在就去问」。
+- 默认 60 秒（`ttlMs`，可配 15–300 秒），**每个服务商独立计时、独立过期**。
+- **同一服务商的并发请求会合并**：10 个并发读取只产生 1 次上游调用；不同服务商互不等待。
+- `POST /api/provider?id=…` 绕过该家的缓存，并且**等结果**——它代表用户明确要求「现在就去
+  问这一家」。`POST /api/refresh` 是同样的语义，只是问全部。
 
-`GET /api/snapshot` 走的是另一条路径（`SnapshotService.getServing()`），它的规则是**绝不为了
-一次刷新而藏起已有的数据**：
+单家读取 `GET /api/provider?id=…` 是渲染器的热路径，规则是**绝不为了刷新而藏起已有的数字**：
 
-| 缓存状态 | 行为 | 响应字段 |
+| 该家的缓存状态 | 行为 | 响应字段 |
 |---|---|---|
 | 有缓存且未过期 | 直接返回缓存 | 无 `stale` |
-| 有缓存但已过期 | **立刻**返回旧缓存，同时后台发起刷新 | `stale: true`、`refreshing: true` |
-| 完全没有缓存（冷启动） | 等待一次读取 | 无 `stale` |
+| 有缓存但已过期 | **立刻**返回旧缓存，同时后台刷新这一家 | `stale: true`、`refreshing: true` |
+| 完全没有缓存（该家冷启动） | 只等待这一家的读取 | 无 `stale` |
 | 已 dispose | 返回空信封，不发起任何请求 | — |
 
-为什么冷启动仍然要等：那时候没有任何数字可以显示，「假装有数据」比等一次更糟。
+为什么该家冷启动仍然要等：那时候这张卡片没有任何数字可以显示，「假装有数据」比等一次更糟；
+但它只影响这一张卡片，另外两家照常先显示。
 
-`stale` / `refreshing` 是**可选**字段（缺失即为 false），所以不认识它们的消费者会像以前一样正常
-渲染；认识的消费者可以据此安排一次自己的补读，而不必等满一个 TTL。前端就是这么做的：看到
-`stale: true` 会在约 1.5 秒后补读一次，然后用新数据原地替换。
+聚合读取 `GET /api/snapshot` 保持旧规则：有缓存就立即返回（过期的带 `stale: true` 并后台
+刷新）；只有完全没有缓存时才等待；`POST /api/refresh` 等全部结果。
 
-前端另外把最近一次成功的快照存进 `sessionStorage`，所以**刷新页面后第一帧就有数**，不用等任何
-网络往返。存储不可用（隐私模式、配额满）时会退回到原来的加载流程，不影响功能。
+`stale` / `refreshing` 是**可选**字段（缺失即为 false），所以不认识它们的消费者会像以前一样
+正常渲染；认识的消费者可以据此安排一次自己的补读。前端就是这么做的：某一家看到
+`stale: true` 会在约 1.5 秒后补读**那一家的接口**，然后用新数据原地替换；每个服务商最多补读
+一次，所以一个持续返回 stale 的主机不会把补读变成轮询。
+
+**侧边栏面板**另外把最近一次成功的数据（按服务商合并）存进 `sessionStorage`，所以**刷新页面后
+第一帧就有数**，不用等任何网络往返。存储不可用（隐私模式、配额满）时会退回到骨架→逐家填充的
+流程，不影响功能。独立页面不持久化：它每次打开都先画骨架，再逐家填充（页面本身没有跨会话的
+数据要恢复，而面板的挂载/卸载很频繁，才值得缓存第一帧）。
 
 ### 客户端的自动刷新闸门（idle gate）
 
-轮询是有成本的：TTL 过期后的每一次 `GET /api/snapshot` 都会让主机在后台对三家服务商各发起一次
-真实读取。所以前端**不会**在「没人看」的时候按 TTL 空转：
+轮询是有成本的：TTL 过期后的每一轮自动刷新都会让主机对三家服务商各发起一次真实读取。所以
+前端**不会**在「没人看」的时候按 TTL 空转：
 
 - 只有三个信号同时成立才允许自动刷新——**文档可见**（窗口没有隐藏/最小化）、**面板在视口内**
   （侧边栏切到其他面板时，本面板仍可能处于挂载但 `display: none` 的状态，由 IntersectionObserver
@@ -92,8 +126,8 @@ dsh-plugin-usage-board/
 - 闸门关闭期间，TTL 定时器照常走时但**直接跳过请求**，除了一次廉价的本地重估（30 秒一次，纯
   计算）外不产生任何网络流量；1 秒的「X 分钟前更新」时钟也随面板离屏而冻结。
 - 任何用户动作（移动鼠标、回到窗口、重新选中面板）都会重新打开闸门，而**重开本身就是补读时
-  机**——立即拉一次数据，不必等满一个 TTL；主机缓存还新鲜时这次补读几乎免费。
-- 手动刷新（`POST /refresh`）**不看闸门**，任何时候都可用。
+  机**——立即对三家各拉一次单家读取，不必等满一个 TTL；主机缓存还新鲜时这些补读几乎免费。
+- 手动刷新（`POST /api/provider?id=…`）**不看闸门**，任何时候都可用。
 
 独立页面（`/usage-board/`）内嵌脚本遵循同一策略：可见且有操作才自动刷新，空闲或隐藏时跳过并
 等待事件唤醒。
@@ -123,6 +157,25 @@ dsh-plugin-usage-board/
 
 浏览器半边**不能** `require` 这个文件（它不是 DSH 客户端模块加载器认识的模块），所以
 `src/client/protocol-copy.js` 是它的逐字副本，`test/client-bundle.test.js` 负责守住两者不漂移。
+
+### 路由与信封
+
+| 方法与路径 | 含义 | 响应 |
+|---|---|---|
+| `GET /usage-board/api/provider?id=<id>` | 单家读取（渲染器热路径） | 只有一行的快照信封；可能带 `stale` / `refreshing` |
+| `POST /usage-board/api/provider?id=<id>` | 强制读取这一家并等结果 | 一行的快照信封 |
+| `GET /usage-board/api/snapshot` | 聚合读取（兼容路径） | 全部服务商的快照信封 |
+| `POST /usage-board/api/refresh` | 聚合强制读取并等结果 | 全部服务商的快照信封 |
+| `GET /usage-board/api/health` | 诊断（不含密钥） | `{ ok, version, ttlMs, reads, backgroundReads, fresh, providers[], credentials }` |
+
+- 单家路由的信封就是 `UsageSnapshot` 收窄到 `providers.length === 1`：字段含义完全不变，
+  `ok` 由这一行推导，`ttlMs` / `generatedAt` 照常（`generatedAt` 是这一家本次读取的开始时刻；
+  聚合信封取最新一行的开始时刻）。这样已有的信封解析代码不需要第二套形状。
+- `id` 缺失或不是注册过的服务商 → **400** `{ ok: false, error: { code: 'unknown-provider' } }`。
+  这是传输层错误（调用方要的东西不存在），不是服务商失败，不能渲染成一张降级卡片。
+- 方法不对 → **405**，`Allow: GET, HEAD, POST`。
+- 新增路由是**增量**的，所以 `PROTOCOL_VERSION` 保持 1：不认识新路由的消费者继续用聚合接口，
+  行为不变。
 
 ### 每行的形状
 
@@ -241,15 +294,21 @@ GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须�
    ```
 
    必须用 `makeProvider` / `makeWindow` / `makeBalance` 构造返回值，这样每个字段都一定有值。
-3. 注册进 `src/host/providers/index.js` 的 `PROVIDERS`。
+3. 注册进 `src/host/providers/index.js` 的 `PROVIDERS`。**逐家加载会自动覆盖新服务商**：
+   `SnapshotService` 按注册表逐个缓存/读取，`GET|POST /api/provider?id=myservice` 和聚合接口
+   都会带上它，渲染器按 `PROVIDER_IDS` 顺序并发请求；不需要新增任何路由。
 4. 在浏览器半边的 `src/client/protocol-copy.js` 里加上同名 id 和文案（两边都要），
    然后按 `test/client-bundle.test.js` 的方式重新生成 `lib/client.js`。
-5. 补 fixture 测试：正常响应、404、401、429、超时、字段缺失、业务错误码。
+5. 补 fixture 测试：正常响应、404、401、429、超时、字段缺失、业务错误码；并补一条
+   `test/snapshot.test.js` 的逐家并发断言（慢的服务商不能拖住其他服务商）。
 
 ---
 
 ## 6. 已知限制
 
+- **每个服务商各自为政，没有「整板同时刷新」的原子性。** 这是逐家加载的代价，也是它的目的：
+  三张卡片的更新时间可能相差几秒（各自读取耗时的差异）。卡片底部的耗时和整体更新时间都以
+  各自那次读取为准；不接受这一点就只能退回「等最慢的一家」。
 - **DeepSeek 的每日趋势依赖平台内部接口**（`/api/v0/usage/...`），不是公开文档化的 API。
   官方若改动路径，这一部分会降级为空，但余额不受影响。
 - **Kimi Code 的响应格式正在换代**（社区工具还在解析旧格式）。适配器优先读新格式、回退旧格式，

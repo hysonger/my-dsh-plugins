@@ -247,6 +247,39 @@ window.__ModuleLoader__.load({
   gap: 10px;
 }
 
+/* ---------- first-paint skeletons ---------- */
+
+/* One placeholder card per provider until that provider's own row lands. A
+   single global "loading…" line would hide which services are still coming;
+   these lines keep the card's rhythm so the numbers do not jump in later. */
+.ub-card[data-skeleton="true"] {
+  min-height: 104px;
+}
+
+.ub-skeleton-line,
+.ub-skeleton-bar {
+  display: block;
+  border-radius: 4px;
+  background: var(--ub-layer-3);
+}
+
+.ub-skeleton-line {
+  height: 10px;
+}
+
+.ub-skeleton-line[data-width="short"] {
+  width: 38%;
+}
+
+.ub-skeleton-line[data-width="wide"] {
+  width: 88%;
+}
+
+.ub-skeleton-bar {
+  height: 6px;
+  border-radius: 999px;
+}
+
 .ub-card-title-row {
   display: flex;
   align-items: baseline;
@@ -766,6 +799,30 @@ const SNAPSHOT_PATH = '/usage-board/api/snapshot';
  */
 const REFRESH_PATH = '/usage-board/api/refresh';
 
+/**
+ * HTTP path the host half serves ONE provider's envelope on.
+ *
+ * This is the decoupled read that lets a renderer paint each provider the
+ * moment *that* provider answers: a slow or hanging upstream holds back its own
+ * card only, never the whole board.
+ *
+ * - `GET` is the serving read and follows the same never-hide-numbers rule as
+ *   {@link SNAPSHOT_PATH}: a fresh cached row is returned at once, an expired
+ *   row is returned with `stale: true` while the host refreshes it behind the
+ *   response, and only a provider with no cached row makes the caller wait.
+ * - `POST` forces a fresh read of that one provider and waits for it.
+ *
+ * The body is a {@link UsageSnapshot} narrowed to exactly one row
+ * (`providers.length === 1`, `ok` derived from it, same `ttlMs`/`stale`/
+ * `refreshing` fields). The provider is selected by the `id` query parameter
+ * ({@link PROVIDER_QUERY_PARAM}); a missing or unknown id is a transport-level
+ * 400, never a provider failure, so it must not be rendered as a degraded row.
+ */
+const PROVIDER_PATH = '/usage-board/api/provider';
+
+/** Query parameter selecting the provider for {@link PROVIDER_PATH}. */
+const PROVIDER_QUERY_PARAM = 'id';
+
 /** HTTP prefix owning every route this plugin registers. */
 const ROUTE_PREFIX = '/usage-board';
 
@@ -938,14 +995,19 @@ function derivedPercentOf(used, limit) {
  * Free variables the embedding factory provides:
  *   react                 the "react" module
  *   jsxRuntime            the "react/jsx-runtime" module
- *   ROUTE_PREFIX, SNAPSHOT_PATH, REFRESH_PATH, PROVIDER_IDS, PROTOCOL_VERSION
+ *   PROVIDER_PATH, PROVIDER_QUERY_PARAM, PROVIDER_IDS, PROTOCOL_VERSION
  *   makeWindow, makeBalance, makeProvider, makeSnapshot, round1, percentOf
  *     — from src/client/protocol-copy.js, itself a verbatim copy of
  *       src/shared/protocol.js.
  *
  * No JSX (there is no compiler in this package), no `require` outside the two
  * aliases above, and no dependency on anything the host half serves other than
- * the three documented JSON routes.
+ * the per-provider JSON route (`PROVIDER_PATH` + `PROVIDER_QUERY_PARAM`).
+ *
+ * The aggregate route (`SNAPSHOT_PATH` + `REFRESH_PATH`) still exists for older
+ * clients, but this panel deliberately never calls it: one aggregate read is
+ * exactly the "wait for the slowest provider" behaviour the per-provider route
+ * removes.
  * ------------------------------------------------------------------------- */
 
 const { useState, useEffect, useRef, useCallback } = react;
@@ -960,9 +1022,17 @@ const PANEL_ID = "usage-board";
 /** Sidebar position; plugin-manager uses 0, so 20 sits just below it. */
 const PANEL_ORDER = 20;
 
-/** Host-served JSON routes (see src/shared/protocol.js). */
-const SNAPSHOT_URL = ROUTE_PREFIX + "/api/snapshot";
-const REFRESH_URL = ROUTE_PREFIX + "/api/refresh";
+/**
+ * Display names for the providers this build knows. Only used before that
+ * provider's first row arrives (its skeleton or local failure card); a real row
+ * always renders its own host-provided `label`. Kept in step with the host
+ * adapters' LABEL constants.
+ */
+const PROVIDER_LABELS = {
+  deepseek: "DeepSeek",
+  glm: "GLM Coding Plan",
+  kimi: "Kimi Code",
+};
 
 /** Auto-refresh bounds: the host's ttl is honoured inside 60s … 5min. */
 const TTL_MIN_MS = 60 * 1000;
@@ -1592,6 +1662,239 @@ function readStoredSnapshot() {
 }
 
 /**
+ * The URL of ONE provider's envelope.
+ *
+ * The provider id is the only caller-controlled value here and always comes
+ * from PROVIDER_IDS, but it is still encoded: a future id must not be able to
+ * smuggle extra query parameters into a request that reads credentials.
+ * @param {string} id
+ * @returns {string}
+ */
+function providerUrl(id) {
+  return PROVIDER_PATH + "?" + PROVIDER_QUERY_PARAM + "=" + encodeURIComponent(id);
+}
+
+/**
+ * The row a `PROVIDER_PATH` envelope carries for `id`, normalized; null when
+ * the body is not an envelope or does not carry that row.
+ *
+ * The host contract narrows the envelope to exactly one row, so a body with no
+ * matching row is a transport-level shape failure, never a provider failure.
+ * Returning null (instead of fabricating a row) keeps the card honest: it shows
+ * its local failure note rather than invented numbers.
+ * @param {object} body
+ * @param {string} id
+ * @returns {object|null}
+ */
+function providerRowOf(body, id) {
+  if (!isSnapshotBody(body)) return null;
+  for (const raw of body.providers) {
+    if (raw !== null && typeof raw === "object" && raw.id === id) return normalizeProvider(raw);
+  }
+  return null;
+}
+
+/**
+ * A provider's display name for the states that have no row to read it from.
+ * @param {string} id
+ * @returns {string}
+ */
+function providerLabelFor(id) {
+  return Object.prototype.hasOwnProperty.call(PROVIDER_LABELS, id) ? PROVIDER_LABELS[id] : id;
+}
+
+/**
+ * An empty board state. The maps are null-prototype objects because provider
+ * ids come off the wire: a provider literally named "__proto__" must be a key
+ * like any other, not a prototype mutation.
+ * @returns {object}
+ */
+function emptyView() {
+  return {
+    providers: Object.create(null),
+    updatedAt: Object.create(null),
+    failures: Object.create(null),
+    pending: Object.create(null),
+    ttl: Object.create(null),
+    ttlMs: null,
+  };
+}
+
+/**
+ * Build the first board state, restoring the last merged envelope
+ * synchronously so the very first frame paints whatever a previous visit saw.
+ * @returns {object}
+ */
+function initialView() {
+  const restored = readStoredSnapshot();
+  const view = emptyView();
+  if (restored === null) return view;
+  for (const provider of restored.providers) {
+    view.providers[provider.id] = provider;
+    view.updatedAt[provider.id] = restored.generatedAt;
+    view.ttl[provider.id] = restored.ttlMs;
+  }
+  view.ttlMs = restored.ttlMs;
+  return view;
+}
+
+/**
+ * Copy the bookkeeping maps so every publish is a new state object. Provider
+ * rows are shared by reference: nothing mutates a row after normalization.
+ * @param {object} view
+ * @returns {object}
+ */
+function copyView(view) {
+  return {
+    providers: Object.assign(Object.create(null), view.providers),
+    updatedAt: Object.assign(Object.create(null), view.updatedAt),
+    failures: Object.assign(Object.create(null), view.failures),
+    pending: Object.assign(Object.create(null), view.pending),
+    ttl: Object.assign(Object.create(null), view.ttl),
+    ttlMs: view.ttlMs,
+  };
+}
+
+/**
+ * Every provider id the panel renders a slot for, in display order:
+ * PROVIDER_IDS first, then rows this build does not know, in the order they
+ * were stored.
+ *
+ * Unknown rows can only come from a restored cache written by a build that knew
+ * more providers; showing them (instead of dropping them) keeps a rollback from
+ * silently losing a card, and appending them keeps the known cards stable.
+ * @param {object} view
+ * @returns {string[]}
+ */
+function slotIds(view) {
+  const ids = PROVIDER_IDS.slice();
+  for (const id of Object.keys(view.providers)) {
+    if (ids.indexOf(id) === -1) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * The known provider rows in display order (unknown stored rows appended).
+ * @param {object} view
+ * @returns {object[]}
+ */
+function orderedProviders(view) {
+  const rows = [];
+  for (const id of slotIds(view)) {
+    if (view.providers[id] !== undefined) rows.push(view.providers[id]);
+  }
+  return rows;
+}
+
+/**
+ * One render slot per provider, in display order: the card when its row is on
+ * screen, its local transport-failure card when the last read failed with no
+ * row to keep, or the first-paint skeleton otherwise.
+ * @param {object} view
+ * @returns {Array<{kind: string, id: string, provider?: object, failure?: object}>}
+ */
+function panelSlots(view) {
+  return slotIds(view).map(function (id) {
+    if (view.providers[id] !== undefined) return { kind: "provider", id: id, provider: view.providers[id] };
+    if (view.failures[id] !== undefined) return { kind: "failure", id: id, failure: view.failures[id] };
+    return { kind: "skeleton", id: id };
+  });
+}
+
+/**
+ * The newest moment any row landed — what the header's relative "last updated"
+ * line describes. Restored rows count from the stored envelope's generatedAt.
+ * @param {object} view
+ * @returns {number|null}
+ */
+function latestUpdatedAt(view) {
+  let newest = null;
+  for (const id of Object.keys(view.updatedAt)) {
+    const at = view.updatedAt[id];
+    if (isNum(at) && (newest === null || at > newest)) newest = at;
+  }
+  return newest;
+}
+
+/**
+ * The auto-refresh cadence: the shortest ttl any provider promised, clamped to
+ * the supported band. All providers normally share the host ttl; tracking each
+ * row's promise keeps a future per-provider cadence from being ignored.
+ * @param {object} view
+ * @returns {number}
+ */
+function viewTtlMs(view) {
+  let shortest = null;
+  for (const id of Object.keys(view.ttl)) {
+    const ttl = numOrNull(view.ttl[id]);
+    if (ttl !== null && (shortest === null || ttl < shortest)) shortest = ttl;
+  }
+  return clampTtl(shortest === null ? numOrNull(view.ttlMs) : shortest);
+}
+
+/**
+ * The board-level phase:
+ * - `ready` whenever any row is on screen, even if other providers are still
+ *   loading or failed — one slow provider must not downgrade the whole board;
+ * - `error` when nothing has ever loaded and every attempt failed;
+ * - `loading` otherwise (first paint, or retries in flight).
+ * @param {object} view
+ * @returns {'loading'|'ready'|'error'}
+ */
+function boardPhase(view) {
+  if (orderedProviders(view).length > 0) return "ready";
+  if (Object.keys(view.pending).length > 0) return "loading";
+  if (Object.keys(view.failures).length > 0) return "error";
+  return "loading";
+}
+
+/** The most recent failure of any provider. */
+function latestFailure(view) {
+  let latest = null;
+  for (const id of Object.keys(view.failures)) {
+    const failure = view.failures[id];
+    if (latest === null || failure.at > latest.at) latest = failure;
+  }
+  return latest;
+}
+
+/**
+ * The most recent failure that happened while its provider's OLD numbers were
+ * still on screen. That is the only failure the panel reports globally: a
+ * failed refresh must never blank numbers, and this is the note that says they
+ * are older than they look. A failure with no numbers to keep is that
+ * provider's own local failure card instead.
+ */
+function retainedFailure(view) {
+  let latest = null;
+  for (const id of Object.keys(view.failures)) {
+    if (view.providers[id] === undefined) continue;
+    const failure = view.failures[id];
+    if (latest === null || failure.at > latest.at) latest = failure;
+  }
+  return latest;
+}
+
+/**
+ * The envelope to persist for the next visit: every row currently on screen, in
+ * display order, stamped with the newest per-provider receive time. A partial
+ * first load therefore caches whatever arrived instead of nothing.
+ * @param {object} view
+ * @returns {object|null}
+ */
+function mergedEnvelope(view) {
+  const providers = orderedProviders(view);
+  if (providers.length === 0) return null;
+  const generatedAt = latestUpdatedAt(view);
+  return makeSnapshot({
+    generatedAt: generatedAt === null ? Date.now() : generatedAt,
+    ttlMs: isNum(view.ttlMs) ? view.ttlMs : TTL_MIN_MS,
+    providers: providers,
+  });
+}
+
+/**
  * Fetch JSON from a host route, enforcing the transport contract: a non-2xx
  * answer or a body whose `providers` is not an array is a failure.
  * @param {string} url
@@ -2155,118 +2458,191 @@ function useAutoRefreshGate(rootRef) {
 }
 
 /**
- * The panel's data source: one snapshot, one in-flight request at a time, and
- * an auto refresh that runs only while the panel is actually being watched.
+ * The panel's data source: one independent read per provider, merged into one
+ * board state as each answer lands.
  *
- * Stale-while-revalidate: the last successful envelope is restored from
- * sessionStorage synchronously, so the first render already has numbers, and no
- * in-flight request ever blanks them. A `stale: true` answer (the host served a
- * cache it is refreshing behind) earns exactly one bounded follow-up read.
+ * The decoupling is the point. `PROVIDER_PATH` returns exactly one provider's
+ * envelope, so each card paints the moment *its* upstream answers: a slow,
+ * hanging or failed provider holds back only its own slot, never the whole
+ * board. The aggregate snapshot routes still exist for older clients, but this
+ * panel never calls them — one aggregate read is exactly the "wait for the
+ * slowest provider" behaviour this design removes.
+ *
+ * Stale-while-revalidate, preserved per provider: the last merged envelope is
+ * restored from sessionStorage synchronously, so the first render already has
+ * every cached row; a successful row replaces only its own card and never
+ * blanks numbers already on screen; and a `stale: true` answer (the host served
+ * a cache it is refreshing behind) earns exactly one bounded follow-up read FOR
+ * THAT PROVIDER. A follow-up that is itself stale schedules nothing, so a host
+ * that keeps answering from cache cannot turn this into a poll.
  *
  * Auto refresh is gated by {@link useAutoRefreshGate}: while DSH sits idle, the
  * panel is off-screen, or the window is hidden, the ttl timer keeps its
- * schedule but skips the fetch, and reopening the gate (any user activity)
- * triggers one catch-up read immediately instead of waiting out the ttl.
- * Manual refresh never consults the gate.
+ * schedule but skips the fetches, and reopening the gate (any user activity)
+ * triggers one catch-up read per provider immediately instead of waiting out
+ * the ttl. Manual refresh never consults the gate and forces a fresh read of
+ * every provider (POST).
  *
- * @returns {object} state, busy flag, `refresh` action, the ticking `now`, and
- *   the `rootRef` the gate observes.
+ * @returns {object} render-ready board state plus the `refresh` action, the
+ *   ticking `now`, and the `rootRef` the gate observes.
  */
 function useUsageBoard() {
-  const [state, setState] = useState(function () {
-    // Runs during the first render, before any effect: a stored snapshot paints
-    // in the very first frame instead of after a round trip.
-    const restored = readStoredSnapshot();
-    if (restored === null) return { phase: "loading", snapshot: null, failure: null };
-    return { phase: "ready", snapshot: restored, failure: null };
-  });
-  const [busy, setBusy] = useState(false);
+  const [view, setView] = useState(initialView);
   const [now, setNow] = useState(function () {
     return Date.now();
   });
-  const busyRef = useRef(false);
+  // The mutable mirror every request callback reads. React state is only a
+  // render input: an answer that lands between two renders must merge into the
+  // latest state, not into the snapshot captured when the request was fired.
+  const viewRef = useRef(view);
   const mountedRef = useRef(true);
-  const followUpRef = useRef(null);
+  const followUpsRef = useRef(null);
+  const startProviderRef = useRef(null);
   const rootRef = useRef(null);
   const gate = useAutoRefreshGate(rootRef);
   const gateAllowsRef = gate.allows;
   const gateOnScreenRef = gate.onScreen;
 
-  useEffect(function () {
-    mountedRef.current = true;
-    return function () {
-      mountedRef.current = false;
-      if (followUpRef.current !== null) {
-        clearTimeout(followUpRef.current);
-        followUpRef.current = null;
-      }
-    };
+  /** Publish one immutable state transition. */
+  const commit = useCallback(function (mutate) {
+    const next = copyView(viewRef.current);
+    mutate(next);
+    viewRef.current = next;
+    setView(next);
   }, []);
 
-  const run = useCallback(function (kind) {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
+  /** Cancel every pending stale follow-up timer (gate close, unmount). */
+  function clearFollowUps() {
+    const timers = followUpsRef.current;
+    if (timers === null) return;
+    for (const id of Object.keys(timers)) clearTimeout(timers[id]);
+    followUpsRef.current = Object.create(null);
+  }
+
+  /** Drop one provider's pending follow-up: a newer read supersedes it. */
+  function cancelFollowUp(id) {
+    const timers = followUpsRef.current;
+    if (timers === null || timers[id] === undefined) return;
+    clearTimeout(timers[id]);
+    delete timers[id];
+  }
+
+  /** Persist the merged board so the next mount paints from cache. */
+  function persist() {
+    const envelope = mergedEnvelope(viewRef.current);
+    if (envelope !== null) writeStoredSnapshot(envelope);
+  }
+
+  /** Record one provider's transport failure; its last good row stays on screen. */
+  function recordFailure(id, error) {
+    const failure = describeFailure(error);
+    commit(function (next) {
+      next.failures[id] = Object.assign({}, failure, { at: Date.now() });
+      delete next.pending[id];
+    });
+  }
+
+  /** Merge one provider's fresh row into its own slot only. */
+  function recordRow(id, row, body, kind) {
+    commit(function (next) {
+      next.providers[id] = row;
+      next.updatedAt[id] = Date.now();
+      const ttl = numOrNull(body.ttlMs);
+      if (ttl !== null) {
+        next.ttl[id] = ttl;
+        next.ttlMs = ttl;
+      }
+      delete next.failures[id];
+      delete next.pending[id];
+    });
+    persist();
+    // A stale answer earns one short follow-up that picks up the fresh numbers
+    // without the user acting. One timer per provider, and a follow-up response
+    // never schedules another (see the kind check): a host that keeps answering
+    // from cache cannot turn this into a poll.
+    //
+    // The follow-up is still an automatic read, so it only exists while the
+    // gate is open: a gate closed since the stale answer arrived means nobody
+    // can see the fresh numbers, and the reopen catch-up will pick them up.
+    if (body.stale === true && kind !== "followup") scheduleFollowUp(id);
+  }
+
+  /** One bounded, gate-checked follow-up read for a provider that answered stale. */
+  function scheduleFollowUp(id) {
+    if (followUpsRef.current === null) followUpsRef.current = Object.create(null);
+    const timers = followUpsRef.current;
+    if (timers[id] !== undefined) return;
+    if (gateAllowsRef.current !== true) return;
+    timers[id] = setTimeout(function () {
+      delete timers[id];
+      // The gate may have closed while the timer was pending; the closing
+      // effect clears timers too, but the callback re-checks for the gap.
+      if (gateAllowsRef.current !== true) return;
+      if (startProviderRef.current !== null) startProviderRef.current(id, "followup");
+    }, STALE_FOLLOW_UP_MS);
+  }
+
+  /** Fire one read for one provider, unless that provider already has one in flight. */
+  const startProvider = useCallback(function (id, kind) {
+    if (viewRef.current.pending[id] === true) return;
+    // A newer read (manual, gate reopen, the ordinary ttl) supersedes a stale
+    // answer's pending follow-up for this provider: keeping both would fetch the
+    // same row twice for no new information.
+    cancelFollowUp(id);
     const manual = kind === "manual";
+    commit(function (next) {
+      next.pending[id] = true;
+      // Retrying supersedes this provider's previous transport failure: its
+      // slot returns to a skeleton until the new attempt answers.
+      delete next.failures[id];
+    });
     let settled;
     try {
-      settled = requestJson(manual ? REFRESH_URL : SNAPSHOT_URL, manual ? { method: "POST" } : undefined);
+      settled = requestJson(providerUrl(id), manual ? { method: "POST" } : undefined);
     } catch (error) {
       settled = Promise.reject(error);
     }
     settled.then(
       function (body) {
-        busyRef.current = false;
         if (!mountedRef.current) return;
-        setBusy(false);
-        setNow(Date.now());
-        writeStoredSnapshot(body);
-        setState({ phase: "ready", snapshot: normalizeSnapshot(body), failure: null });
-        // A stale answer means the host handed us a cache it is refreshing
-        // behind. One short follow-up picks up the fresh numbers without the
-        // user acting. A follow-up that is *itself* stale schedules nothing, so
-        // a host that keeps answering from cache cannot turn this into a poll —
-        // the ordinary ttl schedule takes over from there.
-        //
-        // The follow-up is still an automatic read, so it only exists while the
-        // gate is open: a gate closed since the stale answer arrived means there
-        // is nobody to show the fresh numbers to, and the reopen catch-up will
-        // pick them up instead. The timer callback re-checks the gate as well;
-        // the gate-closing effect clears the timer outright.
-        if (
-          body.stale === true
-          && kind !== "followup"
-          && followUpRef.current === null
-          && gateAllowsRef.current === true
-        ) {
-          followUpRef.current = setTimeout(function () {
-            followUpRef.current = null;
-            if (gateAllowsRef.current !== true) return;
-            run("followup");
-          }, STALE_FOLLOW_UP_MS);
+        const row = providerRowOf(body, id);
+        if (row === null) {
+          const failure = new Error("payload carries no row for " + id);
+          failure.kind = "shape";
+          recordFailure(id, failure);
+          return;
         }
+        recordRow(id, row, body, kind);
       },
       function (error) {
-        busyRef.current = false;
         if (!mountedRef.current) return;
-        setBusy(false);
-        const failure = describeFailure(error);
-        setState(function (previous) {
-          // A failed refresh keeps the last good numbers on screen; only a
-          // failure with nothing to show becomes the panel's whole state.
-          if (previous.snapshot === null) return { phase: "error", snapshot: null, failure: failure };
-          return { phase: previous.phase, snapshot: previous.snapshot, failure: failure };
-        });
+        recordFailure(id, error);
       },
     );
   }, []);
+  // The stale follow-up timer only knows the provider id; it calls back through
+  // this ref so it always reaches the current (stable) starter.
+  startProviderRef.current = startProvider;
 
-  const ttlMs = clampTtl(state.snapshot === null ? null : state.snapshot.ttlMs);
+  useEffect(function () {
+    mountedRef.current = true;
+    return function () {
+      mountedRef.current = false;
+      clearFollowUps();
+    };
+  }, []);
+
+  /** Read every provider concurrently. `kind` decides GET (automatic) vs POST (manual). */
+  const run = useCallback(function (kind) {
+    for (const id of PROVIDER_IDS) startProvider(id, kind);
+  }, []);
+
+  const ttlMs = viewTtlMs(view);
 
   useEffect(function () {
     const timer = setInterval(function () {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      // Nobody is watching: keep the schedule, skip the upstream read. The
+      // Nobody is watching: keep the schedule, skip the upstream reads. The
       // catch-up happens when the gate reopens, not on the next tick.
       if (gateAllowsRef.current !== true) return;
       run("auto");
@@ -2279,15 +2655,13 @@ function useUsageBoard() {
   useEffect(function () {
     // The gate opening — mount, an input after idling out, the window coming
     // back, the panel being selected again — is the moment to pick up fresh
-    // numbers. The host answers from cache when it still can, so this is cheap
-    // even when several gates reopen in quick succession.
+    // numbers for every provider. Each provider answers from its own cache when
+    // it still can, so this is cheap even when several gates reopen in quick
+    // succession.
     if (gate.open !== true) {
-      // A closing gate cancels a pending stale follow-up: that read would land
-      // where nobody can see it, and the reopen catch-up below supersedes it.
-      if (followUpRef.current !== null) {
-        clearTimeout(followUpRef.current);
-        followUpRef.current = null;
-      }
+      // A closing gate cancels every pending stale follow-up: those reads would
+      // land where nobody can see them, and the reopen catch-up supersedes them.
+      clearFollowUps();
       return undefined;
     }
     run("auto");
@@ -2309,9 +2683,22 @@ function useUsageBoard() {
 
   const refresh = useCallback(function () {
     run("manual");
-  }, [run]);
+  }, []);
 
-  return { state: state, busy: busy, now: now, refresh: refresh, rootRef: rootRef };
+  const providers = orderedProviders(view);
+  return {
+    phase: boardPhase(view),
+    slots: panelSlots(view),
+    providers: providers,
+    updatedAt: latestUpdatedAt(view),
+    // With rows on screen a failure is a note about numbers that are still
+    // shown; with nothing loaded yet it is the whole board's error state.
+    failure: providers.length > 0 ? retainedFailure(view) : latestFailure(view),
+    busy: Object.keys(view.pending).length > 0,
+    now: now,
+    refresh: refresh,
+    rootRef: rootRef,
+  };
 }
 
 /** Circular-arrow glyph shared by both refresh affordances. */
@@ -2525,25 +2912,124 @@ function ProviderCard(props) {
   });
 }
 
-/** The whole panel: header, provider cards, footer. */
+/**
+ * First-paint placeholder for one provider whose first row has not arrived yet.
+ * One card per provider (not one global loading paragraph) so the panel says
+ * which services are still coming instead of hiding them behind one line.
+ */
+function ProviderSkeletonCard(props) {
+  const label = providerLabelFor(props.id);
+  return jsxs("article", {
+    className: "ub-card",
+    "data-provider": props.id,
+    "data-skeleton": "true",
+    "aria-busy": "true",
+    "aria-label": label + " \u00b7 " + props.t("state.loading"),
+    children: [
+      jsx("div", {
+        key: "head",
+        className: "ub-card-head",
+        children: jsx("div", {
+          className: "ub-card-title-row",
+          children: jsx("h2", { className: "ub-card-title", children: label }),
+        }),
+      }),
+      jsxs("div", {
+        key: "body",
+        className: "ub-card-body",
+        children: [
+          jsx("span", { key: "line-a", className: "ub-skeleton-line", "data-width": "short" }),
+          jsx("span", { key: "bar", className: "ub-skeleton-bar" }),
+          jsx("span", { key: "line-b", className: "ub-skeleton-line", "data-width": "wide" }),
+        ],
+      }),
+    ],
+  });
+}
+
+/**
+ * Which protocol status explains a transport-level failure, for the pill and
+ * the card's tone. The HTTP/shape failures are the host, not the provider, so
+ * "network error" only fits a failed or timed-out fetch.
+ * @param {object} failure
+ * @returns {string}
+ */
+function failureStatus(failure) {
+  return failure.key === "error.network" || failure.key === "error.timeout" ? "network-error" : "invalid-response";
+}
+
+/**
+ * A provider's own card for a transport-level failure: the host returned
+ * nothing usable for that one provider. The other cards are unaffected — one
+ * provider's transport error never degrades the whole board — and the panel
+ * keeps rendering this slot so the missing card is visible as a failure rather
+ * than silently absent.
+ */
+function ProviderFailureCard(props) {
+  const t = props.t;
+  const failure = props.failure;
+  const status = failureStatus(failure);
+  return jsxs("article", {
+    className: "ub-card",
+    "data-provider": props.id,
+    "data-status": status,
+    children: [
+      jsxs("div", {
+        key: "head",
+        className: "ub-card-head",
+        children: [
+          jsx("div", {
+            className: "ub-card-title-row",
+            children: jsx("h2", { className: "ub-card-title", children: providerLabelFor(props.id) }),
+          }),
+          jsxs("span", {
+            key: "pill",
+            className: "ub-pill",
+            "data-tone": statusTone(status),
+            children: [
+              jsx("i", { key: "dot", className: "ub-dot", "aria-hidden": "true" }),
+              jsx("span", { key: "text", children: t(statusKey(status)) }),
+            ],
+          }),
+        ],
+      }),
+      jsx("div", {
+        key: "body",
+        className: "ub-card-body",
+        children: jsxs("div", {
+          className: "ub-state",
+          children: compact([
+            jsx("p", {
+              key: "line",
+              className: "ub-state-line",
+              children: t(failure.key, failure.params),
+            }),
+            failure.detail === null ? null : jsx("code", { key: "detail", className: "ub-code", children: failure.detail }),
+          ]),
+        }),
+      }),
+    ],
+  });
+}
+
+/** The whole panel: header, one card per provider slot, footer. */
 function UsageBoardPanel(props) {
   const t = translateOf(props);
   const board = useUsageBoard();
-  const snapshot = board.state.snapshot;
-  const providers = snapshot === null ? [] : snapshot.providers;
-  const failure = board.state.failure;
+  const providers = board.providers;
+  const failure = board.failure;
   const hosts = collectHosts(providers);
-  const updated = relativeTime(t, snapshot === null ? null : snapshot.generatedAt, board.now);
-  // While a snapshot is on screen, being busy is said here and on the refresh
+  const updated = relativeTime(t, board.updatedAt, board.now);
+  // While rows are on screen, being busy is said here and on the refresh
   // button — never by emptying the body the user is reading.
-  const freshness = snapshot !== null && board.busy
+  const freshness = providers.length > 0 && board.busy
     ? (updated === null ? t("updated.none") : updated) + " \u00b7 " + t("updated.refreshing")
     : (updated === null ? t("updated.none") : updated);
 
   const body = [];
-  if (board.state.phase === "loading") {
-    body.push(jsx("p", { key: "loading", className: "ub-note", children: t("state.loading") }));
-  } else if (board.state.phase === "error") {
+  if (board.phase === "error") {
+    // Nothing has ever loaded: the board itself is the failure. Any old numbers
+    // would have taken the `ready` path above, where they are never blanked.
     body.push(jsxs("div", {
       key: "failure",
       className: "ub-failure",
@@ -2561,7 +3047,10 @@ function UsageBoardPanel(props) {
       ]),
     }));
   } else {
-    if (failure !== null) {
+    if (board.phase === "ready" && failure !== null) {
+      // A refresh failed while its provider's previous numbers are still shown.
+      // The note explains why the screen is older than the clock claims; it
+      // never replaces the numbers themselves.
       const reason = failure.detail === null ? t(failure.key, failure.params) : failure.detail;
       body.push(jsx("p", {
         key: "refresh-failure",
@@ -2570,11 +3059,14 @@ function UsageBoardPanel(props) {
         children: t("state.refreshFailed", { reason: reason }),
       }));
     }
-    if (providers.length === 0) {
-      body.push(jsx("p", { key: "empty", className: "ub-note", children: t("state.empty") }));
-    }
-    for (const provider of providers) {
-      body.push(jsx(ProviderCard, { provider: provider, t: t, now: board.now }, provider.id));
+    for (const slot of board.slots) {
+      if (slot.kind === "provider") {
+        body.push(jsx(ProviderCard, { provider: slot.provider, t: t, now: board.now }, slot.id));
+      } else if (slot.kind === "failure") {
+        body.push(jsx(ProviderFailureCard, { id: slot.id, failure: slot.failure, t: t }, slot.id));
+      } else {
+        body.push(jsx(ProviderSkeletonCard, { id: slot.id, t: t }, slot.id));
+      }
     }
   }
 
@@ -2583,7 +3075,7 @@ function UsageBoardPanel(props) {
     // Observed by the auto-refresh gate: a panel the sidebar keeps mounted but
     // hidden (another panel selected) must not keep polling.
     ref: board.rootRef,
-    "data-phase": board.state.phase,
+    "data-phase": board.phase,
     "aria-label": t("panel"),
     children: [
       jsxs("header", {

@@ -10,7 +10,7 @@
 import http from 'node:http';
 
 import { isLoopbackAddress } from '../../src/host/routes.js';
-import { PROVIDER_IDS, PROTOCOL_VERSION } from '../../src/shared/protocol.js';
+import { PROVIDER_IDS, PROTOCOL_VERSION, PROVIDER_PATH, PROVIDER_QUERY_PARAM } from '../../src/shared/protocol.js';
 import { check, checkEqual, finish, loadRealSecrets, mask, request, startPluginServer, tryJson } from './_lib.mjs';
 
 const BASE = process.argv[2] ?? 'http://127.0.0.1:3178/usage-board';
@@ -48,6 +48,8 @@ async function liveRoutes() {
   check('B1.2', 'health reports protocolVersion 1 and a ttl', healthBody?.protocolVersion === PROTOCOL_VERSION && typeof healthBody?.ttlMs === 'number', `protocolVersion=${healthBody?.protocolVersion} ttlMs=${healthBody?.ttlMs}`);
   check('B1.3', 'health exposes a configured-style summary, not credential values', typeof healthBody?.credentials === 'object' && Array.isArray(healthBody.credentials.providers), JSON.stringify(healthBody?.credentials).slice(0, 200));
   check('B1.4', 'health reads counter is a number', typeof healthBody?.reads === 'number', `reads=${healthBody?.reads}`);
+  check('B1.5', 'health.providers lists every provider in display order with additive cache state', JSON.stringify(healthBody?.providers?.map((entry) => entry.id)) === JSON.stringify(PROVIDER_IDS) && (healthBody?.providers ?? []).every((entry) => ['id', 'status', 'fetchedAt', 'expiresAt', 'refreshing'].every((key) => key in entry)), JSON.stringify(healthBody?.providers));
+  check('B1.6', 'every health.providers status is one of fresh/stale/missing', (healthBody?.providers ?? []).every((entry) => ['fresh', 'stale', 'missing'].includes(entry.status)), JSON.stringify(healthBody?.providers?.map((entry) => `${entry.id}:${entry.status}`)));
 
   const snapshotResponse = await request(`${BASE}/api/snapshot`);
   const snapshot = tryJson(snapshotResponse.text);
@@ -108,15 +110,21 @@ async function liveRoutes() {
   const messageKeys = (snapshot?.providers ?? []).map((row) => ({ id: row.id, status: row.status, messageKey: row.messageKey }));
   check('B2.10', 'messageKey is null on ok rows and never undefined', messageKeys.every((entry) => entry.messageKey === null || typeof entry.messageKey === 'string'), JSON.stringify(messageKeys));
 
-  // ---- refresh really refetches
+  // ---- refresh really refetches. `reads` now counts PROVIDER reads, so one
+  // aggregate refresh is expected to cost exactly one read per provider.
   const before = tryJson((await request(`${BASE}/api/snapshot`)).text);
+  // Settle the board first: a background refresh already in flight would be
+  // shared by the forced read (per-provider dedupe), making the delta smaller
+  // than a clean fan-out.
+  await request(`${BASE}/api/refresh`, { method: 'POST' });
+  await new Promise((resolve) => setTimeout(resolve, 500));
   const readsBefore = tryJson((await request(`${BASE}/api/health`)).text).reads;
   const refreshed = await request(`${BASE}/api/refresh`, { method: 'POST' });
   const after = tryJson(refreshed.text);
   const readsAfter = tryJson((await request(`${BASE}/api/health`)).text).reads;
   check('B3.1', 'POST /api/refresh -> 200 with a snapshot', refreshed.status === 200 && Array.isArray(after?.providers), `HTTP ${refreshed.status}`);
   check('B3.2', 'refresh produces a new generatedAt', after?.generatedAt !== before?.generatedAt, `${before?.generatedAt} -> ${after?.generatedAt}`);
-  check('B3.3', 'refresh increments health.reads', readsAfter === readsBefore + 1, `reads ${readsBefore} -> ${readsAfter}`);
+  check('B3.3', `one aggregate refresh costs ${PROVIDER_IDS.length} provider reads (health.reads semantics)`, readsAfter === readsBefore + PROVIDER_IDS.length, `reads ${readsBefore} -> ${readsAfter} (expected +${PROVIDER_IDS.length})`);
   const secondGet = tryJson((await request(`${BASE}/api/snapshot`)).text);
   check('B3.4', 'the refreshed snapshot is served from cache (generatedAt stable)', secondGet?.generatedAt === after?.generatedAt, `${after?.generatedAt} then ${secondGet?.generatedAt}`);
 
@@ -141,7 +149,11 @@ async function liveRoutes() {
   check('B5.2', 'CSP header present on the page', typeof page.headers['content-security-policy'] === 'string', page.headers['content-security-policy']);
   const csp = page.headers['content-security-policy'] ?? '';
   check('B5.3', 'CSP forbids remote script/style/frame', csp.includes("default-src 'none'") && csp.includes("script-src 'unsafe-inline'") && !csp.includes('http://') && !csp.includes('https://'), csp);
-  check('B5.4', 'page boot block is injected with the protocol paths', page.text.includes('__USAGE_BOARD__') && page.text.includes('/usage-board/api/snapshot') && page.text.includes('/usage-board/api/refresh'), 'boot block present');
+  check('B5.4', 'page boot block is injected with the old aggregate paths', page.text.includes('__USAGE_BOARD__') && page.text.includes('/usage-board/api/snapshot') && page.text.includes('/usage-board/api/refresh'), 'boot block present');
+  const bootMatch = /window\.__USAGE_BOARD__=(\{.*?\});<\/script>/.exec(page.text);
+  const boot = bootMatch === null ? null : tryJson(bootMatch[1]);
+  check('B5.4b', 'boot block carries providerPath + providerQueryParam + providerIds for the per-provider renders', boot?.providerPath === PROVIDER_PATH && boot?.providerQueryParam === PROVIDER_QUERY_PARAM && JSON.stringify(boot?.providerIds) === JSON.stringify(PROVIDER_IDS), JSON.stringify({ providerPath: boot?.providerPath, providerQueryParam: boot?.providerQueryParam, providerIds: boot?.providerIds }));
+  check('B5.4c', 'boot block still carries snapshotPath + refreshPath', boot?.snapshotPath === '/usage-board/api/snapshot' && boot?.refreshPath === '/usage-board/api/refresh', JSON.stringify({ snapshotPath: boot?.snapshotPath, refreshPath: boot?.refreshPath }));
   check('B5.5', 'page is self-contained (no external subresource)', !/<(script|link|img)[^>]+(src|href)=["']https?:/i.test(page.text), 'no absolute subresources');
 
   // ---- unknown paths / prefix boundaries
@@ -184,6 +196,7 @@ async function liveLeakScan(snapshot) {
     bundle: (await request(`${BASE}/client.js`)).text,
     refresh: (await request(`${BASE}/api/refresh`, { method: 'POST' })).text,
     unknown: (await request(`${BASE}/api/does-not-exist`)).text,
+    provider: (await request(`${BASE}/api/provider?id=deepseek`)).text,
   };
   for (const { name, prefix, masked } of prefixes) {
     const hits = Object.entries(bodies).filter(([, body]) => prefix.length >= 8 && body.includes(prefix)).map(([key]) => key);
@@ -218,13 +231,20 @@ async function loopbackMatrix() {
 
   const server = await startPluginServer({ getSecret: async () => undefined, spoofRemote: true, config: { ttlMs: 15_000 } });
   try {
-    const paths = ['/usage-board/api/snapshot', '/usage-board/api/health', '/usage-board/api/refresh', '/usage-board/', '/usage-board/client.js'];
+    const routeCalls = [
+      ['/usage-board/api/snapshot', 'GET'],
+      ['/usage-board/api/health', 'GET'],
+      ['/usage-board/api/refresh', 'POST'],
+      ['/usage-board/api/provider?id=deepseek', 'GET'],
+      ['/usage-board/api/provider?id=glm', 'POST'],
+      ['/usage-board/', 'GET'],
+      ['/usage-board/client.js', 'GET'],
+    ];
     for (const peer of ['10.0.0.7', '2001:db8::1', '192.168.1.20']) {
       const results = [];
-      for (const path of paths) {
-        const method = path.endsWith('/refresh') ? 'POST' : 'GET';
+      for (const [path, method] of routeCalls) {
         const response = await request(`${server.url}${path}`, { method, headers: { 'x-qa-spoof-remote': peer } });
-        results.push(`${path}:${response.status}`);
+        results.push(`${path.split('?')[0]}:${method}:${response.status}`);
       }
       check(`B8.deny(${peer})`, `non-loopback peer ${peer} is refused on every route (403)`, results.every((entry) => entry.endsWith(':403')), results.join(' '));
     }
@@ -282,6 +302,39 @@ async function extraRoutes() {
   check('B10.4', 'CSP allows the inline boot script the page needs', csp.includes("script-src 'unsafe-inline'"), csp);
 }
 
+/* ------------------------------------------- B11 per-provider route (live DSH) */
+
+async function liveProviderRoutes() {
+  console.log(`\n== B11 per-provider routes on the live DSH instance ==`);
+  for (const id of PROVIDER_IDS) {
+    const first = await request(`${BASE}/api/provider?id=${id}`);
+    const body = tryJson(first.text);
+    check(`B11.1.${id}`, `GET ${PROVIDER_PATH}?${PROVIDER_QUERY_PARAM}=${id} -> 200 one-row envelope`, first.status === 200 && body?.providers?.length === 1 && body.providers[0]?.id === id, `HTTP ${first.status}, rows=${JSON.stringify(body?.providers?.map((row) => row?.id))}`);
+    check(`B11.2.${id}`, `GET provider?id=${id} carries protocolVersion, ttlMs and a derived ok`, body?.protocolVersion === PROTOCOL_VERSION && typeof body?.ttlMs === 'number' && body?.ok === (body?.providers?.[0]?.status === 'ok'), JSON.stringify({ protocolVersion: body?.protocolVersion, ttlMs: body?.ttlMs, ok: body?.ok, status: body?.providers?.[0]?.status }));
+    const second = await request(`${BASE}/api/provider?id=${id}`);
+    const secondBody = tryJson(second.text);
+    check(`B11.3.${id}`, `a second GET provider?id=${id} is served from cache (same generatedAt)`, secondBody?.generatedAt === body?.generatedAt, `${body?.generatedAt} / ${secondBody?.generatedAt}`);
+    const forced = await request(`${BASE}/api/provider?id=${id}`, { method: 'POST' });
+    const forcedBody = tryJson(forced.text);
+    check(`B11.4.${id}`, `POST provider?id=${id} -> 200 one-row envelope`, forced.status === 200 && forcedBody?.providers?.length === 1 && forcedBody.providers[0]?.id === id, `HTTP ${forced.status}, rows=${JSON.stringify(forcedBody?.providers?.map((row) => row?.id))}`);
+    check(`B11.5.${id}`, `POST provider?id=${id} forces a genuinely new read (new generatedAt)`, forcedBody?.generatedAt !== body?.generatedAt, `${body?.generatedAt} -> ${forcedBody?.generatedAt}`);
+    check(`B11.6.${id}`, `POST provider?id=${id} keeps ok derived from its single row`, forcedBody?.ok === (forcedBody?.providers?.[0]?.status === 'ok'), `ok=${forcedBody?.ok}, status=${forcedBody?.providers?.[0]?.status}`);
+  }
+
+  const missing = await request(`${BASE}/api/provider`);
+  const missingBody = tryJson(missing.text);
+  check('B11.7', 'missing id -> 400 unknown-provider', missing.status === 400 && missingBody?.ok === false && missingBody?.error?.code === 'unknown-provider', `HTTP ${missing.status} ${missing.text.slice(0, 120)}`);
+  const unknown = await request(`${BASE}/api/provider?id=not-a-provider`);
+  check('B11.8', 'unknown id -> 400 unknown-provider', unknown.status === 400 && tryJson(unknown.text)?.error?.code === 'unknown-provider', `HTTP ${unknown.status} ${unknown.text.slice(0, 120)}`);
+  const put = await request(`${BASE}/api/provider?id=glm`, { method: 'PUT' });
+  check('B11.9', 'PUT provider -> 405 with Allow: GET, HEAD, POST', put.status === 405 && put.headers.allow === 'GET, HEAD, POST', `HTTP ${put.status}, allow=${put.headers.allow}`);
+  const head = await request(`${BASE}/api/provider?id=deepseek`, { method: 'HEAD' });
+  check('B11.10', 'HEAD provider?id=deepseek -> 200, empty body, content-length set', head.status === 200 && head.text === '' && head.headers['content-length'] !== undefined, `HTTP ${head.status}, body ${head.text.length} bytes`);
+  const health = tryJson((await request(`${BASE}/api/health`)).text);
+  check('B11.11', 'after the per-provider reads every provider cache is fresh', (health?.providers ?? []).every((entry) => entry.status === 'fresh'), JSON.stringify(health?.providers?.map((entry) => `${entry.id}:${entry.status}`)));
+  check('B11.12', `health.reads grew by ${PROVIDER_IDS.length} per forced per-provider read`, typeof health?.reads === 'number' && health.reads >= PROVIDER_IDS.length * 2, `reads=${health?.reads}`);
+}
+
 /* ---------------------------------------------------------------------- runner */
 
 const snapshot = await liveRoutes();
@@ -289,4 +342,5 @@ if (snapshot) await liveLeakScan(snapshot);
 await loopbackMatrix();
 await pageDisabled();
 await extraRoutes();
+await liveProviderRoutes();
 process.exit(finish());

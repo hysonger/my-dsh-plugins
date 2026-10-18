@@ -2,17 +2,25 @@
  * Snapshot assembly and caching for the usage board.
  *
  * One `SnapshotService` per plugin instance owns every upstream read. Callers
- * (the HTTP routes, and any future Remote surface) ask for a snapshot and get
- * either the cached one or a fresh one; concurrent callers share a single
- * in-flight read per provider so a refresh storm never multiplies upstream
- * traffic.
+ * (the HTTP routes, and any future Remote surface) can ask for:
+ *
+ * - **one provider** (`getProvider`) — the decoupled read behind
+ *   `GET/POST /usage-board/api/provider`. A slow or hanging provider holds back
+ *   its own caller only; every other provider's read proceeds independently.
+ * - **the whole board** (`get`, `getServing`) — the compatibility aggregate
+ *   behind `/api/snapshot` and `/api/refresh`, composed from the same
+ *   per-provider caches.
+ *
+ * Cache and in-flight state are per provider. Concurrent callers share a single
+ * in-flight read *per provider*, so both a refresh storm and a renderer that
+ * asks for each provider separately cannot multiply upstream traffic.
  *
  * @module dsh-plugin-usage-board/host/snapshot
  */
 
-import { PROVIDERS } from './providers/index.js';
+import { PROVIDERS, providerById } from './providers/index.js';
 import { fetchJson } from './fetch-json.js';
-import { makeProvider, makeSnapshot, projectSnapshot, SNAPSHOT_PATH } from '../shared/protocol.js';
+import { makeProvider, makeSnapshot, SNAPSHOT_PATH } from '../shared/protocol.js';
 
 /** Default cache lifetime. */
 export const DEFAULT_TTL_MS = 60_000;
@@ -27,6 +35,22 @@ export const MIN_TTL_MS = 15_000;
 export const PROVIDER_TIMEOUT_MS = 12_000;
 
 /**
+ * @typedef {object} CachedRow
+ * @property {import('../shared/protocol.js').ProviderSnapshot} row
+ * @property {number} startedAt Epoch ms at which the read backing the row began.
+ * @property {number} expiresAt Epoch ms after which the row is stale.
+ */
+
+/**
+ * @typedef {object} ProviderState
+ * @property {string} id
+ * @property {'fresh'|'stale'|'missing'} status
+ * @property {number|null} fetchedAt Read start time, or null when nothing is cached.
+ * @property {number|null} expiresAt
+ * @property {boolean} refreshing True while a read for this provider is in flight.
+ */
+
+/**
  * @typedef {object} SnapshotServiceOptions
  * @property {(name: string) => Promise<string|undefined>} getSecret Resolves a credential reference.
  * @property {number} [ttlMs]
@@ -36,7 +60,7 @@ export const PROVIDER_TIMEOUT_MS = 12_000;
  */
 
 /**
- * Owns the cached dashboard snapshot.
+ * Owns the per-provider caches and builds the envelopes the routes serve.
  */
 export class SnapshotService {
   #getSecret;
@@ -44,16 +68,17 @@ export class SnapshotService {
   #log;
   #now;
   #readProvider;
-  #cache = null;
-  #inflight = null;
-  /** @type {AbortController|null} */
-  #controller = null;
+  /** @type {Map<string, CachedRow>} */
+  #rows = new Map();
+  /** @type {Map<string, Promise<{ row: import('../shared/protocol.js').ProviderSnapshot, startedAt: number }>>} */
+  #inflight = new Map();
+  /** @type {Set<AbortController>} One controller per in-flight provider read. */
+  #controllers = new Set();
   /** Set by `dispose()`; a read that finishes afterwards must not cache. */
   #disposed = false;
   /** Background refreshes started, for diagnostics. */
   #backgroundReads = 0;
-  /** @type {Map<string, Promise<import('../shared/protocol.js').ProviderSnapshot>>} */
-  #perProvider = new Map();
+  /** Upstream provider reads performed, for diagnostics. */
   #reads = 0;
 
   /**
@@ -72,7 +97,12 @@ export class SnapshotService {
     return this.#ttlMs;
   }
 
-  /** How many upstream fan-outs this instance has performed, for diagnostics. */
+  /** Provider ids the current registry exposes, in display order. */
+  get providerIds() {
+    return PROVIDERS.map((adapter) => adapter.id);
+  }
+
+  /** How many provider reads this instance has performed, for diagnostics. */
   get readCount() {
     return this.#reads;
   }
@@ -83,50 +113,141 @@ export class SnapshotService {
   }
 
   /**
-   * Return the cached snapshot when it is still fresh, otherwise read upstream.
+   * Per-provider cache state, without touching a provider or a credential.
+   * Additive diagnostics for the health route; the values are plain data.
+   * @returns {ProviderState[]}
+   */
+  providerStates() {
+    return PROVIDERS.map((adapter) => {
+      const entry = this.#rows.get(adapter.id);
+      const refreshing = this.#inflight.has(adapter.id);
+      if (entry === undefined) {
+        return { id: adapter.id, status: 'missing', fetchedAt: null, expiresAt: null, refreshing };
+      }
+      const fresh = entry.expiresAt > this.#now();
+      return {
+        id: adapter.id,
+        status: fresh ? 'fresh' : 'stale',
+        fetchedAt: entry.startedAt,
+        expiresAt: entry.expiresAt,
+        refreshing,
+      };
+    });
+  }
+
+  /**
+   * Read one provider's envelope.
+   *
+   * This is the decoupled path the renderer uses. `force: false` is the serving
+   * read: a fresh cached row is returned at once, an expired row is returned at
+   * once while a refresh is started behind it (`stale: true`), and only a
+   * provider with no cached row makes the caller wait. `force: true` waits for a
+   * fresh upstream read of this provider.
+   *
+   * The result is always a one-row {@link import('../shared/protocol.js').UsageSnapshot};
+   * the caller must have validated `id` against {@link providerIds}.
+   *
+   * @param {string} id `PROVIDER_IDS` member.
+   * @param {{ force?: boolean }} [options]
+   * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
+   */
+  async getProvider(id, options = {}) {
+    const { force = false } = options;
+    const adapter = providerById(id);
+    if (adapter === undefined) throw new UnknownProviderError(id);
+    if (this.#disposed) {
+      const cached = this.#rows.get(id);
+      return cached === undefined ? this.#disposedEnvelope() : this.#oneRow(cached);
+    }
+    if (force) return this.#oneRow(await this.#readOne(adapter));
+
+    const cached = this.#rows.get(id);
+    if (cached === undefined) return this.#oneRow(await this.#readOne(adapter));
+
+    const fresh = cached.expiresAt > this.#now();
+    if (!fresh) this.#startBackgroundRead(adapter);
+    return this.#oneRow(cached, {
+      stale: !fresh,
+      refreshing: !fresh && this.#inflight.has(id),
+    });
+  }
+
+  /**
+   * Return the aggregate snapshot: fresh rows where they exist, and a read for
+   * every provider whose row is missing or expired.
+   *
+   * This is the compatibility read behind `GET /api/snapshot` and
+   * `POST /api/refresh`; it waits for the whole board by definition. Renderers
+   * that want progressive paint use {@link getProvider} instead.
+   *
    * @param {{ force?: boolean }} [options]
    * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
    */
   async get(options = {}) {
     const { force = false } = options;
-    if (!force && this.#cache !== null && this.#cache.expiresAt > this.#now()) return this.#cache.snapshot;
-    // Keep awaiting a read that was already running when disposal happened
-    // (the caller asked for it before the plugin went away); only refuse a new one.
-    if (this.#disposed && this.#inflight === null) {
-      return this.#cache === null ? this.#disposedEnvelope() : this.#cache.snapshot;
-    }
-    return this.#beginRead({ blocking: true });
+    if (this.#disposed) return this.#composeFromCache();
+    const adapters = PROVIDERS;
+    const entries = await Promise.all(
+      adapters.map((adapter) => (force ? this.#readOne(adapter) : this.#ensureRow(adapter))),
+    );
+    return this.#aggregate(entries);
   }
 
-  /** Drop the cache so the next `get()` reads upstream. */
+  /** Drop every cached row so the next read goes upstream. */
   invalidate() {
-    this.#cache = null;
+    this.#rows.clear();
   }
 
   /**
-   * Answer without waiting on any provider whenever the cache can carry the
-   * response.
+   * Answer the aggregate without waiting on any provider whenever the cache can
+   * carry the response.
    *
-   * This is what makes entering the panel feel instant. When a cached snapshot
-   * exists but its TTL has passed, the stale copy is returned immediately and a
-   * background read is started to replace it — the caller gets numbers now and
-   * the freshness of the next answer, instead of blocking on the slowest
-   * provider. Only a genuinely empty cache blocks, because there is nothing
-   * honest to serve.
+   * This is what makes entering the board feel instant when the aggregate route
+   * is used directly. Fresh rows are served as they are; expired rows are served
+   * immediately while a background refresh replaces them — the caller gets
+   * numbers now instead of blocking on the slowest provider. Only providers with
+   * no cached row at all block, because there is nothing honest to serve for
+   * them.
    *
    * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
    */
   async getServing() {
-    if (this.#disposed) return this.#cache === null ? this.#disposedEnvelope() : this.#cache.snapshot;
-    if (this.#cache === null) {
-      // Cold start: no numbers exist yet, so this caller waits for the first read.
-      return await this.#beginRead({ blocking: true });
+    if (this.#disposed) return this.#composeFromCache();
+    const adapters = PROVIDERS;
+    /** @type {import('./providers/index.js').ProviderAdapter[]} */
+    const missing = [];
+    for (const adapter of adapters) {
+      const cached = this.#rows.get(adapter.id);
+      if (cached === undefined) {
+        missing.push(adapter);
+        continue;
+      }
+      if (cached.expiresAt <= this.#now()) this.#startBackgroundRead(adapter);
     }
-    const fresh = this.#cache.expiresAt > this.#now();
-    if (!fresh) this.#startBackgroundRefresh();
-    return projectSnapshot(this.#cache.snapshot, {
-      stale: !fresh,
-      refreshing: this.#controller !== null && !fresh,
+    // Cold start (or a provider that only exists in the registry now): wait for
+    // the missing rows concurrently. Anything else is served from cache.
+    if (missing.length > 0) {
+      await Promise.all(missing.map((adapter) => this.#readOne(adapter)));
+    }
+    return this.#composeFromCache({ flagStaleness: true });
+  }
+
+  /**
+   * A one-row envelope for a provider read. `refreshing` says a background
+   * refresh is already running behind a stale answer, so a consumer knows its
+   * stale follow-up will find fresher numbers.
+   *
+   * @param {CachedRow|{ row: import('../shared/protocol.js').ProviderSnapshot, startedAt: number }} entry
+   * @param {{ stale?: boolean, refreshing?: boolean }} [flags]
+   * @returns {import('../shared/protocol.js').UsageSnapshot}
+   */
+  #oneRow(entry, flags = {}) {
+    return makeSnapshot({
+      generatedAt: entry.startedAt,
+      ttlMs: this.#ttlMs,
+      providers: [entry.row],
+      stale: flags.stale === true,
+      refreshing: flags.refreshing === true,
     });
   }
 
@@ -141,109 +262,171 @@ export class SnapshotService {
   }
 
   /**
-   * Whether a cached snapshot exists and is still inside its TTL.
+   * Build the aggregate envelope from whatever is cached right now.
+   *
+   * `flagStaleness` is true for a serving read: each row's own age is reported
+   * and an expired row starts its own background refresh. The disposed and
+   * cold-start paths pass `false` because they have just read (or must not
+   * read), so their rows are fresh by construction.
+   *
+   * @param {{ flagStaleness?: boolean }} [options]
+   * @returns {import('../shared/protocol.js').UsageSnapshot}
+   */
+  #composeFromCache(options = {}) {
+    const { flagStaleness = false } = options;
+    /** @type {CachedRow[]} */
+    const entries = [];
+    for (const adapter of PROVIDERS) {
+      const cached = this.#rows.get(adapter.id);
+      if (cached === undefined) continue;
+      if (flagStaleness && cached.expiresAt <= this.#now() && !this.#disposed) {
+        this.#startBackgroundRead(adapter);
+      }
+      entries.push(cached);
+    }
+    if (entries.length === 0) return this.#disposedEnvelope();
+    const anyStale = flagStaleness && entries.some((entry) => entry.expiresAt <= this.#now());
+    return this.#aggregate(entries, {
+      stale: anyStale,
+      refreshing: anyStale && this.#inflight.size > 0,
+    });
+  }
+
+  /**
+   * Compose rows into the aggregate envelope.
+   * @param {Array<CachedRow|{ row: import('../shared/protocol.js').ProviderSnapshot, startedAt: number }>} entries
+   * @param {{ stale?: boolean, refreshing?: boolean }} [flags]
+   * @returns {import('../shared/protocol.js').UsageSnapshot}
+   */
+  #aggregate(entries, flags = {}) {
+    // A clock injected in tests may legitimately start at 0, so seed from the
+    // first row rather than from a sentinel that could pass for a real instant.
+    let generatedAt = entries.length === 0 ? this.#now() : entries[0].startedAt;
+    for (const entry of entries) generatedAt = Math.max(generatedAt, entry.startedAt);
+    return makeSnapshot({
+      generatedAt,
+      ttlMs: this.#ttlMs,
+      providers: entries.map((entry) => entry.row),
+      stale: flags.stale === true,
+      refreshing: flags.refreshing === true,
+    });
+  }
+
+  /**
+   * Whether every registered provider has a cached row inside its ttl.
    * @returns {boolean}
    */
   isFresh() {
-    return this.#cache !== null && this.#cache.expiresAt > this.#now();
-  }
-
-  /**
-   * Refresh behind an already-delivered response, at most one at a time.
-   * A failed background read leaves the stale cache in place: the next caller
-   * still gets numbers, and the read that failed is reported through the rows.
-   */
-  #startBackgroundRefresh() {
-    if (this.#controller !== null || this.#disposed) return;
-    void this.#beginRead({ blocking: false }).catch(() => undefined);
-  }
-
-  /**
-   * Start one shared read. All callers of a single fan-out await the same
-   * promise, so a background refresh and a caller that arrived at the same
-   * moment cannot double the upstream traffic.
-   *
-   * @param {{ blocking: boolean }} options
-   * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
-   */
-  #beginRead({ blocking }) {
-    if (this.#inflight !== null) return this.#inflight;
-    const pending = this.#read({ blocking }).finally(() => {
-      this.#inflight = null;
+    const ids = this.providerIds;
+    if (ids.length === 0) return false;
+    return ids.every((id) => {
+      const cached = this.#rows.get(id);
+      return cached !== undefined && cached.expiresAt > this.#now();
     });
-    this.#inflight = pending;
-    return pending;
   }
 
   /**
-   * Fan out over every adapter and assemble the envelope.
-   *
-   * The read owns one AbortController for its whole fan-out and aborts it in a
-   * `finally`, so an adapter that ignores its result still releases its socket
-   * instead of holding a listener until process exit. Disposal mid-read is
-   * bounded by the same signal.
-   *
-   * @param {{ blocking?: boolean }} [options]
-   * @returns {Promise<import('../shared/protocol.js').UsageSnapshot>}
-   */
-  async #read(options = {}) {
-    const { blocking = true } = options;
-    this.#reads += 1;
-    const started = this.#now();
-    if (!blocking) this.#backgroundReads += 1;
-    const controller = new AbortController();
-    this.#controller = controller;
-    try {
-      const rows = await Promise.all(
-        PROVIDERS.map((adapter) => this.#readOne(adapter, controller.signal)),
-      );
-      const ttlMs = this.#ttlMs;
-      const snapshot = makeSnapshot({ generatedAt: started, ttlMs, providers: rows });
-      // A read that finishes after disposal must not resurrect the cache and
-      // hand a disposed service a fresh snapshot to serve.
-      if (!this.#disposed) this.#cache = { snapshot, expiresAt: this.#now() + ttlMs };
-      const failed = rows.filter((row) => row.status !== 'ok').map((row) => `${row.id}:${row.status}`);
-      this.#log(
-        `usage-board: snapshot built in ${this.#now() - started}ms (${rows.length} providers${failed.length === 0 ? '' : `, ${failed.join(', ')}`})`,
-      );
-      return snapshot;
-    } finally {
-      if (this.#controller === controller) this.#controller = null;
-      controller.abort();
-    }
-  }
-
-  /**
-   * Release the service: abort any in-flight fan-out and refuse to cache again.
-   * Called on plugin disposal; idempotent, and a no-op when idle.
-   */
-  dispose() {
-    this.#disposed = true;
-    this.#controller?.abort();
-    this.#controller = null;
-    this.#cache = null;
-  }
-
-  /**
-   * Run one adapter, sharing an in-flight read with any concurrent caller.
+   * Return a provider's cached row when it is still fresh, otherwise wait for a
+   * read. Used by the aggregate path, which by contract waits rather than
+   * serving stale rows.
    * @param {import('./providers/index.js').ProviderAdapter} adapter
-   * @param {AbortSignal} signal
-   * @returns {Promise<import('../shared/protocol.js').ProviderSnapshot>}
+   * @returns {Promise<CachedRow|{ row: import('../shared/protocol.js').ProviderSnapshot, startedAt: number }>}
    */
-  #readOne(adapter, signal) {
-    const existing = this.#perProvider.get(adapter.id);
+  async #ensureRow(adapter) {
+    const cached = this.#rows.get(adapter.id);
+    if (cached !== undefined && cached.expiresAt > this.#now()) return cached;
+    return await this.#readOne(adapter);
+  }
+
+  /**
+   * Refresh one provider behind an already-delivered response, at most one at a
+   * time. A failed background read leaves the stale row in place: the next
+   * caller still gets numbers, and the failure is reported through the row the
+   * background read produced.
+   * @param {import('./providers/index.js').ProviderAdapter} adapter
+   */
+  #startBackgroundRead(adapter) {
+    if (this.#disposed || this.#inflight.has(adapter.id)) return;
+    this.#backgroundReads += 1;
+    void this.#readOne(adapter).catch(() => undefined);
+  }
+
+  /**
+   * Read one provider, sharing the in-flight read with any concurrent caller.
+   *
+   * Each provider read owns its own AbortController and aborts it in a
+   * `finally`, so an adapter that ignores its result still releases its socket
+   * instead of holding a listener until process exit. Disposal cancels every
+   * controller, which bounds the whole service by the same signal.
+   *
+   * @param {import('./providers/index.js').ProviderAdapter} adapter
+   * @returns {Promise<{ row: import('../shared/protocol.js').ProviderSnapshot, startedAt: number }>}
+   */
+  #readOne(adapter) {
+    const existing = this.#inflight.get(adapter.id);
     if (existing !== undefined) return existing;
+    const started = this.#now();
+    const controller = new AbortController();
+    this.#controllers.add(controller);
+    this.#reads += 1;
     const read = adapter.read ?? this.#readProvider;
     const pending = runAdapter(adapter, read, {
       getSecret: this.#getSecret,
-      signal,
+      signal: controller.signal,
       now: this.#now,
       timeoutMs: PROVIDER_TIMEOUT_MS,
+    }).then((row) => {
+      // A read that finishes after disposal must not resurrect the cache and
+      // hand a disposed service a fresh row to serve.
+      if (!this.#disposed) {
+        this.#rows.set(adapter.id, { row, startedAt: started, expiresAt: this.#now() + this.#ttlMs });
+      }
+      this.#log(
+        `usage-board: ${adapter.id} read in ${this.#now() - started}ms` +
+          (row.status === 'ok' ? '' : ` (${row.status})`),
+      );
+      return { row, startedAt: started };
     }).finally(() => {
-      this.#perProvider.delete(adapter.id);
+      this.#controllers.delete(controller);
+      this.#inflight.delete(adapter.id);
+      controller.abort();
     });
-    this.#perProvider.set(adapter.id, pending);
+    this.#inflight.set(adapter.id, pending);
     return pending;
+  }
+
+  /**
+   * Release the service: abort every in-flight provider read and refuse to
+   * cache again. Called on plugin disposal; idempotent, and a no-op when idle.
+   */
+  dispose() {
+    this.#disposed = true;
+    for (const controller of this.#controllers) {
+      try {
+        controller.abort();
+      } catch {
+        /* an abort must never make disposal fail */
+      }
+    }
+    this.#controllers.clear();
+    this.#rows.clear();
+  }
+}
+
+/**
+ * Thrown when a caller asks for a provider that is not registered. This is a
+ * programming/transport error (the route validates first and answers 400), not
+ * a provider failure, so it must never be repaired into a degraded row.
+ */
+export class UnknownProviderError extends Error {
+  /**
+   * @param {string} id
+   */
+  constructor(id) {
+    super(`No usage board provider with id "${id}" is registered.`);
+    this.name = 'UnknownProviderError';
+    this.code = 'unknown-provider';
+    this.providerId = id;
   }
 }
 

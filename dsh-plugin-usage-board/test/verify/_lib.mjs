@@ -187,22 +187,27 @@ function createStandInWebServer() {
  * @param {object} [options]
  * @param {object} [options.config] Plugin config: `{ ttlMs, allowRemote, servePage, devMode }`.
  * @param {(name: string) => Promise<string|undefined>} [options.getSecret]
+ * @param {object} [options.snapshotOptions] Extra `SnapshotService` constructor seams
+ *   (`now`, `readProvider`); the per-provider progressive harness uses `now` to
+ *   reach cache expiry without sleeping a whole ttl. Defaults win over `config.ttlMs`
+ *   only for keys this object actually carries.
  * @param {boolean} [options.spoofRemote] Honor `x-qa-spoof-remote` to fake the peer address.
  * @returns {Promise<{ url: string, port: number, snapshots: any, close: () => Promise<void>, logs: string[], routes: any[] }>}
  */
 export async function startPluginServer(options = {}) {
-  const { config = {}, getSecret = async () => undefined, spoofRemote = false } = options;
+  const { config = {}, getSecret = async () => undefined, spoofRemote = false, snapshotOptions = {} } = options;
   const logs = [];
   const webServer = createStandInWebServer();
   const snapshots = new SnapshotService({
     getSecret,
     ttlMs: config.ttlMs ?? 15_000,
     log: (message) => logs.push(message),
+    ...snapshotOptions,
   });
   const dispose = registerRoutes(webServer, {
     snapshots,
     log: (message) => logs.push(message),
-    version: '0.2.0-verify',
+    version: '0.3.0-verify',
     credentialsHint: {
       providers: PROVIDERS.map((adapter) => ({ id: adapter.id, label: adapter.label, refs: adapter.credentialRefs ?? [] })),
     },

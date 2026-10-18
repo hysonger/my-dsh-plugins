@@ -716,3 +716,268 @@ node --test test/holidays.test.js test/pricing.test.js
 # offline adversarial suite
 node test/verify/adversarial.mjs
 ```
+
+---
+
+## 8. Addendum — per-provider progressive loading (2026-10-18)
+
+**Task:** `task-4` (independent verification of the per-provider split) · **Verifier:** `verifier`
+**Date:** 2026-10-18 (Asia/Shanghai) · **Round:** one freeze (working tree, `HEAD c86ced7` + the uncommitted
+change surface pinned below) · **Write scope used:** `test/verify/**`, `docs/VERIFICATION.md` only. No `src/**`,
+`lib/**`, `test/*.test.js`, `README.md`, `docs/ARCHITECTURE.md` or `package.json` file was modified by the
+verifier; nothing was staged or committed. All findings below were driven by the verifier against the real
+code — implementer summaries were treated as claims, not evidence.
+
+### 8.1 Verdict — PASS, no open product defects
+
+The per-provider change does what it claims: each provider's card is read through its own
+`/usage-board/api/provider?id=…` request, a slow or hanging provider holds back only its own card, and the
+aggregate routes still work for compatibility. No product defect was found. Two *verifier-owned* harness
+expectations were stale against the new `health.reads` semantics and were updated (§8.7) — those were harness
+defects, not product defects.
+
+| Suite | Command | Result |
+|---|---|---|
+| **A** | `node --test test/` | **215/215 pass** (incl. the new `test/routes.test.js`) |
+| **A** | `node scripts/build-client.mjs --check` | `lib/client.js matches the client sources` |
+| **B** | `node test/verify/routes-live.mjs http://127.0.0.1:3181/usage-board` | **95/95 pass** on a fresh scratch DSH instance |
+| **C** | `node test/verify/progressive.mjs` (self-contained) | **135/135 pass** |
+| **D** | `node test/verify/adversarial.mjs` | **187/187 pass** |
+| **E** | `node test/verify/browser-progressive.mjs http://127.0.0.1:3181 <token>` | **45/45 pass** (real DSH UI + stand-in host) |
+| live | `lsof -nP -iTCP:3181 -sTCP:LISTEN` · `/usage-board/api/health` | listens on **127.0.0.1 only**; every provider cache **fresh** |
+
+### 8.2 Frozen surface confirmed
+
+Working tree off `HEAD c86ced7` (`usage board: close idle-gate P1 gaps…`). The product files under test
+(sha256, first 12 chars; the whole tree is pinned in §8.10's manifest command):
+
+```
+c7478b98dd11  lib/client.js                 086368384f00  src/host/routes.js
+b51c620a5e22  lib/index.js                  f1ea6460a942  src/host/snapshot.js
+525cca4f46cd  src/client/panel.js           fd2a5f0193f7  src/host/web/dashboard.html
+5c8fff462c0c  src/client/protocol-copy.js   6b28ae305baf  src/shared/protocol.js
+164b2ee57f29  src/client/styles.css         281bbabb5b6e  package.json
+```
+
+Verifier-owned harness files created/changed for this round (not part of the product):
+`test/verify/progressive.mjs` (new), `test/verify/progressive-server.mjs` (new),
+`test/verify/browser-progressive.mjs` (new), plus targeted updates to `test/verify/_lib.mjs`,
+`test/verify/routes-live.mjs`, `test/verify/adversarial.mjs` (§8.7).
+
+### 8.3 Environment and method
+
+- macOS arm64, Node **v26.8.2**, `agent-browser` **0.38.1** (real Chromium), DSH CLI from
+  `/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`.
+- A **fresh scratch profile** `~/.dsh/profiles/usage-verify` was created as a copy of `usage-qa` and repointed
+  at this repo (`"dsh-plugin-usage-board": "link:/Users/songer/Projects/my-dsh-plugins/dsh-plugin-usage-board"`,
+  then the bundled pnpm install; `node_modules/dsh-plugin-usage-board` resolves to this repo). The old
+  `usage-qa`/`usage-dev` profiles were left untouched.
+- Scratch instance: `dsh --profile usage-verify --port 3181 --no-open`; the `?token=…` was read from the boot
+  line and used only for the browser session. **The live desktop DSH on 127.0.0.1:54295 that hosts this
+  session was never started, stopped, or restarted.**
+- Real credentials came from the host's own `~/.dsh/.credentials.yaml`; no secret was printed by any
+  harness, and the route leak scan (§8.4) was re-run on the live instance: the first-8-character prefixes of all
+  three secrets are absent from every response, no response echoes a Bearer token, and the grant token is
+  absent.
+- The offline halves (`progressive.mjs`, `progressive-server.mjs`, `adversarial.mjs`) are self-contained:
+  fake upstream via `fakeUpstream`, fake credentials, no real network. `_lib.mjs` gained an optional
+  `snapshotOptions` seam so a controlled clock can be injected into the real `SnapshotService` without
+  editing source.
+
+### 8.4 Attack 1 — routes over real HTTP (scratch DSH instance + stand-in real-adapter server)
+
+| # | Attack | Result |
+|---|---|---|
+| 1 | `GET /api/provider?id=<each of deepseek, glm, kimi>` | 200, **exactly one row** with that id, `protocolVersion:1`, `ttlMs:60000`, `ok` derived from the row; rows carry the full protocol shape |
+| 2 | `POST /api/provider?id=<each id>` | 200 one-row envelope, **new `generatedAt`** for each (genuinely forced), `ok` derived |
+| 3 | Missing `id` | **400** `{"ok":false,"error":{"code":"unknown-provider","message":"Missing \"id\" query parameter…"}}` |
+| 4 | Unknown `id` | **400** `unknown-provider` (`No usage board provider with id "not-a-provider"…`) |
+| 5 | `PUT` / `DELETE` / `PATCH /api/provider` | **405**, `Allow: GET, HEAD, POST` |
+| 6 | `HEAD /api/provider?id=deepseek` | **200**, empty body, `content-length` set |
+| 7 | Aggregate unchanged | `GET /api/snapshot` 200 aggregate (3 rows, deepseek/glm/kimi order, derived `ok`, no flags on an all-fresh answer); `POST /api/refresh` 200, new `generatedAt` |
+| 8 | `health` additive fields | `providers:[{id,status:'fresh'|'stale'|'missing',fetchedAt,expiresAt,refreshing}]` for all three in order; old fields (`ok/version/protocolVersion/ttlMs/reads/backgroundReads/fresh/credentials`) intact |
+| 9 | `health.reads` semantics | one aggregate refresh = **+3** provider reads: live run `reads 30 -> 33`; stand-in run `3 -> 6` |
+| 10 | Page boot injection | `window.__USAGE_BOARD__` = `{"snapshotPath":"/usage-board/api/snapshot","refreshPath":"/usage-board/api/refresh","providerPath":"/usage-board/api/provider","providerQueryParam":"id","providerIds":["deepseek","glm","kimi"],"version":"0.3.0"}` — old and new keys together |
+| 11 | Loopback-only | non-loopback peers (`10.0.0.7`, `192.168.1.20`, `2001:db8::1`) get **403 on every route including `GET` and `POST /api/provider`**; `allowRemote:true` opens them; live instance binds `127.0.0.1:3181` only |
+
+Note: `health.reads` is a diagnostic counter, not protocol wire data; its documented meaning changed from
+"aggregate fan-outs" to "provider reads". No frozen-protocol field changed meaning (all protocol changes are
+additive: `PROVIDER_PATH`/`PROVIDER_QUERY_PARAM`, `stale`/`refreshing`, `health.providers`).
+
+### 8.5 Attack 2 — decoupling under a slow / hanging upstream (the core claim)
+
+Driven through the **real** route handlers → real `SnapshotService` → real adapters → real `fetch-json.js`;
+only the upstream transport is faked. Cold cache each time; the slow provider is read **first** so a fast
+answer cannot be explained by an already-warm cache.
+
+| Case | DeepSeek endpoint | Kimi endpoint | GLM endpoint | Aggregate `GET /api/snapshot` |
+|---|---|---|---|---|
+| GLM deliberately delayed **2 500 ms** | **2 ms** | **2 ms** | 2 829 ms (ok row) | 2 798 ms — waits for the slow one (compatibility behaviour) |
+| GLM CN host **hangs** (intl host healthy) | **2 ms** | **1 ms** | 12 026 ms — real 12 000 ms provider deadline fired (1 abort observed), then answered `ok` from `api.z.ai` | waits by construction on a cold start |
+
+Additional facts captured in the same runs:
+
+- While DeepSeek/Kimi answered, the GLM read was verifiably **still pending** (`glmSettled=false`) and
+  `health` showed `glm:{status:'missing',refreshing:true}` beside `deepseek:fresh, kimi:fresh`.
+- The hang cost **exactly one provider read** (`reads=3`) — the 12 s deadline is not retried into a second read.
+- Interleaved aggregate + per-provider reads cost **one read per provider** (dedupe works across both paths);
+  five concurrent cold GETs for one provider cost **one read** and share one `generatedAt`.
+- `POST /api/provider?id=glm` on warm caches: GLM upstream calls `4 -> 6`, DeepSeek `4 -> 4`, Kimi `2 -> 2`,
+  `health.reads` `+1` — a forced read touches that provider only.
+- **Per-provider stale-while-revalidate** (controlled clock, real service): an expired GLM row is served in
+  **1 ms** with `stale:true` + `refreshing:true` and its cached numbers unchanged, while the host refreshes
+  behind the response. A provider that had just been refreshed answered **fresh/no flags** while its
+  not-yet-refreshed sibling answered stale: `health` showed `deepseek:{status:'stale',refreshing:true}`,
+  `glm:{status:'fresh',refreshing:false}`, `kimi:{status:'stale',refreshing:false}` — the flags are
+  per-provider and never leak. The aggregate reports `stale:true` and still returns all three cached rows
+  (never blanks the board).
+- A warm aggregate GET makes **zero** upstream calls; `ok` and provider order are preserved.
+
+### 8.6 Attack 3 — real browser, real DSH UI, and a stand-in progressive host
+
+Real DSH UI (fresh scratch instance, real credentials, headless Chromium via `agent-browser`):
+
+| # | Check | Evidence |
+|---|---|---|
+| 1 | Sidebar 用量看板 panel opens and renders | 3 `.ub-card` cards: DeepSeek, GLM Coding Plan, Kimi Code; numbers present (`¥43.38 …`, `0.0%`, `9.0%`); 0 skeletons after first paint |
+| 2 | Reads only the per-provider route | first wave after opening the panel: **exactly 3 requests**, `GET /usage-board/api/provider?id=deepseek|glm|kimi`; **0** requests to `/api/snapshot` or `/api/refresh` for the whole session |
+| 3 | Stale follow-ups are bounded | after settling: 4 provider requests total (the 3 first-wave GETs + **one** stale follow-up for the one stale provider), still no aggregate route |
+| 4 | Manual refresh is per-provider | panel 刷新 → **3 POSTs** (one per provider), no aggregate route; cards stay 3, skeletons 0, and all 8 number tokens visible before the refresh are still visible while it is outstanding |
+| 5 | No console/page errors | DSH console and page-error buffers empty |
+| 6 | `sessionStorage` first paint survives a dead network | the panel persisted `{"protocolVersion":1,"providers":["deepseek","glm","kimi"]}`; after reloading with **all `/api/provider` requests aborted**, all 3 cards still painted from storage with numbers intact, 0 skeletons, a `刷新失败：Failed to fetch` note (retained failure, no blanking), and no uncaught page errors |
+
+Stand-in host (`progressive-server.mjs`): identical real routes + real `dashboard.html`, fake upstream where
+DeepSeek/Kimi answer in ~40 ms and GLM takes **8 s**, opened COLD so no cache can mask the paint order:
+
+| # | Check | Evidence |
+|---|---|---|
+| 7 | Fast cards paint before the slow one answers | at page `t=321 ms`: **2 cards** (DeepSeek, Kimi Code) + **1 skeleton** (GLM), GLM request still in flight; screenshot `81-progressive-early-2cards.png` |
+| 8 | The slow card arrives last, in its own slot | 3 cards / 0 skeletons at page `t≈8.35 s` when the GLM upstream answered (HTTP 200); other cards were never rebuilt into skeletons; screenshot `82-progressive-settled-3cards.png` |
+| 9 | Only three per-provider GETs, never the aggregate | mount network log: 3× `GET …provider?id=…`; 0 aggregate requests |
+| 10 | Manual refresh keeps numbers on screen | click 刷新 with the 8 s provider outstanding: 3 cards, 0 skeletons, header `8 秒前更新 · 正在刷新…`, **all 11 number tokens** visible before the refresh still visible during it; 3× POST (one per provider); screenshot `83-progressive-refreshing-no-blank.png` |
+| 11 | No console/page errors | empty in both early and settled states |
+
+Screenshots (all under `test/verify/screenshots/`, new names — old evidence untouched):
+
+- `80-dsh-sidebar-panel-v4.png` — real DSH sidebar panel, 3 cards
+- `81-progressive-early-2cards.png` — cold stand-in page at ~321 ms: DeepSeek + Kimi painted, GLM skeleton
+- `82-progressive-settled-3cards.png` — after the slow GLM upstream answered
+- `83-progressive-refreshing-no-blank.png` — manual refresh in flight, numbers retained
+- `84-dsh-panel-refresh-no-blank-pending.png` — real panel refresh in flight, numbers retained
+- `85-dsh-panel-sessionstorage-offline.png` — real panel reloaded with every provider request aborted:
+  restored numbers + retained-failure note
+
+### 8.7 Defects found
+
+**Product defects: none.** The behaviours the implementation claims were all observed. Three defects were
+found in *verifier-owned harnesses* during this round and are recorded here for honesty (none touches
+`src/`/`lib/`, and none was caused by the product):
+
+1. **`test/verify/adversarial.mjs` C7.4 was stale against the new `reads` semantics** — it expected `reads`
+   to advance by one fan-out; it now advances by one *provider read* per provider. Updated to
+   `2 × PROVIDERS.length` (= 6) and a `health.providers` assertion added. The suite is now 187/187.
+2. **`test/verify/routes-live.mjs` B3.3 had the same stale expectation** (`+1` read per aggregate refresh) and
+   its boot-block check only knew the old paths. B3.3 now asserts `+3` and settles the cache before measuring
+   (an in-flight background refresh would otherwise be shared by the forced read); B5.4b/c assert
+   `providerPath/providerQueryParam/providerIds` *and* the old `snapshotPath/refreshPath`; B8 covers
+   `GET`/`POST /api/provider`; a new **B11** section exercises per-provider GET/POST/400/405/HEAD on the live
+   instance. Suite is now 95/95.
+3. **`test/verify/_lib.mjs`** reported a stale version string (`0.2.0-verify`) and could not inject a clock;
+   it now reports `0.3.0-verify` and accepts `snapshotOptions` (used for the stale-while-revalidate case
+   without sleeping a real TTL).
+
+My own new harnesses also had assertion bugs that were found and fixed before any numbers in this addendum
+were produced: card titles include the status pill (`"DeepSeek 正常"`, not `"DeepSeek"`); comparing whole
+`body.innerText` for "numbers unchanged" also compared the header line (fixed to compare number tokens); and
+the per-provider stale-flag observation raced an instant fake upstream (fixed by giving that scenario a 500 ms
+upstream delay so `refreshing:true` is observable). `HEAD /api/provider` with a missing id returns a 400 with
+`content-length` and no body (Node strips HEAD bodies) — verified, not a defect.
+
+### 8.8 What could NOT be verified honestly
+
+1. **A real hanging upstream over the network.** The 12 000 ms deadline/degrade path was exercised through
+   the real `SnapshotService` + routes + real `fetch-json.js` with a fake transport, not with a real host that
+   stops answering. The browser-level "slow provider" proof uses an 8 s *delayed* (not hanging) fake upstream.
+2. **Visual progressive paint inside the real DSH panel.** The real panel half proves the request topology
+   (3 per-provider GETs, no aggregate), all three cards, no errors, retained numbers on refresh/failure, and
+   the `sessionStorage` restore. It did **not** capture skeleton→card timing for the real panel, because the
+   real sample's cache was warm/stale and the verifier cannot make a real upstream's GLM card slow on demand;
+   the paint-order evidence is from the identical stand-in host.
+3. **The 20 s panel request-timeout boundary.** The panel aborts a single read at 20 s; a pathological host
+   read can exceed that (e.g. DeepSeek does summary+cost+balance sequentially, each with the 12 s deadline).
+   Retained-number behaviour after a failed read *is* verified (§8.6 #6), but no test forces a real read past
+   20 s, so the exact boundary/timeout copy is unverified.
+4. **`browser-e2e.mjs` (task-3 harness, incl. its 75 s unattended-auto-refresh assertions) was not re-run** —
+   its flow targets the pre-change renderer interactions; the changed behaviour is covered by the new
+   `browser-progressive.mjs` and the extended `routes-live.mjs`.
+5. **English locale, dark mode, Windows/Linux, hot plugin reload/remount** — not re-verified; the scratch
+   instance was booted fresh with the new link, not hot-reloaded.
+6. **GLM "ok" rows came from fake upstreams.** The real stored Zhipu key in this environment has no Coding
+   Plan (`status: upstream-error`, `code 500` on the live instance); as in the previous addendum, all GLM
+   happy-path numbers come from fixtures. This is environmental, not a route defect.
+
+### 8.9 Remaining risks
+
+- **Aggregate cold start still blocks** on the slowest provider (by contract, and verified at ~2.8 s / 12 s).
+  The shipped renderers never call it, but an older client or a script that polls `GET /api/snapshot` on a
+  cold cache inherits the old wait.
+- **`health.reads` meaning changed** for diagnostics consumers. Anything that computed "fan-outs" from it now
+  sees provider reads (×3). It is health-only data; no protocol field changed.
+- **Manual refresh can be slow for a pathological provider** (multiple sequential upstream calls per read);
+  the browser keeps numbers and shows a retained-failure note if it gives up, but the user may wait.
+- **The 12 s deadline bounds each upstream request, not a whole provider read** (an adapter may make several
+  sequential requests). This is pre-existing behaviour, not introduced by the split.
+
+### 8.10 Reproduce
+
+```bash
+cd /Users/songer/Projects/my-dsh-plugins/dsh-plugin-usage-board
+
+# --- A. suites + bundle (no network, no credentials) ---
+node --test test/                                  # 215/215
+node scripts/build-client.mjs --check              # bundle matches sources
+
+# --- C/D. self-contained offline verification (no network, no credentials) ---
+node test/verify/progressive.mjs                   # 135/135 — decoupling, stale flags, isolation, routes
+node test/verify/adversarial.mjs                   # 187/187 — upstreams, cap/flood, dispose, messageKey
+
+# --- scratch DSH instance (a COPY of usage-qa, repointed at this repo) ---
+#   ~/.dsh/profiles/usage-verify/package.json:
+#     "dsh-plugin-usage-board": "link:/Users/songer/Projects/my-dsh-plugins/dsh-plugin-usage-board"
+NODE=/Users/songer/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node
+PNPM=/Users/songer/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/pnpm/bin/pnpm.mjs
+(cd ~/.dsh/profiles/usage-verify && "$NODE" "$PNPM" install)
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  --profile usage-verify --port 3181 --no-open      # copy the ?token=… from the boot line
+
+# --- B. live routes over real HTTP (95/95) ---
+node test/verify/routes-live.mjs http://127.0.0.1:3181/usage-board
+
+# --- E. real browser (token required) + cold stand-in progressive host (45/45) ---
+node test/verify/browser-progressive.mjs http://127.0.0.1:3181 '<token>'
+# its stand-in half is spawned by the harness itself; to poke it manually:
+node test/verify/progressive-server.mjs 3198 8000   # real dashboard + fake upstream, GLM delayed 8 s
+
+# --- live instance facts quoted in §8.3/§8.4 ---
+lsof -nP -iTCP:3181 -sTCP:LISTEN                    # 127.0.0.1:3181 only
+curl -s http://127.0.0.1:3181/usage-board/api/health
+
+# --- freeze manifest (product files) ---
+git rev-parse HEAD
+find src lib -type f | sort | xargs shasum -a 256
+```
+
+Harnesses: `_lib.mjs` (plumbing + fakeUpstream + stand-in server), `progressive.mjs` (C — decoupling),
+`progressive-server.mjs` (fixture host for the visual proof), `browser-progressive.mjs` (E),
+`routes-live.mjs` (B, extended), `adversarial.mjs` (D, extended).
+
+### Honesty notes
+
+- Every number quoted in this addendum comes from a command the verifier ran on the tree pinned in §8.2; the
+  exact command output is reproducible with §8.10. The early-screenshot page time (`t=321 ms`) is the
+  browser's own `performance.now()` at the DOM probe, and it includes the CLI round-trip between
+  `open` and `eval`; the primary evidence for "fast cards before slow" is the DOM state (2 cards + 1
+  skeleton) plus the still-pending GLM network entry, not the millisecond figure alone.
+- The verifier did not modify any product file and did not stage/commit anything.
+- The desktop DSH instance hosting this session (127.0.0.1:54295) was left untouched and was never used as a
+  test target.

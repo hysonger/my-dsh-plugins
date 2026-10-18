@@ -13,6 +13,8 @@ import {
   MAX_DAILY_USAGE_DAYS,
   PROTOCOL_VERSION,
   PROVIDER_IDS,
+  PROVIDER_PATH,
+  PROVIDER_QUERY_PARAM,
   SNAPSHOT_PATH,
   derivedPercentOf,
   makeBalance,
@@ -23,7 +25,14 @@ import {
   percentOf,
   round1,
 } from '../src/shared/protocol.js';
-import { SnapshotService, clampTtl, DEFAULT_TTL_MS, MAX_TTL_MS, MIN_TTL_MS } from '../src/host/snapshot.js';
+import {
+  SnapshotService,
+  UnknownProviderError,
+  clampTtl,
+  DEFAULT_TTL_MS,
+  MAX_TTL_MS,
+  MIN_TTL_MS,
+} from '../src/host/snapshot.js';
 
 /* ------------------------------------------------------------------ protocol */
 
@@ -31,6 +40,8 @@ test('protocol exposes one id per provider in display order', () => {
   assert.deepEqual(PROVIDER_IDS, ['deepseek', 'glm', 'kimi']);
   assert.equal(PROTOCOL_VERSION, 1);
   assert.equal(SNAPSHOT_PATH, '/usage-board/api/snapshot');
+  assert.equal(PROVIDER_PATH, '/usage-board/api/provider', 'the per-provider route is part of the wire contract');
+  assert.equal(PROVIDER_QUERY_PARAM, 'id');
 });
 
 test('makeWindow fills every key so a consumer never sees undefined', () => {
@@ -288,13 +299,16 @@ test('an adapter returning a partial row is repaired to the full shape', async (
   });
 });
 
-test('readCount reports how many fan-outs ran', async () => {
-  const { adapter } = stubAdapter('glm');
+test('readCount reports how many provider reads ran', async () => {
+  const { adapter, calls } = stubAdapter('glm');
   await withProviders([adapter], async () => {
     const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 1_000 });
     await service.get();
     await service.get();
-    assert.equal(service.readCount, 1);
+    assert.equal(service.readCount, 1, 'a fresh cache is not a read');
+    await service.getProvider('glm', { force: true });
+    assert.equal(service.readCount, 2, 'a forced per-provider read counts once');
+    assert.equal(calls(), 2);
   });
 });
 
@@ -674,5 +688,266 @@ test('a disposed service does not start background refreshes', async () => {
     await service.getServing();
     assert.equal(service.backgroundReadCount, 0);
     assert.equal(calls(), 1);
+  });
+});
+
+/* ------------------------------------------------ per-provider decoupling */
+
+/** A promise the test releases by hand, to hold an adapter mid-read. */
+function deferred() {
+  /** @type {() => void} */
+  let resolve = () => {};
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+/** Let every pending microtask and one macrotask run, so a settled read can cache. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('a per-provider read returns a one-row envelope for exactly that provider', async () => {
+  const { adapter } = stubAdapter('glm');
+  await withProviders([adapter], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    const snapshot = await service.getProvider('glm');
+    assert.equal(snapshot.providers.length, 1, 'the progressive route never ships another provider row');
+    assert.equal(snapshot.providers[0].id, 'glm');
+    assert.equal(snapshot.providers[0].status, 'ok');
+    assert.equal(snapshot.protocolVersion, PROTOCOL_VERSION);
+    assert.equal(snapshot.ttlMs, service.ttlMs);
+    assert.equal(snapshot.ok, true, 'ok is derived from the one row this envelope carries');
+    assert.equal(typeof snapshot.generatedAt, 'number');
+  });
+});
+
+test('an unregistered provider id is a transport error, not a degraded row', async () => {
+  const { adapter } = stubAdapter('glm');
+  await withProviders([adapter], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    await assert.rejects(service.getProvider('nope'), (error) => {
+      assert.ok(error instanceof UnknownProviderError);
+      assert.equal(error.code, 'unknown-provider');
+      assert.equal(error.providerId, 'nope');
+      return true;
+    });
+  });
+});
+
+test('a slow provider never holds back another provider\'s read', async () => {
+  const gate = deferred();
+  let slowSettled = false;
+  const slow = {
+    id: 'glm',
+    label: 'Slow GLM',
+    credentialRefs: [],
+    async read() {
+      await gate.promise;
+      return makeProvider({ id: 'glm', label: 'Slow GLM', status: 'ok' });
+    },
+  };
+  const { adapter: fast } = stubAdapter('deepseek');
+  await withProviders([fast, slow], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    const slowRead = service.getProvider('glm').then((snapshot) => {
+      slowSettled = true;
+      return snapshot;
+    });
+    // The whole point of the change: deepseek answers while glm is still hung.
+    const fastSnapshot = await Promise.race([
+      service.getProvider('deepseek'),
+      new Promise((_resolve, reject) => {
+        setTimeout(() => reject(new Error('the fast provider was blocked by the slow one')), 500);
+      }),
+    ]);
+    assert.equal(fastSnapshot.providers[0].id, 'deepseek');
+    assert.equal(slowSettled, false, 'the slow provider is still in flight, not awaited');
+    gate.resolve();
+    assert.equal((await slowRead).providers[0].id, 'glm');
+  });
+});
+
+test('the aggregate read still waits for the whole board, as documented for compatibility', async () => {
+  const gate = deferred();
+  const slow = {
+    id: 'glm',
+    label: 'Slow GLM',
+    credentialRefs: [],
+    async read() {
+      await gate.promise;
+      return makeProvider({ id: 'glm', label: 'Slow GLM', status: 'ok' });
+    },
+  };
+  const { adapter: fast } = stubAdapter('deepseek');
+  await withProviders([fast, slow], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    let settled = false;
+    const aggregate = service.get().then((snapshot) => {
+      settled = true;
+      return snapshot;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(settled, false, 'the aggregate route blocks on the slowest provider by definition');
+    gate.resolve();
+    const snapshot = await aggregate;
+    assert.deepEqual(snapshot.providers.map((row) => row.id).sort(), ['deepseek', 'glm']);
+  });
+});
+
+test('a per-provider read serves a stale row immediately and refreshes it behind the response', async () => {
+  let calls = 0;
+  const gate = deferred();
+  const adapter = {
+    id: 'glm',
+    label: 'GLM',
+    credentialRefs: [],
+    async read({ now }) {
+      calls += 1;
+      if (calls > 1) await gate.promise;
+      return makeProvider({ id: 'glm', label: 'GLM', status: 'ok', fetchedAt: now() });
+    },
+  };
+  await withProviders([adapter], async () => {
+    let clock = 1_000;
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000, now: () => clock });
+    const first = await service.getProvider('glm');
+    assert.equal(first.stale, undefined);
+    assert.equal(first.refreshing, undefined);
+
+    clock += 20_001;
+    const served = await service.getProvider('glm');
+    assert.equal(served.stale, true, 'the caller is told the row is old');
+    assert.equal(served.refreshing, true, 'and that this provider is already being refreshed');
+    assert.equal(served.generatedAt, first.generatedAt, 'the stale row is the cached one, returned at once');
+    assert.equal(calls, 2, 'a background read for that provider was started');
+
+    gate.resolve();
+    await flush();
+    const after = await service.getProvider('glm');
+    assert.equal(after.stale, undefined, 'once refreshed, the same provider is fresh again');
+    assert.ok(after.generatedAt > first.generatedAt);
+    assert.equal(calls, 2, 'the background read is reused, not repeated');
+  });
+});
+
+test('forcing one provider refreshes only that provider', async () => {
+  const { adapter: deepseek, calls: deepseekCalls } = stubAdapter('deepseek');
+  const { adapter: glm, calls: glmCalls } = stubAdapter('glm');
+  await withProviders([deepseek, glm], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    await service.getProvider('deepseek');
+    await service.getProvider('glm');
+    assert.equal(deepseekCalls(), 1);
+    assert.equal(glmCalls(), 1);
+
+    await service.getProvider('deepseek', { force: true });
+    assert.equal(deepseekCalls(), 2, 'the forced provider re-read');
+    assert.equal(glmCalls(), 1, 'the other provider was untouched');
+  });
+});
+
+test('concurrent per-provider readers share one upstream read', async () => {
+  const gate = deferred();
+  let calls = 0;
+  const adapter = {
+    id: 'glm',
+    label: 'GLM',
+    credentialRefs: [],
+    async read() {
+      calls += 1;
+      await gate.promise;
+      return makeProvider({ id: 'glm', label: 'GLM', status: 'ok' });
+    },
+  };
+  await withProviders([adapter], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    const pending = [service.getProvider('glm'), service.getProvider('glm'), service.getProvider('glm')];
+    gate.resolve();
+    const results = await Promise.all(pending);
+    assert.equal(calls, 1, 'three concurrent card reads must not triple the upstream traffic');
+    assert.equal(new Set(results.map((snapshot) => snapshot.generatedAt)).size, 1);
+  });
+});
+
+test('providerStates reports each provider without touching upstream or credentials', async () => {
+  const gate = deferred();
+  let calls = 0;
+  const adapter = {
+    id: 'glm',
+    label: 'GLM',
+    credentialRefs: [],
+    async read() {
+      calls += 1;
+      if (calls > 1) await gate.promise;
+      return makeProvider({ id: 'glm', label: 'GLM', status: 'ok' });
+    },
+  };
+  await withProviders([adapter], async () => {
+    let clock = 0;
+    const service = new SnapshotService({ getSecret: async () => undefined, ttlMs: 20_000, now: () => clock });
+    assert.equal(service.providerStates()[0].status, 'missing');
+    assert.equal(calls, 0, 'diagnostics never start a read');
+
+    await service.getProvider('glm');
+    assert.equal(service.providerStates()[0].status, 'fresh');
+    assert.equal(service.providerStates()[0].refreshing, false);
+
+    clock += 20_001;
+    await service.getProvider('glm');
+    const stale = service.providerStates()[0];
+    assert.equal(stale.status, 'stale');
+    assert.equal(stale.refreshing, true);
+    assert.equal(calls, 2);
+
+    gate.resolve();
+    await flush();
+    assert.equal(service.providerStates()[0].status, 'fresh');
+  });
+});
+
+test('dispose aborts every in-flight per-provider read', async () => {
+  const firstGate = deferred();
+  const secondGate = deferred();
+  /** @type {AbortSignal[]} */
+  const signals = [];
+  const makeGated = (id, gate) => ({
+    id,
+    label: `Stub ${id}`,
+    credentialRefs: [],
+    async read(context) {
+      signals.push(context.signal);
+      await gate.promise;
+      return makeProvider({ id, label: `Stub ${id}`, status: 'ok' });
+    },
+  });
+  await withProviders([makeGated('deepseek', firstGate), makeGated('glm', secondGate)], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    const pending = [service.getProvider('deepseek'), service.getProvider('glm')];
+    await flush();
+    assert.equal(signals.length, 2, 'both providers were reading independently');
+    service.dispose();
+    assert.equal(signals[0].aborted, true);
+    assert.equal(signals[1].aborted, true, 'disposal is not tied to a shared fan-out signal');
+    firstGate.resolve();
+    secondGate.resolve();
+    await Promise.all(pending);
+    const afterDispose = await service.getProvider('deepseek');
+    assert.deepEqual(afterDispose.providers, [], 'a disposed service starts no new read and has no cache');
+  });
+});
+
+test('the aggregate route is still composed from the per-provider caches', async () => {
+  const { adapter: deepseek, calls: deepseekCalls } = stubAdapter('deepseek');
+  const { adapter: glm, calls: glmCalls } = stubAdapter('glm');
+  await withProviders([deepseek, glm], async () => {
+    const service = new SnapshotService({ getSecret: async () => undefined });
+    // Warm only one provider through the progressive route; the aggregate
+    // route must reuse that row and read the missing one, not re-read both.
+    await service.getProvider('deepseek');
+    const aggregate = await service.get();
+    assert.equal(deepseekCalls(), 1, 'the warmed provider was served from cache');
+    assert.equal(glmCalls(), 1, 'the missing provider was read');
+    assert.deepEqual(aggregate.providers.map((row) => row.id), ['deepseek', 'glm']);
+    assert.equal(aggregate.ok, true);
   });
 });

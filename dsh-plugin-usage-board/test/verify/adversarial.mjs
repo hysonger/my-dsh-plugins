@@ -384,7 +384,11 @@ async function c7() {
   check('C7.1', 'all 10 refreshes answered 200', outcome.results.every((result) => result.status === 200), outcome.results.map((r) => r.status).join(','));
   check('C7.2', '10 parallel refreshes cost exactly one fan-out', outcome.stormCalls === outcome.baseline, `${outcome.stormCalls} upstream calls vs baseline ${outcome.baseline} per fan-out`);
   check('C7.3', 'all 10 responses share one generatedAt', distinctGeneratedAt.size === 1, `${distinctGeneratedAt.size} distinct values`);
-  check('C7.4', 'health.reads advanced by exactly one fan-out (baseline + 1)', outcome.health.reads === 2, `reads=${outcome.health.reads}`);
+  // v3: `reads` counts PROVIDER reads, and one aggregate fan-out is one read
+  // per provider. Two fan-outs (the baseline refresh + the storm, deduped to
+  // one) therefore cost `2 * PROVIDERS.length` provider reads.
+  check('C7.4', 'health.reads advanced by exactly one provider-read per provider per fan-out', outcome.health.reads === 2 * PROVIDERS.length, `reads=${outcome.health.reads} (expected 2 x ${PROVIDERS.length})`);
+  check('C7.4b', 'health.providers reports every provider cache after the storm', outcome.health.providers?.length === PROVIDERS.length && outcome.health.providers.every((entry) => entry.status === 'fresh'), JSON.stringify(outcome.health.providers));
   check('C7.5', 'fan-out is far below the naive 10x', outcome.stormCalls <= outcome.baseline * 1.5, `${outcome.stormCalls} vs naive ${outcome.baseline * 10}`);
   check('C7.6', 'the storm hit exactly the same upstream URLs as one baseline fan-out', JSON.stringify(stormUrls) === JSON.stringify(outcome.baselineUrls), `${outcome.stormCalls} calls: ${outcome.calls.map((call) => new URL(call.url).host + new URL(call.url).pathname).join(', ')}`);
 

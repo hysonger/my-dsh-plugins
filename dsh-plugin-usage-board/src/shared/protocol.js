@@ -109,6 +109,8 @@ export const QUOTA_PROVIDER_IDS = ['glm', 'kimi'];
  * @property {boolean} ok True when EVERY enabled provider reported `ok`.
  * @property {number} ttlMs How long the host will serve this snapshot before refetching.
  * @property {ProviderSnapshot[]} providers PROVIDER_IDS order, one row per configured provider.
+ *   A {@link PROVIDER_PATH} response is the same envelope narrowed to exactly one row, so a
+ *   consumer's envelope parsing keeps working; everything else in the body keeps its meaning.
  * @property {boolean} [stale] Additive. True when this body came from a cache the host is
  *   refreshing behind the response, so the numbers may be older than `ttlMs`. A consumer that
  *   does not know this field renders the body normally; one that does can schedule its own
@@ -124,6 +126,30 @@ export const SNAPSHOT_PATH = '/usage-board/api/snapshot';
  * body as {@link SNAPSHOT_PATH}.
  */
 export const REFRESH_PATH = '/usage-board/api/refresh';
+
+/**
+ * HTTP path the host half serves ONE provider's envelope on.
+ *
+ * This is the decoupled read that lets a renderer paint each provider the
+ * moment *that* provider answers: a slow or hanging upstream holds back its own
+ * card only, never the whole board.
+ *
+ * - `GET` is the serving read and follows the same never-hide-numbers rule as
+ *   {@link SNAPSHOT_PATH}: a fresh cached row is returned at once, an expired
+ *   row is returned with `stale: true` while the host refreshes it behind the
+ *   response, and only a provider with no cached row makes the caller wait.
+ * - `POST` forces a fresh read of that one provider and waits for it.
+ *
+ * The body is a {@link UsageSnapshot} narrowed to exactly one row
+ * (`providers.length === 1`, `ok` derived from it, same `ttlMs`/`stale`/
+ * `refreshing` fields). The provider is selected by the `id` query parameter
+ * ({@link PROVIDER_QUERY_PARAM}); a missing or unknown id is a transport-level
+ * 400, never a provider failure, so it must not be rendered as a degraded row.
+ */
+export const PROVIDER_PATH = '/usage-board/api/provider';
+
+/** Query parameter selecting the provider for {@link PROVIDER_PATH}. */
+export const PROVIDER_QUERY_PARAM = 'id';
 
 /** HTTP prefix owning every route this plugin registers. */
 export const ROUTE_PREFIX = '/usage-board';

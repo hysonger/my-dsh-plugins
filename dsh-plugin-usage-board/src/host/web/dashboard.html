@@ -49,6 +49,11 @@
   button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   button:disabled { opacity: .5; cursor: default; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 20px; }
+  /* One stable grid slot per provider. `display: contents` keeps the slot's
+     child (skeleton, card, or failure card) as the real grid item, so replacing
+     one provider's card in place changes neither the layout nor the other
+     cards' DOM nodes. */
+  .slot { display: contents; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px; }
   .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
   .pill { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
@@ -111,15 +116,55 @@
 <!--USAGE_BOARD_BOOT-->
 <script>
  (() => {
-  const boot = window.__USAGE_BOARD__ || { snapshotPath: '/usage-board/api/snapshot', refreshPath: '/usage-board/api/refresh', version: '?' };
+  const boot = window.__USAGE_BOARD__ || {};
   const grid = document.getElementById('grid');
   const updatedEl = document.getElementById('updated');
   const footerEl = document.getElementById('footer');
   const refreshBtn = document.getElementById('refresh');
+  /** Provider display order when the served page carries no boot data. */
+  const DEFAULT_PROVIDER_IDS = ['deepseek', 'glm', 'kimi'];
+  const DEFAULT_PROVIDER_PATH = '/usage-board/api/provider';
+  const DEFAULT_PROVIDER_QUERY_PARAM = 'id';
+  /** Card titles for a provider that failed before ever sending a row. */
+  const PROVIDER_LABELS = { deepseek: 'DeepSeek', glm: 'GLM Coding Plan', kimi: 'Kimi Code' };
+  /**
+   * One request per provider, so a slow or hanging upstream holds back only its
+   * own card. `providerIds` is the display order; a boot object without it (an
+   * older host) falls back to the three providers this plugin ships.
+   */
+  const providerIds = normalizeProviderIds(boot.providerIds);
+  const providerPath = typeof boot.providerPath === 'string' && boot.providerPath !== '' ? boot.providerPath : DEFAULT_PROVIDER_PATH;
+  const providerQueryParam = typeof boot.providerQueryParam === 'string' && boot.providerQueryParam !== '' ? boot.providerQueryParam : DEFAULT_PROVIDER_QUERY_PARAM;
   let ttlMs = 60000;
   let timer = null;
-  let lastGeneratedAt = null;
-  let staleFollowUpPending = false;
+  let protocolVersion = null;
+  /** id -> last ProviderSnapshot row painted on that provider's card. */
+  const rows = new Map();
+  /** id -> card slot in `grid`; its only child is a skeleton, a card, or a failure card. */
+  const slots = new Map();
+  /** id -> transport-level failure (network/HTTP) of that provider's latest read. */
+  const transportErrors = new Map();
+  /** id -> generatedAt of the envelope backing the painted row (merged freshness). */
+  const generatedAtById = new Map();
+  /** id -> true when that provider's last envelope came from a stale cache. */
+  const staleById = new Map();
+  /** ids with a request in flight; the refresh button is disabled while non-empty. */
+  const pending = new Set();
+  /** ids with a scheduled single-shot stale follow-up; a follow-up never chains. */
+  const staleFollowUps = new Set();
+  /** id -> once-a-second DeepSeek billing repaint; dropped when that card is replaced. */
+  const pricingTickers = new Map();
+
+  function normalizeProviderIds(raw) {
+    const ids = [];
+    if (Array.isArray(raw)) {
+      for (const id of raw) {
+        if (typeof id !== 'string' || id === '' || ids.indexOf(id) !== -1) continue;
+        ids.push(id);
+      }
+    }
+    return ids.length > 0 ? ids : DEFAULT_PROVIDER_IDS.slice();
+  }
 
   /**
    * Auto-refresh gate, the same policy as the sidebar panel: fetch only while
@@ -138,7 +183,6 @@
   const GATE_RECHECK_MS = 30 * 1000;
   let lastActivityAt = Date.now();
   let gateOpen = true;
-  let loading = false;
 
   function gateAllows() {
     if (document.visibilityState !== 'visible') return false;
@@ -149,7 +193,7 @@
     const next = gateAllows();
     const reopened = next === true && gateOpen !== true;
     gateOpen = next;
-    if (reopened) load(false);
+    if (reopened) loadAll(false);
   }
 
   const LABELS = {
@@ -213,8 +257,6 @@
   const PRICING_SLOGAN = { peak: '现在是梁文峰时段！', offpeak: '现在是梁文谷时段！' };
   const PRICING_CHIP = { peak: '高峰 · 标准价', offpeak: '空闲 · 5 折' };
   const PRICING_RULE = '北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰时段；其余时间（含周末与法定节假日）为空闲时段，空闲价为高峰价的一半。';
-  /** Per-card reminder repaint functions, rebuilt on every load(). */
-  let pricingTickers = [];
 
   function normalizePricing(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -289,10 +331,13 @@
   }
 
   /**
-   * Build the reminder node and register its once-a-second repaint. Returns
-   * null when the row carries no usable schedule.
+   * Build the reminder node and register its once-a-second repaint under the
+   * card's provider id. Returns null when the row carries no usable schedule.
+   * Registering by id (rather than appending to a global list) is what lets a
+   * replaced card unregister exactly its own repaint instead of leaving a
+   * closure that repaints a detached node forever.
    */
-  function pricingBadge(raw) {
+  function pricingBadge(raw, id) {
     const pricing = normalizePricing(raw);
     if (pricing === null) return null;
     const node = el('div', { class: 'price' });
@@ -320,7 +365,7 @@
       );
     };
     render();
-    pricingTickers.push(render);
+    if (typeof id === 'string' && id !== '') pricingTickers.set(id, render);
     return node;
   }
 
@@ -360,13 +405,14 @@
     if (hours < 24) return hours + ' 小时后重置';
     return Math.round(delta / 86400000) + ' 天后重置';
   }
+  /** Relative "last updated" sentence, the same shape as the sidebar panel's. */
   function relative(ts) {
     if (typeof ts !== 'number') return null;
     const delta = Math.max(0, Date.now() - ts);
     if (delta < 5000) return '刚刚更新';
-    if (delta < 60000) return Math.round(delta / 1000) + ' 秒前';
-    if (delta < 3600000) return Math.round(delta / 60000) + ' 分钟前';
-    return Math.round(delta / 3600000) + ' 小时前';
+    if (delta < 60000) return Math.round(delta / 1000) + ' 秒前更新';
+    if (delta < 3600000) return Math.round(delta / 60000) + ' 分钟前更新';
+    return Math.round(delta / 3600000) + ' 小时前更新';
   }
   function progressClass(percent) {
     if (typeof percent !== 'number') return '';
@@ -455,7 +501,7 @@
     // DeepSeek's billing phase describes the list price, not this account, so
     // the reminder stays on the card even when the row itself failed.
     if (row.id === 'deepseek' && row.meta) {
-      const badge = pricingBadge(row.meta.pricing);
+      const badge = pricingBadge(row.meta.pricing, row.id);
       if (badge) node.appendChild(badge);
     }
 
@@ -495,75 +541,180 @@
     return node;
   }
 
-  function skeletons(count) {
-    grid.replaceChildren();
-    for (let index = 0; index < count; index += 1) grid.appendChild(el('div', { class: 'skeleton' }));
+  /** Merge the per-provider read times into one "board is this old" instant. */
+  function mergedGeneratedAt() {
+    let oldest = null;
+    for (const generatedAt of generatedAtById.values()) {
+      if (typeof generatedAt !== 'number' || !Number.isFinite(generatedAt)) continue;
+      if (oldest === null || generatedAt < oldest) oldest = generatedAt;
+    }
+    return oldest;
+  }
+
+  /** Whether one provider currently has a usable (ok) row on its card. */
+  function providerOk(id) {
+    if (transportErrors.has(id)) return false;
+    const row = rows.get(id);
+    return Boolean(row) && row.status === 'ok';
   }
 
   /**
-   * Load the snapshot and paint it.
+   * Header and footer from the merged per-provider state.
    *
-   * Refresh never blanks the board: whatever is already on screen stays there
-   * (with the freshness line saying it is being refreshed) until the new body
-   * replaces it. Skeletons are for a genuinely empty board only — the first
-   * load ever — because showing them over known numbers is exactly the latency
-   * this page is supposed to avoid.
+   * - `加载中…` while the first paint has nothing yet;
+   * - `X 前更新 · 正在刷新…` while at least one provider's read is in flight;
+   * - `X 前更新 · 部分服务异常` when a settled provider has a degraded row or a
+   *   failed transport read;
+   * - `读取失败` when no provider answered at all.
    */
-  async function load(force, followUp) {
-    if (loading) return;
-    loading = true;
-    refreshBtn.disabled = true;
-    const wasEmpty = grid.childElementCount === 0;
-    if (wasEmpty) skeletons(3);
-    else updatedEl.textContent = relative(lastGeneratedAt) + ' · 正在刷新…';
+  function updateChrome() {
+    const busy = pending.size > 0;
+    const haveRows = rows.size;
+    refreshBtn.disabled = busy;
+    if (busy) {
+      updatedEl.textContent = haveRows === 0 ? '加载中…' : relative(mergedGeneratedAt()) + ' · 正在刷新…';
+    } else if (haveRows === 0) {
+      updatedEl.textContent = '读取失败';
+    } else {
+      const degraded = providerIds.some((id) => !providerOk(id));
+      const stale = providerIds.some((id) => staleById.get(id) === true);
+      updatedEl.textContent = relative(mergedGeneratedAt()) + (degraded ? ' · 部分服务异常' : '') + (stale ? ' · 后台刷新中' : '');
+    }
+    if (haveRows > 0 || protocolVersion !== null) {
+      footerEl.textContent = '插件 v' + (typeof boot.version === 'string' ? boot.version : '?')
+        + ' · 缓存 ' + Math.round(ttlMs / 1000) + ' 秒'
+        + ' · 协议 v' + (protocolVersion === null ? '?' : protocolVersion);
+    }
+  }
+
+  /**
+   * One skeleton slot per provider, in display order. The slot is a stable grid
+   * child (CSS `display: contents` keeps its content the real grid item), so a
+   * provider's card can be swapped in place later without rebuilding — or
+   * blanking — the cards that already answered.
+   */
+  function paintSkeletons() {
+    grid.replaceChildren();
+    slots.clear();
+    for (const id of providerIds) {
+      const slot = el('div', { class: 'slot' });
+      slot.appendChild(el('div', { class: 'skeleton' }));
+      slots.set(id, slot);
+      grid.appendChild(slot);
+    }
+  }
+
+  /** The card for a provider whose HTTP read never produced an envelope. */
+  function failureCard(id, reason) {
+    const node = el('section', { class: 'card' });
+    node.appendChild(el('h2', {}, [
+      el('span', { text: PROVIDER_LABELS[id] || id }),
+      el('span', { class: 'pill err', text: '读取失败' }),
+    ]));
+    const box = el('div', { class: 'err-box' });
+    box.appendChild(el('div', { text: '无法读取该服务的用量数据。' }));
+    if (reason) box.appendChild(el('code', { text: reason }));
+    node.appendChild(box);
+    return node;
+  }
+
+  /**
+   * Paint one provider's slot from its last known row, or its transport
+   * failure. Replacing a card also unregisters the billing repaint that
+   * belonged to the card it replaces; every other card is left untouched.
+   */
+  function paintProvider(id) {
+    const slot = slots.get(id);
+    if (!slot) return;
+    pricingTickers.delete(id);
+    const row = rows.get(id);
+    if (row) {
+      slot.replaceChildren(card(row));
+      return;
+    }
+    const error = transportErrors.get(id);
+    if (error !== undefined) slot.replaceChildren(failureCard(id, error));
+  }
+
+  /** Absolute URL of one provider's narrowed envelope on the host. */
+  function providerUrl(id) {
+    const separator = providerPath.indexOf('?') === -1 ? '?' : '&';
+    return providerPath + separator + encodeURIComponent(providerQueryParam) + '=' + encodeURIComponent(id);
+  }
+
+  /**
+   * Read ONE provider and repaint only its card.
+   *
+   * GET is the serving read (the host may answer `stale: true` while it
+   * refreshes behind the response); a manual refresh passes `force` and POSTs,
+   * which makes the host wait for that provider's fresh read. Either way this
+   * call never waits for another provider: the other cards keep whatever they
+   * have while this read is outstanding.
+   */
+  async function loadProvider(id, force, followUp) {
+    if (pending.has(id) || !slots.has(id)) return;
+    pending.add(id);
+    updateChrome();
     try {
-      const response = await fetch(force ? boot.refreshPath : boot.snapshotPath, {
+      const response = await fetch(providerUrl(id), {
         method: force ? 'POST' : 'GET',
         credentials: 'same-origin',
         headers: { accept: 'application/json' },
       });
       const body = await response.json();
       if (!response.ok || !Array.isArray(body.providers)) throw new Error('HTTP ' + response.status);
-      ttlMs = typeof body.ttlMs === 'number' ? body.ttlMs : 60000;
-      lastGeneratedAt = body.generatedAt;
-      pricingTickers = [];
-      grid.replaceChildren();
-      for (const row of body.providers) grid.appendChild(card(row));
-      const staleNote = body.stale === true ? ' · 后台刷新中' : '';
-      updatedEl.textContent = relative(body.generatedAt) + (body.ok ? '' : ' · 部分服务异常') + staleNote;
-      footerEl.textContent = '插件 v' + boot.version + ' · 缓存 ' + Math.round(ttlMs / 1000) + ' 秒 · 协议 v' + body.protocolVersion;
-      // A stale body means the host is already refreshing behind us; one short
-      // follow-up picks up the fresh numbers without the user acting. It is
-      // single-shot — a stale follow-up response schedules nothing, exactly like
-      // the sidebar panel — and gated: when nobody is watching, the gate's
-      // reopen catch-up fetches instead. Without those two guards a host that
-      // stays stale for a few seconds turns this into a 1.5 s poll.
-      if (body.stale === true && followUp !== true && !staleFollowUpPending && gateAllows()) {
-        staleFollowUpPending = true;
+      // The contract narrows this envelope to exactly one row; selecting by id
+      // also tolerates a host build that still answers with the whole board.
+      const row = body.providers.length === 1
+        ? body.providers[0]
+        : body.providers.find((entry) => entry && entry.id === id);
+      if (!row || typeof row !== 'object') throw new Error('empty provider row');
+      rows.set(id, row);
+      transportErrors.delete(id);
+      generatedAtById.set(id, typeof body.generatedAt === 'number' ? body.generatedAt : Date.now());
+      staleById.set(id, body.stale === true);
+      if (typeof body.ttlMs === 'number') ttlMs = body.ttlMs;
+      if (typeof body.protocolVersion === 'number') protocolVersion = body.protocolVersion;
+      paintProvider(id);
+      // A stale answer means the host is already refreshing behind the
+      // response; one short follow-up picks the fresh numbers up without the
+      // user acting. It is single-shot — a follow-up response that is itself
+      // stale schedules nothing, exactly like the sidebar panel — and gated:
+      // when nobody is watching, the gate's reopen catch-up fetches instead.
+      // Without those two guards a host that stays stale for a few seconds
+      // turns this into a 1.5 s poll per provider.
+      if (body.stale === true && followUp !== true && !staleFollowUps.has(id) && gateAllows()) {
+        staleFollowUps.add(id);
         setTimeout(function () {
-          staleFollowUpPending = false;
+          staleFollowUps.delete(id);
           if (!gateAllows()) return;
-          load(false, true);
+          loadProvider(id, false, true);
         }, 1500);
       }
     } catch (error) {
       const reason = String(error && error.message ? error.message : error);
-      if (wasEmpty) {
-        // Nothing to keep: the failure is the whole page.
-        grid.replaceChildren(el('section', { class: 'card' }, [
-          el('h2', { text: '无法读取用量数据' }),
-          el('div', { class: 'err-box', text: reason }),
-        ]));
-        updatedEl.textContent = '读取失败';
-      } else {
-        // Numbers are already on screen; keep them and report the refresh.
-        updatedEl.textContent = relative(lastGeneratedAt) + ' · 刷新失败：' + reason;
-      }
+      transportErrors.set(id, reason);
+      // Never blank known numbers: a failed read only replaces a card that
+      // never managed to paint a row in the first place. Otherwise the header
+      // reports the degraded board.
+      if (!rows.has(id)) paintProvider(id);
     } finally {
-      loading = false;
-      refreshBtn.disabled = false;
-      schedule();
+      pending.delete(id);
+      if (pending.size === 0) schedule();
+      updateChrome();
     }
+  }
+
+  /**
+   * Start one concurrent read per provider. A refresh never blanks the board:
+   * whatever is already on screen stays until that provider's own answer
+   * replaces it, and skeletons only ever paint the genuinely empty first load.
+   * A cycle is never stacked on one in flight — the refresh button is disabled
+   * for the same reason, but the gate's reopen catch-up can fire mid-read.
+   */
+  function loadAll(force) {
+    if (pending.size > 0) return;
+    for (const id of providerIds) loadProvider(id, force, false);
   }
 
   function schedule() {
@@ -580,11 +731,11 @@
         schedule();
         return;
       }
-      load(false);
+      loadAll(false);
     }, Math.min(300000, Math.max(60000, ttlMs)));
   }
 
-  refreshBtn.addEventListener('click', () => load(true));
+  refreshBtn.addEventListener('click', () => loadAll(true));
   for (const name of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) {
     window.addEventListener(name, () => {
       lastActivityAt = Date.now();
@@ -603,10 +754,11 @@
   // hidden page does no work at all.
   setInterval(() => {
     if (document.visibilityState === 'hidden') return;
-    for (const repaint of pricingTickers) repaint();
+    for (const repaint of pricingTickers.values()) repaint();
   }, 1000);
+  paintSkeletons();
   evaluateGate();
-  load(false);
+  loadAll(false);
  })();
 </script>
 </body>

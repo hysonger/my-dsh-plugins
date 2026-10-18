@@ -1,11 +1,20 @@
 /**
  * HTTP surface of the usage board.
  *
- * Routes are deliberately small and dependency-free: they read a snapshot from
- * {@link SnapshotService} and serialize it. Every provider failure is already
- * normalized into the snapshot itself, so these handlers answer 200 for a
- * degraded dashboard and reserve non-2xx codes for transport-level mistakes
- * (unknown method, malformed query).
+ * Routes are deliberately small and dependency-free: they read from
+ * {@link SnapshotService} and serialize what it returns. Every provider failure
+ * is already normalized into a provider row, so these handlers answer 200 for a
+ * degraded board and reserve non-2xx codes for transport-level mistakes
+ * (unknown method, unknown provider id, malformed query).
+ *
+ * Two shapes of read exist:
+ *
+ * - `GET /api/provider?id=…` and `POST /api/provider?id=…` read ONE provider.
+ *   These are what let a renderer paint each card the moment its own provider
+ *   answers; a slow provider cannot hold the rest of the board back.
+ * - `GET /api/snapshot` and `POST /api/refresh` read the whole board. They stay
+ *   for compatibility and for consumers that genuinely want one aggregate
+ *   body; they are composed from the same per-provider caches.
  *
  * Request-facing security: the DSH web server is unauthenticated on loopback,
  * and this dashboard reads real credentials, so the API routes are additionally
@@ -19,6 +28,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
+  PROVIDER_PATH,
+  PROVIDER_QUERY_PARAM,
   REFRESH_PATH,
   ROUTE_PREFIX,
   SNAPSHOT_PATH,
@@ -76,6 +87,11 @@ export function registerRoutes(webServer, options) {
       kind: 'exact',
       path: REFRESH_PATH,
       handler: (req, res) => handleSnapshot(req, res, options, true),
+    }),
+    webServer.register({
+      kind: 'exact',
+      path: PROVIDER_PATH,
+      handler: (req, res) => handleProvider(req, res, options),
     }),
     webServer.register({
       kind: 'exact',
@@ -139,6 +155,51 @@ async function handleSnapshot(req, res, options, force) {
 }
 
 /**
+ * Serve ONE provider's envelope; `POST` forces a fresh read of that provider.
+ *
+ * This is the progressive-paint route: the response carries a single provider
+ * row, so a renderer can show/update that card while the other providers are
+ * still in flight. A missing or unknown `id` is a transport-level 400 — the
+ * caller asked for something that does not exist, which is not a provider
+ * failure and must not be rendered as a degraded row.
+ *
+ * @param {import('node:http').IncomingMessage} req
+ * @param {import('node:http').ServerResponse} res
+ * @param {RouteOptions} options
+ */
+async function handleProvider(req, res, options) {
+  const method = req.method ?? 'GET';
+  if (!isAllowedMethod(req, res, ['GET', 'HEAD', 'POST'])) return;
+  if (!isAllowedPeer(req, options)) return sendError(res, 403, 'forbidden', 'This route is restricted to loopback clients.');
+  const id = providerIdOf(req);
+  const known = options.snapshots.providerIds;
+  if (id === null || !known.includes(id)) {
+    return sendError(
+      res,
+      400,
+      'unknown-provider',
+      id === null
+        ? `Missing "${PROVIDER_QUERY_PARAM}" query parameter. Known providers: ${known.join(', ')}.`
+        : `No usage board provider with id "${id}". Known providers: ${known.join(', ')}.`,
+    );
+  }
+  try {
+    // GET is the serving read: a cached row is returned immediately (stale
+    // rows are flagged while they refresh behind the response). POST is the
+    // explicit "go ask this provider" read, so that one waits.
+    const snapshot = method === 'POST'
+      ? await options.snapshots.getProvider(id, { force: true })
+      : await options.snapshots.getProvider(id);
+    sendJson(res, 200, snapshot, req);
+  } catch (error) {
+    // A provider adapter never throws out of SnapshotService (it repairs the
+    // throw into a row); reaching here means the service itself failed.
+    options.log(`usage-board: provider route failed for ${id} (${describe(error)})`);
+    sendError(res, 500, 'provider-failed', 'The provider snapshot could not be assembled.');
+  }
+}
+
+/**
  * Report plugin state without touching any provider or credential value.
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
@@ -156,9 +217,14 @@ async function handleHealth(req, res, options) {
       version: options.version,
       protocolVersion: 1,
       ttlMs: options.snapshots.ttlMs,
+      // Additive as of the per-provider split: `reads` counts provider reads
+      // (one aggregate refresh is now one read per provider), and `providers`
+      // reports each provider's cache state so a diagnostics caller can see
+      // which card is waiting on which upstream.
       reads: options.snapshots.readCount,
       backgroundReads: options.snapshots.backgroundReadCount,
       fresh: options.snapshots.isFresh(),
+      providers: options.snapshots.providerStates(),
       credentials: options.credentialsHint ?? null,
     },
     req,
@@ -190,6 +256,9 @@ async function handlePage(req, res, options) {
   const inject = `<script>window.__USAGE_BOARD__=${JSON.stringify({
     snapshotPath: SNAPSHOT_PATH,
     refreshPath: REFRESH_PATH,
+    providerPath: PROVIDER_PATH,
+    providerQueryParam: PROVIDER_QUERY_PARAM,
+    providerIds: options.snapshots.providerIds,
     version: options.version,
   })};</script>`;
   const body = html.includes('<!--USAGE_BOARD_BOOT-->')
@@ -245,6 +314,21 @@ function requestPath(req) {
     return new URL(req.url ?? '/', 'http://localhost').pathname;
   } catch {
     return '/';
+  }
+}
+
+/**
+ * The provider id selected by the query string, or null when absent/blank.
+ * Kept beside {@link requestPath} so both parse `req.url` the same way.
+ * @param {import('node:http').IncomingMessage} req
+ * @returns {string|null}
+ */
+function providerIdOf(req) {
+  try {
+    const id = new URL(req.url ?? '/', 'http://localhost').searchParams.get(PROVIDER_QUERY_PARAM);
+    return typeof id === 'string' && id.length > 0 ? id : null;
+  } catch {
+    return null;
   }
 }
 
