@@ -107,6 +107,30 @@
   let lastGeneratedAt = null;
   let staleFollowUpPending = false;
 
+  /**
+   * Auto-refresh gate, the same policy as the sidebar panel: fetch only while
+   * the page is visible AND the user interacted recently. A visible but
+   * unattended page is idle — nobody is reading, so the upstream reads an
+   * expired poll triggers are pure waste. Coming back (any input, or the tab
+   * becoming visible) picks the data up immediately instead of waiting a ttl.
+   */
+  const IDLE_AFTER_MS = 3 * 60 * 1000;
+  let lastActivityAt = Date.now();
+  let gateOpen = true;
+  let loading = false;
+
+  function gateAllows() {
+    if (document.visibilityState !== 'visible') return false;
+    return Date.now() - lastActivityAt <= IDLE_AFTER_MS;
+  }
+
+  function evaluateGate() {
+    const next = gateAllows();
+    const reopened = next === true && gateOpen !== true;
+    gateOpen = next;
+    if (reopened) load(false);
+  }
+
   const LABELS = {
     'glm.5h': '5 小时窗口',
     'glm.weekly': '每周窗口',
@@ -335,6 +359,8 @@
    * this page is supposed to avoid.
    */
   async function load(force) {
+    if (loading) return;
+    loading = true;
     refreshBtn.disabled = true;
     const wasEmpty = grid.childElementCount === 0;
     if (wasEmpty) skeletons(3);
@@ -377,6 +403,7 @@
         updatedEl.textContent = relative(lastGeneratedAt) + ' · 刷新失败：' + reason;
       }
     } finally {
+      loading = false;
       refreshBtn.disabled = false;
       schedule();
     }
@@ -384,13 +411,31 @@
 
   function schedule() {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => load(false), Math.min(300000, Math.max(60000, ttlMs)));
+    timer = setTimeout(() => {
+      // Idle or hidden: skip the read entirely and look again next ttl. No
+      // upstream traffic happens while nobody can see the page; the gate's
+      // event listeners trigger the catch-up read the moment that changes.
+      if (!gateAllows()) {
+        schedule();
+        return;
+      }
+      load(false);
+    }, Math.min(300000, Math.max(60000, ttlMs)));
   }
 
   refreshBtn.addEventListener('click', () => load(true));
+  for (const name of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) {
+    window.addEventListener(name, () => {
+      lastActivityAt = Date.now();
+      evaluateGate();
+    }, { passive: true });
+  }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') load(true);
+    // Coming back to the window is presence even before the first input.
+    if (document.visibilityState === 'visible') lastActivityAt = Date.now();
+    evaluateGate();
   });
+  evaluateGate();
   load(false);
  })();
 </script>

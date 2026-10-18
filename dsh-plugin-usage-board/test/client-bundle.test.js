@@ -287,22 +287,29 @@ function findByClass(tree, className) {
  * a restored cache, a broken sessionStorage.
  * @param {object} [options] ok/status/body/reject for the fetch stub, `hold` to
  *   leave the request pending, `storage` to install a sessionStorage stand-in
- *   (pass `null` for "no storage at all", or a throwing stub).
+ *   (pass `null` for "no storage at all", or a throwing stub), `browser` to add
+ *   a fake `document`, IntersectionObserver and clock so the auto-refresh gate
+ *   becomes drivable.
  * @returns {object} mount/settle/advance plus the request log and the storage.
  */
 function createRenderer(options = {}) {
   const slots = {};
-  const effects = {};
+  const effectState = new Map();
+  const dirtyEffects = new Set();
+  const intervals = [];
   const requests = [];
   const store = new Map();
   let hookIndex = 0;
   let dirty = false;
-  let mounted = false;
   let tree = null;
   let nowMs = 0;
   let timerSeq = 0;
+  let renderCount = 0;
+  let intervalSeq = 0;
   const timers = new Map();
   let pending = null;
+  const ioSink = makeIntersectionObserverSink();
+  const fakeDocument = makeFakeDocument();
   let payload = {
     ok: options.ok !== false,
     status: options.status ?? 200,
@@ -339,18 +346,41 @@ function createRenderer(options = {}) {
       if (!(key in slots)) slots[key] = { current: initial };
       return slots[key];
     },
+    // Memoised the way React is for `[]` deps, which is every call site in the
+    // panel: the FIRST closure wins, so effect dependency arrays see a stable
+    // identity across renders instead of re-firing on every draw.
     useCallback(callback) {
-      hookIndex += 1;
-      return callback;
+      const key = "c" + String(hookIndex++);
+      if (!(key in slots)) slots[key] = callback;
+      return slots[key];
     },
-    useEffect(callback) {
-      effects["e" + String(hookIndex++)] = callback;
+    useEffect(callback, deps) {
+      const key = "e" + String(hookIndex++);
+      const depList = Array.isArray(deps) ? deps.slice() : null;
+      const previous = effectState.get(key);
+      const changed = previous === undefined
+        || depList === null
+        || previous.deps === null
+        || depList.length !== previous.deps.length
+        || depList.some((value, index) => !Object.is(value, previous.deps[index]));
+      if (changed) {
+        if (previous !== undefined && typeof previous.cleanup === "function") previous.cleanup();
+        effectState.set(key, { deps: depList, cleanup: undefined, callback: callback });
+        dirtyEffects.add(key);
+      }
     },
   };
   const createElement = (type, props) => {
     const next = props === undefined || props === null ? {} : props;
     if (typeof type === "function") return type(next);
-    return { type: String(type), props: next };
+    const element = { type: String(type), props: next };
+    // React attaches host refs at commit time; emulate that so the gate's
+    // IntersectionObserver sees a non-null root. The fake element stands in
+    // for the DOM node — the gate only checks presence and observes it.
+    if (next.ref !== undefined && next.ref !== null && typeof next.ref === "object") {
+      next.ref.current = element;
+    }
+    return element;
   };
   const context = vm.createContext({
     react,
@@ -378,7 +408,8 @@ function createRenderer(options = {}) {
       this.abort = () => {};
     },
     // A deterministic timer queue: the panel's stale follow-up can be fired by
-    // advancing time instead of waiting on it.
+    // advancing time instead of waiting on it. Intervals are RECORDED, never
+    // auto-fired — the gate tests trigger them by hand at chosen moments.
     setTimeout: (callback, delay) => {
       const id = ++timerSeq;
       timers.set(id, { callback, at: nowMs + (typeof delay === "number" ? delay : 0) });
@@ -387,10 +418,24 @@ function createRenderer(options = {}) {
     clearTimeout: (id) => {
       timers.delete(id);
     },
-    setInterval: () => 0,
-    clearInterval: () => {},
+    setInterval: (callback, delay) => {
+      const id = ++intervalSeq;
+      intervals.push({ id, delay, callback });
+      return id;
+    },
+    clearInterval: (id) => {
+      const index = intervals.findIndex((entry) => entry.id === id);
+      if (index !== -1) intervals.splice(index, 1);
+    },
     console,
   });
+  if (options.browser === true) {
+    context.document = fakeDocument;
+    context.IntersectionObserver = ioSink.klass;
+    // The gate reads Date.now() for idleness; freeze it to the harness clock so
+    // `advance()` moves idleness deterministically.
+    context.Date = { now: () => nowMs };
+  }
   if (options.storage === null) {
     // Deliberately leave `sessionStorage` undefined in the VM global.
   } else {
@@ -401,10 +446,24 @@ function createRenderer(options = {}) {
   }).runInContext(context);
   const translate = translateSeat(context.__ub.zh);
 
+  /** Run every effect whose dependencies changed during the latest render. */
+  const flushEffects = () => {
+    if (dirtyEffects.size === 0) return;
+    const keys = [...dirtyEffects];
+    dirtyEffects.clear();
+    for (const key of keys) {
+      const entry = effectState.get(key);
+      if (entry === undefined) continue;
+      entry.cleanup = entry.callback();
+    }
+  };
+
   const draw = () => {
     hookIndex = 0;
     dirty = false;
+    renderCount += 1;
     tree = context.__ub.UsageBoardPanel({ t: translate });
+    flushEffects();
     return tree;
   };
 
@@ -413,6 +472,21 @@ function createRenderer(options = {}) {
     storage,
     /** The key the panel is expected to use; asserted rather than hard-coded twice. */
     storeKey: "usage-board:snapshot:v1",
+    document: fakeDocument,
+    observers: ioSink.observers,
+    get renderCount() {
+      return renderCount;
+    },
+    /** Fire every live interval registered with exactly `delay` (ms). */
+    fireInterval(delay) {
+      for (const entry of [...intervals]) {
+        if (entry.delay === delay) entry.callback();
+      }
+    },
+    /** Deliver a DOM event through the fake document's listener registry. */
+    fire(type) {
+      fakeDocument.fire(type);
+    },
     setPayload(next) {
       payload = { ...payload, ...next };
     },
@@ -424,12 +498,7 @@ function createRenderer(options = {}) {
     },
     /** Mount without letting anything settle: this is the first painted frame. */
     mount() {
-      const first = draw();
-      if (!mounted) {
-        mounted = true;
-        for (const key of Object.keys(effects)) effects[key]();
-      }
-      return first;
+      return draw();
     },
     /** Flush microtasks and re-render until the tree stops changing. */
     async settle(passes = 6) {
@@ -462,6 +531,61 @@ function createRenderer(options = {}) {
     async render() {
       this.mount();
       return this.settle();
+    },
+  };
+}
+
+/**
+ * Fake IntersectionObserver whose instances the test can drive by hand. Real
+ * observers report asynchronously; here the test decides the moment and the
+ * value, which is what makes "panel hidden by the sidebar" reproducible.
+ * @returns {{ klass: Function, observers: Array<object> }}
+ */
+function makeIntersectionObserverSink() {
+  const observers = [];
+  class FakeIntersectionObserver {
+    constructor(callback) {
+      this.callback = callback;
+      this.observed = [];
+      this.disconnected = false;
+      observers.push(this);
+    }
+    observe(target) {
+      this.observed.push(target);
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+    emit(isIntersecting) {
+      this.callback([{ isIntersecting }]);
+    }
+  }
+  return { klass: FakeIntersectionObserver, observers };
+}
+
+/**
+ * A document stub that records listeners so a test can fire visibility and
+ * activity events in order, and a mutable visibilityState.
+ * @returns {object} addEventListener/removeEventListener/fire/visibilityState.
+ */
+function makeFakeDocument() {
+  const listeners = new Map();
+  return {
+    visibilityState: "visible",
+    addEventListener(type, handler) {
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(handler);
+    },
+    removeEventListener(type, handler) {
+      const list = listeners.get(type);
+      if (list === undefined) return;
+      const index = list.indexOf(handler);
+      if (index !== -1) list.splice(index, 1);
+    },
+    fire(type) {
+      const list = listeners.get(type);
+      if (list === undefined) return;
+      for (const handler of [...list]) handler();
     },
   };
 }
@@ -963,6 +1087,103 @@ test("(d3) a manual refresh that answers stale still earns its one follow-up", a
   assert.equal(renderer.requests.length, 3);
   assert.equal(renderer.requests[2].url, "/usage-board/api/refresh");
   assert.equal(renderer.requests[2].method, "POST");
+});
+
+// ------------------------------------------- auto-refresh gate (idle pause) ---
+//
+// An open DSH window polling its TTL keeps every provider API awake even when
+// nobody is looking. These tests drive the gate with the fake browser env
+// (`browser: true`): a fake document whose visibility and events the test
+// fires by hand, a fake IntersectionObserver for "panel not on screen", and a
+// frozen clock where `advance()` moves idleness deterministically.
+
+const AUTO_REFRESH_INTERVAL_MS = 60_000;
+const GATE_RECHECK_INTERVAL_MS = 30_000;
+const TICKER_INTERVAL_MS = 1000;
+const IDLE_TEST_MS = 4 * 60 * 1000;
+
+test("(g1) an idle panel skips the auto poll, and one input event picks it back up", async () => {
+  const renderer = createRenderer({ browser: true, body: storedEnvelope() });
+  await renderer.render();
+  assert.equal(renderer.requests.length, 1, "the mount read still happens");
+
+  // Walk away: no input at all, the clock runs past the idle budget, the gate
+  // recheck (no events announce idling out) closes the gate.
+  await renderer.advance(IDLE_TEST_MS);
+  renderer.fireInterval(GATE_RECHECK_INTERVAL_MS);
+  const quiet = renderer.requests.length;
+  renderer.fireInterval(AUTO_REFRESH_INTERVAL_MS);
+  await renderer.settle();
+  assert.equal(renderer.requests.length, quiet, "an idle panel must skip the upstream read");
+
+  // Come back: a single input reopens the gate, and the reopen itself is the
+  // catch-up read — no waiting a full ttl first.
+  renderer.fire("pointerdown");
+  await renderer.settle();
+  assert.equal(renderer.requests.length, quiet + 1, "activity must trigger the catch-up read");
+  assert.equal(renderer.requests[quiet].url, "/usage-board/api/snapshot");
+
+  // The ordinary ttl schedule resumes from there.
+  await renderer.advance(AUTO_REFRESH_INTERVAL_MS + 1000);
+  renderer.fireInterval(AUTO_REFRESH_INTERVAL_MS);
+  await renderer.settle();
+  assert.equal(renderer.requests.length, quiet + 2, "the ttl schedule resumes once the gate is open");
+});
+
+test("(g2) a hidden document stops the poll even with fresh activity", async () => {
+  const renderer = createRenderer({ browser: true, body: storedEnvelope() });
+  await renderer.render();
+  assert.equal(renderer.requests.length, 1);
+
+  renderer.document.visibilityState = "hidden";
+  renderer.fire("visibilitychange");
+  await renderer.settle();
+  const quiet = renderer.requests.length;
+  renderer.fireInterval(AUTO_REFRESH_INTERVAL_MS);
+  await renderer.settle();
+  assert.equal(renderer.requests.length, quiet, "a hidden document must not poll");
+
+  renderer.document.visibilityState = "visible";
+  renderer.fire("visibilitychange");
+  await renderer.settle();
+  assert.equal(renderer.requests.length, quiet + 1, "coming back to the window must pick the data up");
+});
+
+test("(g3) a panel the sidebar hides stops polling until it is shown again", async () => {
+  const renderer = createRenderer({ browser: true, body: storedEnvelope() });
+  await renderer.render();
+  assert.equal(renderer.observers.length, 1, "the panel root is observed");
+  assert.equal(renderer.observers[0].observed.length, 1);
+
+  renderer.observers[0].emit(false); // another sidebar panel selected
+  await renderer.settle();
+  const quiet = renderer.requests.length;
+  renderer.fireInterval(AUTO_REFRESH_INTERVAL_MS);
+  await renderer.settle();
+  assert.equal(renderer.requests.length, quiet, "an off-screen panel must not poll");
+
+  renderer.observers[0].emit(true); // selected again
+  await renderer.settle();
+  assert.equal(renderer.requests.length, quiet + 1, "reselecting the panel must refresh it");
+});
+
+test("(g4) the one-second freshness ticker freezes with the panel off-screen", async () => {
+  const renderer = createRenderer({ browser: true, body: storedEnvelope() });
+  await renderer.render();
+
+  renderer.fireInterval(TICKER_INTERVAL_MS);
+  await renderer.settle();
+  renderer.fireInterval(TICKER_INTERVAL_MS);
+  await renderer.settle();
+  const ticking = renderer.renderCount;
+  assert.ok(ticking >= 2, "an on-screen panel keeps its clock ticking (it re-renders)");
+
+  renderer.observers[0].emit(false);
+  await renderer.settle();
+  const frozen = renderer.renderCount;
+  renderer.fireInterval(TICKER_INTERVAL_MS);
+  await renderer.settle();
+  assert.equal(renderer.renderCount, frozen, "an off-screen panel must not re-render every second");
 });
 
 test("(e) storage being unavailable never breaks the panel", async () => {

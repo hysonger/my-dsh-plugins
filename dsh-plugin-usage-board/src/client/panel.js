@@ -39,6 +39,23 @@ const REFRESH_URL = ROUTE_PREFIX + "/api/refresh";
 const TTL_MIN_MS = 60 * 1000;
 const TTL_MAX_MS = 5 * 60 * 1000;
 
+/**
+ * Auto refresh pauses after this long without any user input. A visible but
+ * unattended window is idle: nobody is reading the numbers, so nobody benefits
+ * from the upstream reads each expired poll would trigger.
+ */
+const IDLE_AFTER_MS = 3 * 60 * 1000;
+
+/**
+ * How often the gate re-evaluates while mounted. Pure bookkeeping — no
+ * requests — and the only transition no DOM event announces is idling out, so
+ * this is what closes the gate when the user walks away mid-activity.
+ */
+const GATE_RECHECK_MS = 30 * 1000;
+
+/** DOM events that count as the user being present at the app. */
+const ACTIVITY_EVENT_NAMES = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"];
+
 /** How long a single request may hang before it is reported as a timeout. */
 const REQUEST_TIMEOUT_MS = 20 * 1000;
 
@@ -808,15 +825,130 @@ function DailyTrend(props) {
 }
 
 /**
- * The panel's data source: one snapshot, one in-flight request at a time,
- * auto-refresh on the host ttl, and a refetch whenever the page becomes visible.
+ * Whether the panel may spend upstream traffic on its own behalf.
+ *
+ * Auto refresh is a polling cost paid to every provider; it is only worth pay-
+ * ing while somebody can actually see the numbers. The gate therefore watches
+ * three signals and answers "yes" only to all of them:
+ *
+ *   - the document is visible (tab/window not hidden or minimised);
+ *   - the panel's own element intersects the viewport — in the sidebar another
+ *     panel may be selected, leaving this one mounted but `display: none`, and
+ *     a panel nobody can see has no reason to poll;
+ *   - the user interacted recently, so a visible but unattended window counts
+ *     as idle and stops paying for freshness nobody is watching.
+ *
+ * The answer is event-driven: activity, visibility and intersection events
+ * recompute it immediately, and a slow interval catches the one transition no
+ * event announces — idling out. A closed gate costs nothing: no requests, and
+ * no timers beyond the recheck. Anything the user does — moving the mouse,
+ * coming back to the window, selecting the panel — reopens it, and the reopen
+ * itself is what triggers the catch-up read.
+ *
+ * Every DOM access is guarded: the test harness (and a server render) has no
+ * `document`, and an old browser may lack IntersectionObserver, in which case
+ * the panel falls back to document visibility alone.
+ *
+ * @param {{ current: Element|null }} rootRef Ref attached to the panel root.
+ * @returns {{ open: boolean, allows: { current: boolean }, onScreen: { current: boolean }}}
+ *   `open` is the rendered gate state (drives the catch-up-read effect);
+ *   `allows` and `onScreen` are refs the timer callbacks read synchronously.
+ */
+function useAutoRefreshGate(rootRef) {
+  const [open, setOpen] = useState(true);
+  const allowsRef = useRef(true);
+  const onScreenRef = useRef(true);
+  const documentVisibleRef = useRef(true);
+  const intersectingRef = useRef(true);
+  const activityAtRef = useRef(0);
+
+  useEffect(function () {
+    if (typeof document === "undefined" || document === null) return undefined;
+    activityAtRef.current = Date.now();
+    documentVisibleRef.current = document.visibilityState !== "hidden";
+    onScreenRef.current = documentVisibleRef.current;
+
+    const evaluate = function () {
+      const idle = Date.now() - activityAtRef.current > IDLE_AFTER_MS;
+      onScreenRef.current = documentVisibleRef.current && intersectingRef.current;
+      const next = onScreenRef.current && idle !== true;
+      const previous = allowsRef.current;
+      allowsRef.current = next;
+      if (previous !== next) setOpen(next);
+      return next;
+    };
+
+    // High-frequency events only bump a timestamp; the state update is
+    // throttled to once per second so streaming the pointer across the window
+    // cannot churn renders.
+    let lastEvaluate = 0;
+    const markActivity = function () {
+      activityAtRef.current = Date.now();
+      if (activityAtRef.current - lastEvaluate >= 1000) {
+        lastEvaluate = activityAtRef.current;
+        evaluate();
+      }
+    };
+
+    const onVisibility = function () {
+      documentVisibleRef.current = document.visibilityState !== "hidden";
+      // Returning to the window is presence, even without an input event yet —
+      // otherwise a hidden-then-shown window would stay gated until the first
+      // click or keystroke.
+      if (documentVisibleRef.current) {
+        activityAtRef.current = Date.now();
+        lastEvaluate = activityAtRef.current;
+      }
+      evaluate();
+    };
+
+    let observer = null;
+    if (typeof IntersectionObserver === "function" && rootRef.current !== null && rootRef.current !== undefined) {
+      observer = new IntersectionObserver(function (entries) {
+        const entry = entries[entries.length - 1];
+        intersectingRef.current = entry !== undefined && entry.isIntersecting === true;
+        evaluate();
+      });
+      observer.observe(rootRef.current);
+    }
+
+    const removeActivity = ACTIVITY_EVENT_NAMES.map(function (name) {
+      document.addEventListener(name, markActivity, { passive: true, capture: true });
+      return function () {
+        document.removeEventListener(name, markActivity, { capture: true });
+      };
+    });
+    document.addEventListener("visibilitychange", onVisibility);
+    const recheck = setInterval(evaluate, GATE_RECHECK_MS);
+
+    return function () {
+      clearInterval(recheck);
+      document.removeEventListener("visibilitychange", onVisibility);
+      for (const remove of removeActivity) remove();
+      if (observer !== null) observer.disconnect();
+    };
+  }, []);
+
+  return { open: open, allows: allowsRef, onScreen: onScreenRef };
+}
+
+/**
+ * The panel's data source: one snapshot, one in-flight request at a time, and
+ * an auto refresh that runs only while the panel is actually being watched.
  *
  * Stale-while-revalidate: the last successful envelope is restored from
  * sessionStorage synchronously, so the first render already has numbers, and no
  * in-flight request ever blanks them. A `stale: true` answer (the host served a
  * cache it is refreshing behind) earns exactly one bounded follow-up read.
  *
- * @returns {object} state, busy flag, `refresh` action and the ticking `now`.
+ * Auto refresh is gated by {@link useAutoRefreshGate}: while DSH sits idle, the
+ * panel is off-screen, or the window is hidden, the ttl timer keeps its
+ * schedule but skips the fetch, and reopening the gate (any user activity)
+ * triggers one catch-up read immediately instead of waiting out the ttl.
+ * Manual refresh never consults the gate.
+ *
+ * @returns {object} state, busy flag, `refresh` action, the ticking `now`, and
+ *   the `rootRef` the gate observes.
  */
 function useUsageBoard() {
   const [state, setState] = useState(function () {
@@ -833,6 +965,10 @@ function useUsageBoard() {
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
   const followUpRef = useRef(null);
+  const rootRef = useRef(null);
+  const gate = useAutoRefreshGate(rootRef);
+  const gateAllowsRef = gate.allows;
+  const gateOnScreenRef = gate.onScreen;
 
   useEffect(function () {
     mountedRef.current = true;
@@ -896,6 +1032,9 @@ function useUsageBoard() {
   useEffect(function () {
     const timer = setInterval(function () {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      // Nobody is watching: keep the schedule, skip the upstream read. The
+      // catch-up happens when the gate reopens, not on the next tick.
+      if (gateAllowsRef.current !== true) return;
       run("auto");
     }, ttlMs);
     return function () {
@@ -904,20 +1043,21 @@ function useUsageBoard() {
   }, [ttlMs, run]);
 
   useEffect(function () {
+    // The gate opening — mount, an input after idling out, the window coming
+    // back, the panel being selected again — is the moment to pick up fresh
+    // numbers. The host answers from cache when it still can, so this is cheap
+    // even when several gates reopen in quick succession.
+    if (gate.open !== true) return undefined;
     run("auto");
-    if (typeof document === "undefined") return undefined;
-    const onVisibility = function () {
-      if (document.visibilityState === "visible") run("auto");
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return function () {
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [run]);
+    return undefined;
+  }, [gate.open, run]);
 
   useEffect(function () {
     const timer = setInterval(function () {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      // Off-screen panels are re-rendered by nothing: freeze the clock while
+      // the panel cannot be seen and refresh it on the first tick back.
+      if (gateOnScreenRef.current !== true) return;
       setNow(Date.now());
     }, 1000);
     return function () {
@@ -929,7 +1069,7 @@ function useUsageBoard() {
     run("manual");
   }, [run]);
 
-  return { state: state, busy: busy, now: now, refresh: refresh };
+  return { state: state, busy: busy, now: now, refresh: refresh, rootRef: rootRef };
 }
 
 /** Circular-arrow glyph shared by both refresh affordances. */
@@ -1191,6 +1331,9 @@ function UsageBoardPanel(props) {
 
   return jsxs("section", {
     className: "ub-root",
+    // Observed by the auto-refresh gate: a panel the sidebar keeps mounted but
+    // hidden (another panel selected) must not keep polling.
+    ref: board.rootRef,
     "data-phase": board.state.phase,
     "aria-label": t("panel"),
     children: [
