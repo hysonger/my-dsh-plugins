@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -55,4 +55,31 @@ test('templates reference no absolute user paths', () => {
     const text = readFileSync(join(workflowDir, file), 'utf8');
     assert.doesNotMatch(text, /\/Users\//);
   }
+});
+
+test('icon set is committed with every required size', () => {
+  const iconset = join(macos, 'app', 'icons', 'DSH Open.iconset');
+  for (const points of [16, 32, 128, 256, 512]) {
+    for (const suffix of ['', '@2x']) {
+      const file = join(iconset, `icon_${points}x${points}${suffix}.png`);
+      assert.ok(existsSync(file), `missing ${file}`);
+    }
+  }
+  assert.ok(existsSync(join(macos, 'app', 'icons', 'official-source.png')));
+});
+
+test('icon generator defines the documented variants', () => {
+  const text = readFileSync(join(macos, 'app', 'make-icons.py'), 'utf8');
+  for (const variant of ['slate', 'light', 'blue']) {
+    assert.match(text, new RegExp(`"${variant}":`));
+  }
+  // 默认变体（README 与 build-app.sh 约定一致）。
+  assert.match(text, /len\(argv\) > 1 else "slate"/);
+});
+
+test('build-app.sh consumes the committed iconset', () => {
+  const text = readFileSync(join(macos, 'app', 'build-app.sh'), 'utf8');
+  assert.match(text, /DSH Open\.iconset/);
+  assert.match(text, /iconutil -c icns/);
+  assert.match(text, /DSH_ICON/);
 });

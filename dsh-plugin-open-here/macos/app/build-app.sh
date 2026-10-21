@@ -51,6 +51,24 @@ plutil -insert LSUIElement -bool true "$INFO" 2>/dev/null || \
 plutil -replace CFBundleIdentifier -string "ai.deepseek.dsh.open-here.app" "$INFO" 2>/dev/null || \
   plutil -insert CFBundleIdentifier -string "ai.deepseek.dsh.open-here.app" "$INFO"
 
+# ---- 自定义图标（基于 DSH 官方图标的鲸鱼剪影）----
+# icons/DSH Open.iconset 由 make-icons.py 生成并随仓库提交。
+# 需要换样式时设 DSH_ICON=light|blue|slate 重新生成（需 Python+Pillow）。
+ICONS="$SCRIPT_DIR/icons"
+ICON_VARIANT="${DSH_ICON:-slate}"
+if [ -d "$ICONS" ]; then
+  if [ -n "${DSH_ICON:-}" ]; then
+    if python3 -c 'import PIL' 2>/dev/null; then
+      python3 "$SCRIPT_DIR/make-icons.py" "$ICON_VARIANT" >/dev/null
+    else
+      echo "build-app: 重建图标需要 python3 + Pillow，沿用已提交的 iconset" >&2
+    fi
+  fi
+  if [ -d "$ICONS/DSH Open.iconset" ] && iconutil -c icns "$ICONS/DSH Open.iconset" -o "$ICONS/DSH Open.icns" 2>/dev/null; then
+    cp "$ICONS/DSH Open.icns" "$APP/Contents/Resources/droplet.icns"
+  fi
+fi
+
 # Info.plist 改动会使 osacompile 的 ad-hoc 签名失效，重签。
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 

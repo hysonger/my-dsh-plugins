@@ -91,13 +91,32 @@ macos/uninstall.sh
 
 首次点击工具栏按钮时系统会弹一次"允许 DSH Open 控制 Finder"的授权框，允许一次即可。
 
-### 绑定全局快捷键
+### 图标
 
-系统设置 → 键盘 → 键盘快捷键 → 服务 → 找到"在 DeepSeek Harness 中打开"→ 双击右侧录制快捷键。
+`DSH Open.app` 的图标基于 DSH 官方图标重绘：从官方图标中提取鲸鱼剪影，重新着色后置于 macOS 圆角底板上，并收紧留白以适配工具栏小尺寸。默认采用**石板色底 + 白色鲸鱼**——接近系统工具栏的单色语言，在 Finder 浅色与深色工具栏下都清晰、不刺眼，无需随外观切换。
+
+macOS 26+ 的"自动深浅变体"图标只能由 Icon Composer 产出的 `.icon` 经 Xcode 构建系统编译；`actool` 不接受 appiconset 里的 appearance 条目（实测报 unassigned children），Icon Composer 也没有命令行接口，因此这里采用单一双模式通用设计，另附两种可切换样式：
+
+```bash
+# 官方配色：浅底 + 深鲸
+DSH_ICON=light macos/app/build-app.sh
+# 品牌蓝底 + 白鲸
+DSH_ICON=blue macos/app/build-app.sh
+# 默认石板色（等价于不设 DSH_ICON）
+DSH_ICON=slate macos/app/build-app.sh
+```
+
+重新生成图标母版（需 python3 + Pillow；`icons/official-source.png` 为从 App 提取的官方 1024px 原图）：
+
+```bash
+python3 macos/app/make-icons.py slate   # 产物写入 macos/app/icons/
+```
+
+统一图标与工具栏缓存：替换图标后若 Finder 工具栏仍显示旧图标，把工具栏里的旧图标拖出再拖回即可。
 
 ### 备选：用"快捷指令"（Shortcuts）
 
-`shortcuts` CLI 无法导入/创建快捷指令（仅支持 run/list/view/sign），所以这一入口需在 Shortcuts.app 手动创建（约 2 分钟）：新建快捷指令 → 勾选"用作快速操作/在 Finder 中接收文件或文件夹"→ 添加"运行 Shell 脚本"动作，内容填 `/Users/songer/.local/bin/dsh-open "$1"`，输入方式选"作为参数"。创建后同样出现在右键快速操作中，并可绑定快捷键或钉到菜单栏。
+`shortcuts` CLI 无法导入/创建快捷指令（仅支持 run/list/view/sign），所以这一入口需在 Shortcuts.app 手动创建（约 2 分钟）：新建快捷指令 → 勾选"用作快速操作/在 Finder 中接收文件或文件夹"→ 添加"运行 Shell 脚本"动作，内容填 `/Users/songer/.local/bin/dsh-open "$1"`，输入方式选"作为参数"。创建后同样出现在右键快速操作中。
 
 ## 配置
 
