@@ -1,0 +1,18 @@
+# Bundle patch for dsh-plugin-open-here.
+#
+# Installed into a DSH profile through `dsh plugin --profile <name> add <path>`
+# (or the in-app plugin manager), which records this package in the profile's
+# `dsh.profile.bundles`; the loader then applies this file after the shipped
+# bundle layers.
+
+- insert:
+    - id: open-here
+      name: 'dsh-plugin-open-here'
+      config:
+        # Permit non-loopback peers to call the API. The default keeps every
+        # route bound to local processes only; the /open route additionally
+        # requires the bearer token in ~/.dsh/open-here/token.
+        allowRemote: false
+        # How long an undelivered open intent stays pending for a GUI that is
+        # not currently connected (e.g. the App is still starting up).
+        pendingTtlMs: 300000

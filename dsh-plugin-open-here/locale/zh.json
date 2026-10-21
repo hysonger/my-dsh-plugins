@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "title": "终端直达",
+    "description": "在终端用 dsh-open 命令把目录作为工作区打开。"
+  },
+  "openHere": {
+    "navigated": "已从终端打开工作区",
+    "navigateFailed": "打开终端请求的工作区失败"
+  }
+}

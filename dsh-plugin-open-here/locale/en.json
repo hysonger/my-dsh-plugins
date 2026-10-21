@@ -1,0 +1,10 @@
+{
+  "meta": {
+    "title": "Open Here",
+    "description": "Open directories as workspaces from the terminal with the dsh-open command."
+  },
+  "openHere": {
+    "navigated": "Opened workspace from terminal",
+    "navigateFailed": "Failed to open workspace requested from terminal"
+  }
+}
