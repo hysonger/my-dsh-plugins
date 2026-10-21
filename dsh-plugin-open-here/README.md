@@ -59,6 +59,46 @@ ln -sf /Users/songer/Projects/my-dsh-plugins/dsh-plugin-open-here/bin/dsh-open ~
 
 启动 App（或 `dsh web`），插件激活后会生成令牌与发现文件。之后即可在任意终端使用 `dsh-open`。
 
+## Finder 集成（macOS）
+
+在终端之外，也可以从 Finder 直接打开目录。所有入口都只是调用 `dsh-open`，与终端行为完全一致。
+
+### 一键安装
+
+```bash
+# 1) 右键菜单快速操作："在 DeepSeek Harness 中打开"
+macos/install-quick-action.sh
+
+# 2) 构建 DSH Open.app（~/Applications/）
+macos/app/build-app.sh
+```
+
+卸载（不影响插件与 dsh-open 命令）：
+
+```bash
+macos/uninstall.sh
+```
+
+### 各入口一览
+
+| 入口 | 由谁提供 | 行为 |
+|---|---|---|
+| 右键文件夹 → 快速操作 / 服务 | `install-quick-action.sh` | 打开该目录；选中文件则打开其父目录 |
+| Finder 菜单 → 服务；预览面板快速操作按钮 | 同上 | 同上 |
+| Finder 工具栏按钮 | `DSH Open.app`（⌘-拖入工具栏） | 点击打开当前窗口目录 |
+| 右键文件夹 → 打开方式 → DSH Open | `DSH Open.app` | 打开该目录 |
+| 拖文件夹到 Dock 或工具栏图标 | `DSH Open.app`（拖入 Dock） | 打开该目录（文件请改用右键快速操作） |
+
+首次点击工具栏按钮时系统会弹一次"允许 DSH Open 控制 Finder"的授权框，允许一次即可。
+
+### 绑定全局快捷键
+
+系统设置 → 键盘 → 键盘快捷键 → 服务 → 找到"在 DeepSeek Harness 中打开"→ 双击右侧录制快捷键。
+
+### 备选：用"快捷指令"（Shortcuts）
+
+`shortcuts` CLI 无法导入/创建快捷指令（仅支持 run/list/view/sign），所以这一入口需在 Shortcuts.app 手动创建（约 2 分钟）：新建快捷指令 → 勾选"用作快速操作/在 Finder 中接收文件或文件夹"→ 添加"运行 Shell 脚本"动作，内容填 `/Users/songer/.local/bin/dsh-open "$1"`，输入方式选"作为参数"。创建后同样出现在右键快速操作中，并可绑定快捷键或钉到菜单栏。
+
 ## 配置
 
 profile 行配置（见 `cordis.patch.yml`）：
@@ -94,4 +134,4 @@ node --test test/
 
 ## 平台
 
-目前仅支持 macOS（窗口聚焦/启动依赖 `open` 命令与 `dsh://` 深链注册）。
+目前仅支持 macOS（窗口聚焦/启动依赖 `open` 命令与 `dsh://` 深链注册；Finder 集成依赖 osacompile/plutil/pbs）。

@@ -19,6 +19,7 @@
     "locale/*.json",
     "icon.svg",
     "bin/",
+    "macos/",
     "README.md"
   ],
   "bin": {
