@@ -49,10 +49,11 @@ dsh plugin --profile web add /Users/songer/Projects/my-dsh-plugins/dsh-plugin-op
 ### 2. 安装终端命令
 
 ```bash
-ln -sf /Users/songer/Projects/my-dsh-plugins/dsh-plugin-open-here/bin/dsh-open /usr/local/bin/dsh-open
+mkdir -p ~/.local/bin
+ln -sf /Users/songer/Projects/my-dsh-plugins/dsh-plugin-open-here/bin/dsh-open ~/.local/bin/dsh-open
 ```
 
-（或 `~/bin` 等任何在 `PATH` 中的目录。）
+（或任何在 `PATH` 中的目录；`~/.local/bin` 无需 sudo。）
 
 ### 3. 让 DSH 运行一次
 
