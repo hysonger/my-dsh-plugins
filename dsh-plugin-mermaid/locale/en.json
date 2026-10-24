@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Mermaid Diagrams",
+    "description": "Render settled Mermaid fences as diagrams in chat, with source and copy controls."
+  }
+}
