@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Original crescent and power glyph for the sleep-control plugin. -->
+  <rect x="3" y="3" width="58" height="58" rx="16" fill="#315b8a"/>
+  <path d="M42 12a21 21 0 1 0 10 34A23 23 0 0 1 42 12Z" fill="#f4f7fb"/>
+  <path d="M39 19v12M32 23a12 12 0 1 0 14 0" fill="none" stroke="#315b8a" stroke-width="4" stroke-linecap="round"/>
+</svg>

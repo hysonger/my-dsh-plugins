@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "title": "Sleep Control",
+    "description": "Control macOS system sleep from the DSH composer with native administrator authorization."
+  },
+  "sleepControl": {
+    "label": "Keep awake",
+    "description": "Prevent macOS system sleep; administrator authorization is required",
+    "loading": "Reading the macOS sleep setting…",
+    "waiting": "Waiting for macOS administrator authorization…",
+    "enabled": "System sleep is disabled",
+    "disabled": "System sleep is allowed",
+    "cancelled": "Authorization cancelled. The system setting was not changed.",
+    "retry": "Retry",
+    "unsupported": "This feature is available only on macOS.",
+    "statusUnavailable": "Unable to read SleepDisabled. Try again.",
+    "busy": "Another change is already waiting for authorization.",
+    "commandFailed": "The privileged command failed. Try again.",
+    "verificationFailed": "The resulting system setting could not be verified. Try again.",
+    "networkFailed": "Unable to reach the local DSH service.",
+    "requestFailed": "The operation failed. Try again."
+  }
+}
