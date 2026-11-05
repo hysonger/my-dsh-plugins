@@ -74,6 +74,8 @@ const JSON_HEADERS = {
  * @property {string|null} [credentialsHint] Non-secret summary of detected credential references.
  * @property {boolean} [allowRemote] Permit non-loopback peers to read the API.
  * @property {boolean} [servePage] Serve the standalone HTML dashboard.
+ * @property {(() => { name: string, enabled: boolean, registered: boolean })|null} [toolStatus]
+ *   Live state of the model-facing tool, reported additively by the health route.
  */
 
 /**
@@ -228,6 +230,10 @@ async function handleHealth(req, res, options) {
       version: options.version,
       protocolVersion: 1,
       ttlMs: options.snapshots.ttlMs,
+      // Additive: whether the model-facing `usage_query` tool is configured and
+      // actually registered in this process. A composition without a Tool
+      // registry reports `registered: false` without failing anything.
+      tool: options.toolStatus?.() ?? null,
       // Additive as of the per-provider split: `reads` counts provider reads
       // (one aggregate refresh is now one read per provider), and `providers`
       // reports each provider's cache state so a diagnostics caller can see

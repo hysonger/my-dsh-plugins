@@ -20,3 +20,7 @@
         allowRemote: false
         # Log every upstream fan-out with per-provider outcomes.
         verbose: false
+        # Expose the `usage_query` tool so the model can read the same board.
+        # Requires the profile to compose a Tool registry; without one the
+        # panel still loads and the tool is never mounted.
+        enableTool: true

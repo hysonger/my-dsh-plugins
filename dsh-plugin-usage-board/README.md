@@ -1,6 +1,6 @@
 # 用量看板 · dsh-plugin-usage-board
 
-一个 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）插件**：在 DSH Web 界面的侧边栏里，用一块面板同时显示四家服务的**用量、额度和余额**；没有配置凭据的服务不会显示卡片。
+一个 **[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）插件**：在 DSH Web 界面的侧边栏里，用一块面板同时显示四家服务的**用量、额度和余额**；没有配置凭据的服务不会显示卡片。同一份数据还通过 `usage_query` 工具暴露给模型，AI 在会话里可以直接回答「还剩多少额度」这类问题。
 
 | 服务 | 显示内容 | 数据来源 |
 |---|---|---|
@@ -112,6 +112,26 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 
 **OpenCode Go** — 三条进度条：5 小时滚动（rolling）、每周、每月，显示**已用百分比**与重置时间；5 小时窗口同样给出具体到分钟的重置时刻，周/月窗口显示倒计时。OpenCode 的 Go 用量接口只返回百分比，不返回美元金额或绝对额度，因此这张卡片**不显示「已用 / 总量」分数，也不把百分比换算成金额**——那种数字无法从接口得出，硬算出来只会和 OpenCode 控制台对不上。如果某个窗口上游没有上报，它不会被补成 0%，而是直接不显示；接口未公开文档，形状变化时卡片会明确报「响应异常」，不会猜数字。
 
+### 让 AI 直接查询（`usage_query` 工具）
+
+插件在主机侧注册了一个 DSH 工具 `usage_query`：AI 在会话里可以直接查询同一块看板的数据，例如「我 DeepSeek 余额还有多少」「GLM 这周还剩多少额度」「这个月 DeepSeek 花了多少钱」。它和面板共用同一个 `SnapshotService` 缓存，所以查询**不会**额外多打一遍上游接口。
+
+| 参数 | 含义 |
+|---|---|
+| `provider` | 只看某一家：`deepseek` / `glm` / `kimi` / `opencode-go`；不传则四家都返回 |
+| `refresh` | `true` 时绕过缓存重新读取上游（更慢，反复使用可能触发上游限流）；默认 `false`，直接用最多旧 `ttlMs` 的数字 |
+| `days` | 附带 DeepSeek 近 N 天（1–31）的每日消耗与区间合计；不传则不返回消费历史 |
+
+几条行为约定：
+
+- **默认走缓存。** 默认调用是「有缓存就返回」的读取，并如实报告**最旧一行**有多旧、缓存 `ttlMs` 与是否正在后台刷新；只有 `refresh: true` 才会等待一次真实上游读取。
+- **服务商失败不是工具失败。** 某家未配置、密钥被拒或限流时，AI 拿到的是这一行的 `status` 与原因，其余各家照常返回——不会因为一家失败就丢掉整块看板。
+- **未配置的服务也会出现。** 面板会隐藏 `not-configured` 卡片，工具不会：AI 需要知道「这家支持但没配」，否则会把「没配置」误答成「额度用完了」。
+- **只返回展示字段。** 余额、额度窗口、重置时刻、套餐名、DeepSeek 每日消费与峰谷时段；不含密钥、账号标识或上游原始响应体。
+- **可以关掉。** 配置里写 `enableTool: false`，插件就只保留面板与 HTTP 接口。
+
+工具注册失败（例如名字冲突）只会写日志，不会影响面板；`/usage-board/api/health` 的 `tool` 字段会如实报告 `{ name, enabled, registered }`。
+
 ---
 
 ## 3. 凭据从哪里来
@@ -132,6 +152,7 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 - 接口默认**只允许本机回环地址**访问（`allowRemote: false`）。局域网内其他机器读不到你的用量与余额。
 - 任何响应、日志、错误信息里都**不会**出现完整密钥。健康检查接口只报告「是否已配置」。
 - 密钥**不会**经过浏览器：网页只请求本机插件的 HTTP 接口，由插件在主机侧去调用四家的官方 API。
+- 工具（`usage_query`）只把上面这些展示数字交给**当前会话使用的模型**，不带密钥、账号标识或上游原始响应；不想让模型看到用量时用 `enableTool: false` 关掉它。
 - 独立页面带 `Content-Security-Policy` 响应头，禁止加载任何外部资源。
 
 ---
@@ -148,6 +169,7 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
     servePage: true     # 是否同时提供 /usage-board/ 独立页面
     allowRemote: false  # 是否允许非本机地址访问接口（不建议打开）
     verbose: false      # 打开后会把每次请求的结果写进 DSH 日志
+    enableTool: true    # 是否向 AI 注册 usage_query 工具（需要 profile 组合了工具服务）
 ```
 
 ### 节假日日历（第三方依赖）
@@ -184,12 +206,14 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 | 数字长时间不变 | 缓存未过期属正常；点「刷新」可强制更新。若 `verbose: true`，DSH 日志里能看到每次刷新结果。 |
 | 某一张卡片一直显示「加载中」 | 只有这一家的接口慢或不可达，其余几张不受影响。等它自己的 12 秒超时后会显示具体错误；`curl -s …/usage-board/api/health` 的 `providers` 字段能看到哪一家还在刷新。 |
 | 时段提示显示「节假日日历尚未覆盖完整计划区间」 | 上游节假日库还没收录该年（通常是 12 月，计划区间伸进了次年），或依赖没装。先 `npm install`，再按上一节更新 `chinese-days` 并重载插件。 |
+| AI 说没有 `usage_query` 工具 | 先看 `/usage-board/api/health` 的 `tool.registered`：为 `false` 时检查 `enableTool` 是否被设为 `false`、当前 profile 是否组合了工具服务；刚改过主机侧代码则需要**重启 DSH**（ESM 模块每个进程只加载一次，重载插件行不会重新 import 新代码）。 |
 | 卡片没有时段提示器 | 主机侧没算出来（`snapshot` 里 DeepSeek 行的 `meta.pricing` 缺失）或客户端 bundle 未刷新。先确认 `curl -s …/usage-board/api/snapshot` 里有 `pricing`，再刷新 DSH 页面。 |
 
 自检接口：
 
 ```bash
 curl -s http://127.0.0.1:19387/usage-board/api/health          # 插件状态 + 每家的缓存/刷新状态
+curl -s http://127.0.0.1:19387/usage-board/api/health | jq .tool  # usage_query 工具是否已注册
 curl -s 'http://127.0.0.1:19387/usage-board/api/provider?id=glm'  # 单家读取（GET 可带缓存，POST 强制刷新）
 curl -s 'http://127.0.0.1:19387/usage-board/api/provider?id=opencode-go'  # OpenCode Go 的三个百分比窗口
 curl -s http://127.0.0.1:19387/usage-board/api/snapshot         # 兼容的聚合读取

@@ -114,12 +114,16 @@ function createStandInWebServer() {
 
 /**
  * Start the plugin's routes on a real HTTP server.
- * @param {{ snapshots?: object, allowRemote?: boolean, servePage?: boolean, spoofPeer?: string }} [options]
+ * @param {{ snapshots?: object, allowRemote?: boolean, servePage?: boolean, spoofPeer?: string,
+ *   toolStatus?: (() => { name: string, enabled: boolean, registered: boolean })|null }} [options]
  */
 async function startServer(options = {}) {
   const webServer = createStandInWebServer();
   const snapshots = options.snapshots ?? makeSnapshots();
   const logs = [];
+  const toolStatus = 'toolStatus' in options
+    ? options.toolStatus
+    : () => ({ name: 'usage_query', enabled: true, registered: true });
   const dispose = registerRoutes(webServer, {
     snapshots,
     log: (message) => logs.push(message),
@@ -129,6 +133,7 @@ async function startServer(options = {}) {
     },
     allowRemote: options.allowRemote === true,
     servePage: options.servePage !== false,
+    toolStatus,
   });
   const server = http.createServer((req, res) => {
     // The test peer is always loopback; spoof a non-loopback address through a
@@ -323,6 +328,19 @@ test('health reports per-provider cache state additively', async () => {
     assert.deepEqual(body.providers.map((entry) => entry.id), IDS);
     assert.deepEqual(body.providers.map((entry) => entry.status), ['fresh', 'stale', 'fresh', 'fresh']);
     assert.deepEqual(body.credentials.providers.map((entry) => entry.id), IDS);
+    assert.deepEqual(body.tool, { name: 'usage_query', enabled: true, registered: true });
+    assert.deepEqual(server.snapshots.calls, [], 'health never reads upstream');
+  } finally {
+    await server.close();
+  }
+});
+
+test('health reports a composition without the tool surface as null', async () => {
+  const server = await startServer({ toolStatus: null });
+  try {
+    const response = await request(`${server.url}/usage-board/api/health`);
+    assert.equal(response.status, 200);
+    assert.equal(response.json.tool, null, 'an absent tool surface is additive, not an error');
     assert.deepEqual(server.snapshots.calls, [], 'health never reads upstream');
   } finally {
     await server.close();

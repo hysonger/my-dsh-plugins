@@ -5,9 +5,10 @@
 
 ---
 
-## 1. 一个插件包，两个半边
+## 1. 一个插件包，两个半边（外加一个模型接口）
 
-DSH 的插件可以同时拥有「主机半边」和「浏览器半边」，本插件两边都用了：
+DSH 的插件可以同时拥有「主机半边」和「浏览器半边」，本插件两边都用了；此外，主机半边还把同一份
+数据通过一个 DSH 工具暴露给模型：
 
 ```
 dsh-plugin-usage-board/
@@ -16,12 +17,13 @@ dsh-plugin-usage-board/
 ├── icon.svg              插件列表的专属图标（DSH 在激活插件前读取）
 ├── locale/               插件列表的标题与说明（zh.json / en.json 的 meta.title、meta.description）
 ├── lib/
-│   ├── index.js          主机半边入口：注册 HTTP 路由
+│   ├── index.js          主机半边入口：注册 HTTP 路由与 usage_query 工具
 │   └── client.js         浏览器半边：DSH 客户端模块（侧边栏面板）
 └── src/
     ├── shared/protocol.js    冻结的线上协议（两边共同的事实来源）
     ├── host/                 主机半边实现
     │   ├── routes.js         HTTP 路由与响应（单家 + 聚合）
+    │   ├── tool.js           面向模型的 usage_query 工具（投影 + 渲染）
     │   ├── credentials.js    凭据读取
     │   ├── fetch-json.js     有界的 JSON HTTP 客户端
     │   ├── snapshot.js       按服务商读取 / 缓存 / 去重 + 信封组装
@@ -147,6 +149,43 @@ POST /usage-board/api/refresh      （聚合强制；语义与旧版一致）
   `status` / `message` / `code`。
 - 任何一家挂了，其余几家照常显示。
 
+### 给模型的第三个消费者（`usage_query`）
+
+面板和独立页面都用 HTTP 读快照；`src/host/tool.js` 是第三个消费者，它直接读**同一个**
+`SnapshotService` 实例，不经过 HTTP：
+
+```
+DSH 会话（模型）
+   │ tool call: usage_query { provider?, refresh?, days? }
+   ▼
+tool.js ──► SnapshotService（与面板完全相同的缓存 / in-flight 合并 / 降级）
+```
+
+**为什么复用服务实例，而不是让模型去请求本机接口？**
+
+1. **不产生第二份上游流量。** 面板刚读过、缓存还没过期时，工具直接拿到同一行；面板正在后台
+   刷新时，工具看到的是同一个 in-flight 读取。让模型走 HTTP 也「能跑」，但缓存会分成浏览器与
+   工具两套，「查询用量」本身反而多打一次上游。
+2. **降级路径只有一条。** 服务商失败怎么归类、`not-configured` 怎么表达，全部由 `snapshot.js`
+   与适配器决定；工具不重新实现任何判断，也就不会出现「面板说未授权、AI 说余额为零」的分叉。
+3. **权限边界清晰。** 工具是主机侧能力，密钥从头到尾不进入模型上下文。
+
+**为什么输出是「投影」而不是信封？** 冻结协议是给两个渲染器设计的：它带 `meta`（可能含上游响应
+片段、宿主名）、`account`、`messageKey` 这类界面/诊断字段，对模型既没用又占上下文。所以工具声明
+自己的 `output.schema`，只复制白名单字段（余额、额度窗口、重置时刻、套餐名、消费历史、峰谷时段），
+并把 `percent` 收敛为「`derivedPercent` 优先」——与面板同一条规则。**协议不变**：这份 schema 可以
+随面板一起演进，不会反过来约束 HTTP 消费者或 `PROTOCOL_VERSION`。
+
+**挂载是可选的。** `apply()` 用 `ctx.inject(['tools'], …)` 挂工具：没有工具服务的 profile（或
+`enableTool: false`）照常提供面板；注册抛错（比如工具重名）只写日志。这是既有约束「面板不能被
+附属能力拖垮」的延续。
+
+**失败语义。** 只有参数错误（未知 `provider`、越界 `days`）会让工具失败；服务商失败是行数据。
+默认读缓存、`refresh: true` 才等上游，让「AI 查一下余额」既快又不会把上游配额打满。
+
+**隐私。** 工具结果会进入会话日志并发给当前模型，所以投影刻意排除 `meta`（可能含上游响应片段）、
+`account`（账号标识）与任何凭据引用；`test/tool.test.js` 有一条白名单断言守着这件事。
+
 ---
 
 ## 3. 冻结的线上协议
@@ -169,7 +208,7 @@ POST /usage-board/api/refresh      （聚合强制；语义与旧版一致）
 | `POST /usage-board/api/provider?id=<id>` | 强制读取这一家并等结果 | 一行的快照信封 |
 | `GET /usage-board/api/snapshot` | 聚合读取（兼容路径） | 全部服务商的快照信封 |
 | `POST /usage-board/api/refresh` | 聚合强制读取并等结果 | 全部服务商的快照信封 |
-| `GET /usage-board/api/health` | 诊断（不含密钥） | `{ ok, version, ttlMs, reads, backgroundReads, fresh, providers[], credentials }` |
+| `GET /usage-board/api/health` | 诊断（不含密钥） | `{ ok, version, ttlMs, reads, backgroundReads, fresh, providers[], credentials, tool }` |
 
 - 单家路由的信封就是 `UsageSnapshot` 收窄到 `providers.length === 1`：字段含义完全不变，
   `ok` 由这一行推导，`ttlMs` / `generatedAt` 照常（`generatedAt` 是这一家本次读取的开始时刻；
@@ -341,7 +380,8 @@ GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须�
    必须用 `makeProvider` / `makeWindow` / `makeBalance` 构造返回值，这样每个字段都一定有值。
 3. 注册进 `src/host/providers/index.js` 的 `PROVIDERS`。**逐家加载会自动覆盖新服务商**：
    `SnapshotService` 按注册表逐个缓存/读取，`GET|POST /api/provider?id=myservice` 和聚合接口
-   都会带上它，渲染器按 `PROVIDER_IDS` 顺序并发请求；不需要新增路由。
+   都会带上它，渲染器按 `PROVIDER_IDS` 顺序并发请求；`usage_query` 工具同样自动覆盖（枚举取自
+   `PROVIDER_IDS`、投影按行处理），都不需要新增路由或改 `tool.js`。
 4. 在浏览器半边的 `src/client/protocol-copy.js` 里加上同名 id 和文案（两边都要），
    然后按 `test/client-bundle.test.js` 的方式重新生成 `lib/client.js`。
 5. 补 fixture 测试：正常响应、404、401、429、超时、字段缺失、业务错误码；并补一条
@@ -375,6 +415,9 @@ GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须�
 - **`used + remaining` 不等于 `limit`。** GLM 实测 `656 + 1343 = 1999`，而 `usage` 是 `2000`（每周窗口同理：`5831 + 4168 = 9999 / 10000`）。这是上游自己少 1，我们**原样展示，不做任何补偿**——擅自把某个数字加减 1 会让卡片与官方后台对不上，反而更难排查。
 - **百分比以「用 `used / limit` 算出来的值」为准。** 上游上报的 `percentage` 是有意取整的（GLM 在 `656 / 2000` 时报 32，实际 32.8%）。协议里 `percent` 保留上游原值、`derivedPercent` 是本地算出的比例，界面优先用后者，这样「百分比」与旁边的 `656 / 2000` 永远自洽。上游原值不丢，便于核对。
 - **价格/金额不做汇率换算**：接口给什么币种就显示什么币种。
+- **AI 工具读的是同一份缓存。** `usage_query` 默认不强制刷新，所以它给出的数字可能最多旧
+  `ttlMs` 毫秒（结果里会写明最旧一行有多旧）；模型只有显式传 `refresh: true` 才会等待一次上游
+  读取。这是为了避免「AI 每问一句就打一遍四家接口」，代价是问「现在」时数字可能不是秒级最新。
 - **峰谷规则与节假日数据都会变。** 高峰窗口取自 DeepSeek 官方价格页（核对于 2026-10-18），官方
   调整时段后要同步改 `src/host/pricing.js`；国务院每年重新公布放假安排，插件把 `chinese-days`
   精确锁版本，需要按 README 的步骤主动升级，否则新一年的法定节假日会先按工作日估算（界面有明确

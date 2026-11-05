@@ -2,12 +2,16 @@
  * Host half of the usage board.
  *
  * Composed into a DSH web profile, this plugin registers HTTP routes under
- * `/usage-board` and nothing else model-facing: the browser half it ships is
- * discovered automatically through the package's `dsh.client` declaration.
+ * `/usage-board` and one model-facing Tool, `usage_query`. The browser half it
+ * ships is discovered automatically through the package's `dsh.client`
+ * declaration.
  *
  * Lifecycle: `apply` runs once `webServer` exists, builds the secret reader and
- * the snapshot cache, then registers routes through one disposer. Cordis calls
- * that disposer on unload, so stopping the plugin leaves no route behind.
+ * the snapshot cache, then registers routes through one disposer. The tool is
+ * mounted separately through `ctx.inject(['tools'], …)`, so a profile without
+ * the Tool registry still loads and serves the panel. Cordis calls each
+ * disposer on unload, so stopping the plugin leaves neither a route nor a tool
+ * behind.
  *
  * Two deliberate dependency choices:
  *
@@ -35,9 +39,10 @@ import {
   clampTtl,
 } from '../src/host/snapshot.js';
 import { SnapshotService } from '../src/host/snapshot.js';
+import { TOOL_NAME, createUsageQueryTool } from '../src/host/tool.js';
 
 /** Plugin version reported by `/usage-board/api/health`. */
-export const PLUGIN_VERSION = '0.6.0';
+export const PLUGIN_VERSION = '0.7.0';
 
 /**
  * Normalize the plugin's configuration.
@@ -46,7 +51,7 @@ export const PLUGIN_VERSION = '0.6.0';
  * understands schemastery-shaped configs can still project the defaults.
  *
  * @param {object} [input] Raw config from the loader.
- * @returns {{ ttlMs: number, servePage: boolean, allowRemote: boolean, verbose: boolean }}
+ * @returns {{ ttlMs: number, servePage: boolean, allowRemote: boolean, verbose: boolean, enableTool: boolean }}
  */
 export function normalizeConfig(input) {
   const raw = input !== null && typeof input === 'object' ? input : {};
@@ -55,6 +60,7 @@ export function normalizeConfig(input) {
     servePage: raw.servePage !== false,
     allowRemote: raw.allowRemote === true,
     verbose: raw.verbose === true,
+    enableTool: raw.enableTool !== false,
   };
 }
 
@@ -83,7 +89,7 @@ export const Config = {
       const fields = /** @type {Record<string, unknown>} */ (raw);
       /** @type {Array<{ message: string, path?: string[] }>} */
       const issues = [];
-      for (const key of ['ttlMs', 'servePage', 'allowRemote', 'verbose']) {
+      for (const key of ['ttlMs', 'servePage', 'allowRemote', 'verbose', 'enableTool']) {
         const expected = typeof ConfigDefaults[key];
         if (fields[key] !== undefined && typeof fields[key] !== expected) {
           issues.push({ message: `usage-board config.${key} must be a ${expected}`, path: [key] });
@@ -101,6 +107,7 @@ const ConfigDefaults = {
   servePage: true,
   allowRemote: false,
   verbose: false,
+  enableTool: true,
 };
 
 /** Cordis service dependency: the HTTP carrier this plugin answers on. */
@@ -140,6 +147,37 @@ export function apply(ctx, config) {
     log: debug,
   });
 
+  // The model-facing tool is a separate, optional surface: mounted only when
+  // the composed profile has a Tool registry and the user did not turn it off.
+  // Registration is deliberately isolated — a name clash or a broken registry
+  // must never take the dashboard down with it.
+  let toolRegistered = false;
+  if (resolved.enableTool) {
+    ctx.inject(['tools'], (child) => {
+      child.effect(() => {
+        if (typeof child.tools?.register !== 'function') return () => undefined;
+        let dispose;
+        try {
+          dispose = child.tools.register(createUsageQueryTool({ snapshots }));
+        } catch (error) {
+          log(`tool ${TOOL_NAME} could not be registered (${describe(error)})`);
+          return () => undefined;
+        }
+        toolRegistered = true;
+        log(`registered tool ${TOOL_NAME}`);
+        return () => {
+          toolRegistered = false;
+          try {
+            dispose();
+          } catch (error) {
+            log(`tool ${TOOL_NAME} disposal failed (${describe(error)})`);
+          }
+          log(`released tool ${TOOL_NAME}`);
+        };
+      }, 'usage-board: usage_query tool');
+    });
+  }
+
   ctx.effect(() => {
     const dispose = registerRoutes(ctx.webServer, {
       snapshots,
@@ -154,9 +192,11 @@ export function apply(ctx, config) {
       },
       allowRemote: resolved.allowRemote,
       servePage: resolved.servePage,
+      toolStatus: () => ({ name: TOOL_NAME, enabled: resolved.enableTool, registered: toolRegistered }),
     });
     log(
-      `ready — ${PROVIDERS.length} providers, ${Math.round(resolved.ttlMs / 1000)}s cache, routes under /usage-board`,
+      `ready — ${PROVIDERS.length} providers, ${Math.round(resolved.ttlMs / 1000)}s cache, routes under /usage-board` +
+        (resolved.enableTool ? ', tool usage_query' : ''),
     );
     return () => {
       dispose();
@@ -168,6 +208,18 @@ export function apply(ctx, config) {
   }, 'usage-board: http routes');
 }
 
+/** One short sentence for a caught error, for the log only. */
+function describe(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export { SnapshotService } from '../src/host/snapshot.js';
 export { PROVIDERS } from '../src/host/providers/index.js';
 export { createSecretReader } from '../src/host/credentials.js';
+export {
+  TOOL_NAME,
+  TOOL_TIMEOUT_MS,
+  createUsageQueryTool,
+  formatUsage,
+  projectUsage,
+} from '../src/host/tool.js';
