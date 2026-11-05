@@ -221,6 +221,25 @@
   grid-column: 1 / -1;
 }
 
+/* DeepSeek's illustration occupies the blank row below all provider cards.
+   Cap its width so the whole 16:9 image fits a typical desktop pane without
+   distorting it; the body still scrolls naturally in shorter panes. */
+.ub-cash {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.ub-cash-image {
+  display: block;
+  width: 100%;
+  max-width: 960px;
+  height: auto;
+  border-radius: var(--ub-radius-panel);
+}
+
 /* 14px radius, 18/18/16 padding and a 16px gap are the standalone page's card
    metrics; the panel copies them so a wide main-area render reads as the same
    product, not as a different one. */

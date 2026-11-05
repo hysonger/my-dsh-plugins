@@ -54,6 +54,8 @@
      one provider's card in place changes neither the layout nor the other
      cards' DOM nodes. */
   .slot { display: contents; }
+  .cash { width: 100%; max-width: 960px; margin: 16px auto 0; }
+  .cash-image { display: block; width: 100%; height: auto; border-radius: 14px; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px; }
   .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
   .pill { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
@@ -119,8 +121,12 @@
     <span class="spacer"></span>
     <button id="refresh" type="button">刷新</button>
   </header>
-  <p class="sub" style="margin:0">DeepSeek · GLM Coding Plan · Kimi Code</p>
+  <p class="sub" id="subtitle" style="margin:0">DeepSeek · GLM Coding Plan · Kimi Code · OpenCode Go</p>
   <div class="grid" id="grid"></div>
+  <p class="sub" id="empty" style="margin:12px 0 0" hidden>实例还没有配置任何服务。</p>
+  <figure class="cash">
+    <img class="cash-image" src="/usage-board/deepseek_cash.png" alt="DeepSeek 鲸元券" width="1280" height="720" decoding="async">
+  </figure>
   <footer id="footer"></footer>
 </main>
 <!--USAGE_BOARD_BOOT-->
@@ -131,16 +137,23 @@
   const updatedEl = document.getElementById('updated');
   const footerEl = document.getElementById('footer');
   const refreshBtn = document.getElementById('refresh');
+  const subtitleEl = document.getElementById('subtitle');
+  const emptyEl = document.getElementById('empty');
   /** Provider display order when the served page carries no boot data. */
-  const DEFAULT_PROVIDER_IDS = ['deepseek', 'glm', 'kimi'];
+  const DEFAULT_PROVIDER_IDS = ['deepseek', 'glm', 'kimi', 'opencode-go'];
   const DEFAULT_PROVIDER_PATH = '/usage-board/api/provider';
   const DEFAULT_PROVIDER_QUERY_PARAM = 'id';
   /** Card titles for a provider that failed before ever sending a row. */
-  const PROVIDER_LABELS = { deepseek: 'DeepSeek', glm: 'GLM Coding Plan', kimi: 'Kimi Code' };
+  const PROVIDER_LABELS = {
+    deepseek: 'DeepSeek',
+    glm: 'GLM Coding Plan',
+    kimi: 'Kimi Code',
+    'opencode-go': 'OpenCode Go',
+  };
   /**
    * One request per provider, so a slow or hanging upstream holds back only its
    * own card. `providerIds` is the display order; a boot object without it (an
-   * older host) falls back to the three providers this plugin ships.
+   * older host) falls back to the providers this plugin ships.
    */
   const providerIds = normalizeProviderIds(boot.providerIds);
   const providerPath = typeof boot.providerPath === 'string' && boot.providerPath !== '' ? boot.providerPath : DEFAULT_PROVIDER_PATH;
@@ -212,6 +225,9 @@
     'kimi.5h': '5 小时窗口',
     'kimi.weekly': '每周窗口',
     'kimi.monthly': '每月窗口',
+    'opencode-go.5h': '5 小时窗口',
+    'opencode-go.weekly': '每周窗口',
+    'opencode-go.monthly': '每月窗口',
     'deepseek.balance': '余额',
   };
   const STATUS_TEXT = {
@@ -398,22 +414,71 @@
     return amount === null ? '—' : symbol + amount;
   }
   /**
-   * Reset countdown. Rounds to the nearest unit at every scale, exactly like the
-   * sidebar panel (src/client/panel.js `resetText`) — the two renderers must
+   * Countdown phrase without its verb ("2 小时后"), the same rounding the
+   * sidebar panel uses (src/client/panel.js `resetAfter`). Both renderers must
    * agree, so a user comparing them never sees "2 天后重置" beside "1 天后重置"
    * for one timestamp.
    */
+  function resetAfter(delta) {
+    const seconds = Math.ceil(delta / 1000);
+    if (seconds < 60) return seconds + ' 秒后';
+    const minutes = Math.round(delta / 60000);
+    if (minutes < 60) return minutes + ' 分钟后';
+    const hours = Math.round(delta / 3600000);
+    if (hours < 24) return hours + ' 小时后';
+    return Math.round(delta / 86400000) + ' 天后';
+  }
+  /** Reset countdown sentence, or null when the provider reports no reset. */
   function resetText(resetAt) {
     if (typeof resetAt !== 'number') return null;
     const delta = resetAt - Date.now();
     if (delta <= 0) return '即将重置';
-    const seconds = Math.ceil(delta / 1000);
-    if (seconds < 60) return seconds + ' 秒后重置';
-    const minutes = Math.round(delta / 60000);
-    if (minutes < 60) return minutes + ' 分钟后重置';
-    const hours = Math.round(delta / 3600000);
-    if (hours < 24) return hours + ' 小时后重置';
-    return Math.round(delta / 86400000) + ' 天后重置';
+    return resetAfter(delta) + '重置';
+  }
+  /** Zero-pad one local clock component to the two digits a time display needs. */
+  function pad2(value) {
+    return value < 10 ? '0' + value : String(value);
+  }
+  /**
+   * The reset instant as a local wall-clock time, minute precision: "16:35 重置",
+   * "明日 01:20 重置" or "10 月 26 日 06:11 重置". The day is named whenever the
+   * instant is not today, so a 5-hour window rolling over midnight stays clear.
+   */
+  function resetClockText(resetAt) {
+    const target = new Date(resetAt);
+    const current = new Date(Date.now());
+    const time = pad2(target.getHours()) + ':' + pad2(target.getMinutes());
+    if (target.getFullYear() === current.getFullYear()
+      && target.getMonth() === current.getMonth()
+      && target.getDate() === current.getDate()) return time + ' 重置';
+    const tomorrow = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1);
+    if (target.getFullYear() === tomorrow.getFullYear()
+      && target.getMonth() === tomorrow.getMonth()
+      && target.getDate() === tomorrow.getDate()) return '明日 ' + time + ' 重置';
+    return (target.getMonth() + 1) + ' 月 ' + target.getDate() + ' 日 ' + time + ' 重置';
+  }
+  /**
+   * Whether a window is one of the 5-hour rolling quota windows. The stable
+   * ids are the primary signal; `unit` is the provider's raw code (GLM 3, Kimi
+   * and OpenCode Go "5h") and only covers a row shaped by an older host.
+   */
+  function isFiveHourWindow(win) {
+    if (!win || typeof win !== 'object') return false;
+    if (win.id === 'glm.5h' || win.id === 'kimi.5h' || win.id === 'opencode-go.5h') return true;
+    const unit = win.unit === null || win.unit === undefined ? '' : String(win.unit);
+    return unit === '3' || unit.toLowerCase() === '5h';
+  }
+  /**
+   * The reset line for one quota window. Every window keeps its countdown; a
+   * 5-hour window also prints the exact local reset clock time, because the
+   * countdown alone cannot say at which minute the allowance comes back.
+   */
+  function windowResetText(win) {
+    if (!win || typeof win.resetAt !== 'number') return null;
+    const delta = win.resetAt - Date.now();
+    if (delta <= 0) return '即将重置';
+    if (!isFiveHourWindow(win)) return resetText(win.resetAt);
+    return resetClockText(win.resetAt) + '（' + resetAfter(delta) + '）';
   }
   /** Relative "last updated" sentence, the same shape as the sidebar panel's. */
   function relative(ts) {
@@ -510,10 +575,14 @@
     const name = LABELS[win.id] || win.id;
     const used = num(win.used, 0);
     const limit = num(win.limit, 0);
+    // A percentage-only window (OpenCode Go) has no absolute counters. An
+    // em-dash fraction would read as a broken reading, so the line is omitted
+    // and the percentage in the note beside it carries the window.
+    const hasCounters = used !== null || limit !== null;
     const head = el('div', { class: 'metric-head' }, [
       el('span', { class: 'name', text: name }),
       el('span', { class: 'spacer' }),
-      el('span', { class: 'val', text: (used === null || limit === null ? '—' : used + ' / ' + limit) }),
+      hasCounters ? el('span', { class: 'val', text: (used === null || limit === null ? '—' : used + ' / ' + limit) }) : null,
     ]);
     const percent = displayPercent(win);
     const track = el('div', { class: 'track' }, [
@@ -523,7 +592,7 @@
     if (percent !== null) bits.push('已用 ' + percent.toFixed(1) + '%');
     const remaining = num(win.remaining, 0);
     if (remaining !== null) bits.push('剩余 ' + remaining);
-    const reset = resetText(win.resetAt);
+    const reset = windowResetText(win);
     if (reset) bits.push(reset);
     const metric = el('div', { class: 'metric' }, [head, track]);
     if (bits.length > 0) metric.appendChild(el('div', { class: 'note', text: bits.join(' · ') }));
@@ -598,13 +667,27 @@
   }
 
   /**
+   * Whether a provider is configured but has no credential, so this page owns
+   * no card for it. The row still exists in `rows` (it is what tells the page
+   * to keep asking, so a credential added later makes the card appear); it is
+   * only hidden. Not-configured is a state, not a degraded board.
+   */
+  function isHiddenProvider(id) {
+    const row = rows.get(id);
+    return Boolean(row) && row.status === 'not-configured';
+  }
+
+  /**
    * Header and footer from the merged per-provider state.
    *
    * - `加载中…` while the first paint has nothing yet;
    * - `X 前更新 · 正在刷新…` while at least one provider's read is in flight;
    * - `X 前更新 · 部分服务异常` when a settled provider has a degraded row or a
-   *   failed transport read;
+   *   failed transport read (unconfigured providers are excluded);
    * - `读取失败` when no provider answered at all.
+   *
+   * The subtitle names the cards actually on screen, and `#empty` explains a
+   * board whose every provider is unconfigured instead of leaving a blank grid.
    */
   function updateChrome() {
     const busy = pending.size > 0;
@@ -615,9 +698,23 @@
     } else if (haveRows === 0) {
       updatedEl.textContent = '读取失败';
     } else {
-      const degraded = providerIds.some((id) => !providerOk(id));
-      const stale = providerIds.some((id) => staleById.get(id) === true);
+      const degraded = providerIds.some((id) => !isHiddenProvider(id) && !providerOk(id));
+      const stale = providerIds.some((id) => !isHiddenProvider(id) && staleById.get(id) === true);
       updatedEl.textContent = relative(mergedGeneratedAt()) + (degraded ? ' · 部分服务异常' : '') + (stale ? ' · 后台刷新中' : '');
+    }
+    if (subtitleEl !== null) {
+      const visible = providerIds.filter((id) => {
+        const row = rows.get(id);
+        return Boolean(row) && row.status !== 'not-configured';
+      });
+      // Before the first row arrives the full roster is the only honest answer;
+      // once settled, only services with a card are named.
+      const named = visible.length > 0 ? visible : (rows.size === 0 ? providerIds : []);
+      subtitleEl.textContent = named.map((id) => PROVIDER_LABELS[id] || id).join(' · ');
+    }
+    if (emptyEl !== null) {
+      const anyCard = [...slots.values()].some((slot) => slot.children.length > 0);
+      emptyEl.hidden = busy || anyCard || haveRows === 0;
     }
     if (haveRows > 0 || protocolVersion !== null) {
       footerEl.textContent = '插件 v' + (typeof boot.version === 'string' ? boot.version : '?')
@@ -668,6 +765,12 @@
     pricingTickers.delete(id);
     const row = rows.get(id);
     if (row) {
+      // Not configured: no card, no skeleton, no error. Clearing the slot keeps
+      // it in `slots` so a later successful read can paint a card in place.
+      if (row.status === 'not-configured') {
+        slot.replaceChildren();
+        return;
+      }
       slot.replaceChildren(card(row));
       return;
     }

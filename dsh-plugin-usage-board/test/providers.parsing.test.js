@@ -32,6 +32,7 @@ const SECRETS = {
   DEEPSEEK_API_KEY: 'sk-FAKE-deepseek-api-key-0123456789abcdef',
   ZAI_CODING_CN_API_KEY: 'fake0000.FAKE-GLM-CODING-PLAN-KEY-0123456789',
   KIMI_CODING_API_KEY: 'sk-kimi-FAKE-KIMI-CODE-SUBSCRIPTION-0123456789',
+  OPENCODE_GO_API_KEY: 'oc_sk_FAKE-OPENCODE-GO-KEY-0123456789abcdef',
 };
 
 const SUMMARY_URL = 'https://platform.deepseek.com/api/v0/users/get_user_summary';
@@ -48,6 +49,7 @@ const GLM_SUBSCRIPTION_URL = 'https://api.z.ai/api/biz/subscription/list';
 const DEEPSEEK_IDENTITY_URL = 'https://platform.deepseek.com/auth-api/v0/users/current';
 const KIMI_CN_URL = 'https://api.kimi.com/coding/v1/usages';
 const KIMI_INTL_URL = 'https://api.kimi.ai/coding/v1/usages';
+const OPENCODE_GO_USAGE_URL = 'https://opencode.ai/zen/go/v1/usage';
 
 /** Every status the protocol defines. */
 const STATUSES = new Set([
@@ -264,7 +266,7 @@ after(() => {
 // ── registry ────────────────────────────────────────────────────────────────
 
 describe('provider registry', () => {
-  it('registers deepseek, glm, kimi in protocol order', () => {
+  it('registers every adapter in protocol order', () => {
     assert.deepEqual(
       PROVIDERS.map((adapter) => adapter.id),
       [...PROVIDER_IDS],
@@ -961,6 +963,178 @@ describe('kimi adapter', () => {
 
   it('is total when the transport throws', async () => {
     const { snapshot } = await run('kimi', { routes: { [KIMI_CN_URL]: { throw: new Error('boom') } }, secrets: key });
+    assert.equal(snapshot.status, 'upstream-error');
+    assert.equal(snapshot.code, 'E_INTERNAL');
+  });
+});
+
+// ── OpenCode Go ─────────────────────────────────────────────────────────────
+
+describe('opencode-go adapter', () => {
+  const routes = { [OPENCODE_GO_USAGE_URL]: ok200(fixture('opencode-go-usage.json')) };
+  const key = { OPENCODE_GO_API_KEY: SECRETS.OPENCODE_GO_API_KEY };
+
+  it('normalizes the live usage payload into three percent-only windows', async () => {
+    const { snapshot, fetch, resolvedRefs } = await run('opencode-go', { routes, secrets: key });
+
+    assert.equal(snapshot.status, 'ok');
+    assert.equal(snapshot.message, null);
+    assert.equal(snapshot.label, 'OpenCode Go');
+    assert.deepEqual(resolvedRefs, ['OPENCODE_GO_API_KEY']);
+    assert.equal(fetch.calls.length, 1);
+    assert.equal(fetch.calls[0].url, OPENCODE_GO_USAGE_URL);
+    assert.equal(fetch.calls[0].options.headers.Authorization, `Bearer ${SECRETS.OPENCODE_GO_API_KEY}`);
+
+    assert.deepEqual(
+      snapshot.windows.map((window) => window.id),
+      ['opencode-go.5h', 'opencode-go.weekly', 'opencode-go.monthly'],
+    );
+    const [rolling, weekly, monthly] = snapshot.windows;
+    assert.equal(rolling.unit, '5h');
+    assert.equal(rolling.percent, 0);
+    // The route has no absolute counters: every one of these must stay null so
+    // the renderers can never print a fake "0 / 100"-style allowance.
+    assert.equal(rolling.limit, null);
+    assert.equal(rolling.used, null);
+    assert.equal(rolling.remaining, null);
+    assert.equal(rolling.derivedPercent, null);
+    assert.equal(rolling.resetAt, Date.parse('2026-11-05T13:01:55.000Z'));
+    assert.equal(weekly.resetAt, Date.parse('2026-11-09T00:00:00.000Z'));
+    assert.equal(monthly.resetAt, Date.parse('2026-12-05T07:56:09.000Z'));
+
+    assert.equal(snapshot.meta.host, 'opencode.ai');
+    assert.equal(snapshot.meta.source, 'zen-go-usage-api');
+    assert.deepEqual(snapshot.meta.windowStatus, {
+      'opencode-go.5h': 'ok',
+      'opencode-go.weekly': 'ok',
+      'opencode-go.monthly': 'ok',
+    });
+    assert.deepEqual(snapshot.balances, []);
+    assert.equal(snapshot.plan, null);
+    assertNoSecret(snapshot);
+  });
+
+  it('keeps fractional percentages and a rate-limited window', async () => {
+    const { snapshot } = await run('opencode-go', {
+      routes: { [OPENCODE_GO_USAGE_URL]: ok200(fixture('opencode-go-active.json')) },
+      secrets: key,
+    });
+    assert.equal(snapshot.status, 'ok');
+    assert.deepEqual(snapshot.windows.map((window) => window.percent), [100, 42.5, 0.5]);
+    assert.equal(snapshot.windows[2].resetAt, null, 'a null resetsAt is a missing reset, not an error');
+    assert.equal(snapshot.meta.windowStatus['opencode-go.5h'], 'rate-limited');
+  });
+
+  it('omits a window the provider does not report instead of filling it with 0%', async () => {
+    const body = { usage: { rolling: { status: 'ok', percent: 5, resetsAt: '2026-11-05T13:01:55.000Z' } } };
+    const { snapshot } = await run('opencode-go', {
+      routes: { [OPENCODE_GO_USAGE_URL]: ok200(body) },
+      secrets: key,
+    });
+    assert.equal(snapshot.status, 'ok');
+    assert.deepEqual(snapshot.windows.map((window) => window.id), ['opencode-go.5h']);
+  });
+
+  it('surfaces an unknown window key instead of dropping quota', async () => {
+    const body = { usage: { daily: { status: 'ok', percent: 7, resetsAt: '2026-11-06T00:00:00.000Z' } } };
+    const { snapshot } = await run('opencode-go', {
+      routes: { [OPENCODE_GO_USAGE_URL]: ok200(body) },
+      secrets: key,
+    });
+    assert.equal(snapshot.status, 'ok');
+    assert.deepEqual(snapshot.windows.map((window) => window.id), ['opencode-go.daily']);
+    assert.equal(snapshot.windows[0].labelKey, 'opencode-go.daily');
+    assert.equal(snapshot.windows[0].unit, 'daily');
+    assert.equal(snapshot.windows[0].percent, 7);
+  });
+
+  it('reports not-configured without any upstream call', async () => {
+    const { snapshot, fetch } = await run('opencode-go', { routes, secrets: {} });
+    assert.equal(snapshot.status, 'not-configured');
+    assert.match(snapshot.message, /OPENCODE_GO_API_KEY/);
+    assert.equal(fetch.calls.length, 0);
+  });
+
+  it('maps HTTP 401 to unauthorized', async () => {
+    const unauthorized = { json: fixture('opencode-go-unauthorized.json'), status: 401 };
+    const { snapshot } = await run('opencode-go', {
+      routes: { [OPENCODE_GO_USAGE_URL]: unauthorized },
+      secrets: key,
+    });
+    assert.equal(snapshot.status, 'unauthorized');
+    assert.equal(snapshot.code, 'HTTP 401');
+    assertNoSecret(snapshot);
+  });
+
+  it('maps HTTP 403 to a missing Go subscription, never to a rejected key', async () => {
+    const noPlan = { json: fixture('opencode-go-no-subscription.json'), status: 403 };
+    const { snapshot } = await run('opencode-go', {
+      routes: { [OPENCODE_GO_USAGE_URL]: noPlan },
+      secrets: key,
+    });
+    assert.equal(snapshot.status, 'upstream-error');
+    assert.equal(snapshot.code, 'HTTP 403');
+    assert.match(snapshot.message, /coding plan/i);
+    assert.notEqual(snapshot.status, 'unauthorized', 'a valid key without a plan is not a rejected key');
+    assertNoSecret(snapshot);
+  });
+
+  it('maps a 200 EntitlementError body to the same no-plan diagnosis', async () => {
+    const { snapshot } = await run('opencode-go', {
+      routes: { [OPENCODE_GO_USAGE_URL]: ok200(fixture('opencode-go-no-subscription.json')) },
+      secrets: key,
+    });
+    assert.equal(snapshot.status, 'upstream-error');
+    assert.equal(snapshot.code, 'EntitlementError');
+    assert.match(snapshot.message, /coding plan/i);
+  });
+
+  it('maps 429, non-JSON and transport failures', async () => {
+    const cases = [
+      [{ json: { error: 'slow' }, status: 429 }, 'rate-limited', 'HTTP 429'],
+      [{ json: undefined, status: 200, text: '<html>oops</html>' }, 'invalid-response', 'E_NOT_JSON'],
+      [{ json: undefined, status: null, error: { name: 'TimeoutError', message: 'too slow' } }, 'network-error', 'TimeoutError'],
+      [{ json: undefined, status: null, aborted: true, error: { name: 'AbortError', message: 'x' } }, 'network-error', 'ABORTED'],
+    ];
+    for (const [result, status, code] of cases) {
+      const { snapshot } = await run('opencode-go', {
+        routes: { [OPENCODE_GO_USAGE_URL]: result },
+        secrets: key,
+      });
+      assert.equal(snapshot.status, status);
+      assert.equal(snapshot.code, code);
+      assertNoSecret(snapshot);
+    }
+  });
+
+  it('never reports ok on a guess: a 2xx without usage is invalid-response', async () => {
+    for (const body of [fixture('opencode-go-empty.json'), { hello: 'world' }]) {
+      const { snapshot } = await run('opencode-go', {
+        routes: { [OPENCODE_GO_USAGE_URL]: ok200(body) },
+        secrets: key,
+      });
+      assert.equal(snapshot.status, 'invalid-response');
+      assert.equal(snapshot.windows.length, 0);
+      assert.equal(snapshot.meta.rawSnippet, JSON.stringify(body));
+    }
+  });
+
+  it('aborts before starting when the signal is already aborted', async () => {
+    const { snapshot, fetch } = await run('opencode-go', {
+      routes,
+      secrets: key,
+      signal: AbortSignal.abort(),
+    });
+    assert.equal(snapshot.status, 'network-error');
+    assert.equal(snapshot.code, 'ABORTED');
+    assert.equal(fetch.calls.length, 0);
+  });
+
+  it('is total when the transport throws', async () => {
+    const { snapshot } = await run('opencode-go', {
+      routes: { [OPENCODE_GO_USAGE_URL]: { throw: new Error('boom') } },
+      secrets: key,
+    });
     assert.equal(snapshot.status, 'upstream-error');
     assert.equal(snapshot.code, 'E_INTERNAL');
   });

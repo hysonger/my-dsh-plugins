@@ -17,10 +17,10 @@
 const PROTOCOL_VERSION = 1;
 
 /** Every provider id this dashboard knows, in display order. */
-const PROVIDER_IDS = ['deepseek', 'glm', 'kimi'];
+const PROVIDER_IDS = ['deepseek', 'glm', 'kimi', 'opencode-go'];
 
 /** Provider ids whose upstream API is a quota window API rather than a wallet. */
-const QUOTA_PROVIDER_IDS = ['glm', 'kimi'];
+const QUOTA_PROVIDER_IDS = ['glm', 'kimi', 'opencode-go'];
 
 /** HTTP path the host half serves the snapshot on (GET). */
 const SNAPSHOT_PATH = '/usage-board/api/snapshot';

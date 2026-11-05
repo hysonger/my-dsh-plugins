@@ -1,0 +1,7 @@
+{
+  "type": "error",
+  "error": {
+    "type": "EntitlementError",
+    "message": "No active OpenCode Go subscription for this key"
+  }
+}

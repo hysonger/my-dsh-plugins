@@ -37,7 +37,7 @@ import {
 import { SnapshotService } from '../src/host/snapshot.js';
 
 /** Plugin version reported by `/usage-board/api/health`. */
-export const PLUGIN_VERSION = '0.4.0';
+export const PLUGIN_VERSION = '0.6.0';
 
 /**
  * Normalize the plugin's configuration.

@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-usage-board",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "DSH usage board: DeepSeek (balance, spend trend, peak/off-peak billing reminder), GLM Coding Plan and Kimi Code quota, in one sidebar panel",
+  "description": "DSH usage board: DeepSeek (balance, spend trend, peak/off-peak billing reminder), GLM Coding Plan, Kimi Code and OpenCode Go quota, in one sidebar panel",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -13,6 +13,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
@@ -20,6 +22,8 @@
     "src/",
     "docs/",
     "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
     "README.md"
   ],
   "dsh": {

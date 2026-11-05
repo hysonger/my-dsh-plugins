@@ -23,10 +23,10 @@
 export const PROTOCOL_VERSION = 1;
 
 /** Every provider id this dashboard knows, in display order. */
-export const PROVIDER_IDS = ['deepseek', 'glm', 'kimi'];
+export const PROVIDER_IDS = ['deepseek', 'glm', 'kimi', 'opencode-go'];
 
 /** Provider ids whose upstream API is a quota window API rather than a wallet. */
-export const QUOTA_PROVIDER_IDS = ['glm', 'kimi'];
+export const QUOTA_PROVIDER_IDS = ['glm', 'kimi', 'opencode-go'];
 
 /**
  * Wire status of one provider within a snapshot.

@@ -37,7 +37,7 @@ import {
 /* ------------------------------------------------------------------ protocol */
 
 test('protocol exposes one id per provider in display order', () => {
-  assert.deepEqual(PROVIDER_IDS, ['deepseek', 'glm', 'kimi']);
+  assert.deepEqual(PROVIDER_IDS, ['deepseek', 'glm', 'kimi', 'opencode-go']);
   assert.equal(PROTOCOL_VERSION, 1);
   assert.equal(SNAPSHOT_PATH, '/usage-board/api/snapshot');
   assert.equal(PROVIDER_PATH, '/usage-board/api/provider', 'the per-provider route is part of the wire contract');
@@ -428,6 +428,12 @@ test('a failed provider row carries a stable messageKey beside its English text'
   assert.equal(classifyMessage('upstream-error', 'No upstream host was attempted.'), 'noHost');
   // The "no Coding Plan" case is not an auth failure and must not read like one.
   assert.equal(classifyMessage('upstream-error', 'This key has no active Coding Plan.'), 'noCodingPlan');
+  // OpenCode Go reports a missing Go subscription instead of a missing coding
+  // plan; the fix is the same (subscribe), so it reuses that diagnosis.
+  assert.equal(
+    classifyMessage('upstream-error', 'This OpenCode key has no Go coding plan subscription, or the key lacks usage access.'),
+    'noCodingPlan',
+  );
   // An unrecognized diagnostic still yields a usable key.
   assert.equal(classifyMessage('upstream-error', 'The provider returned HTTP 503.'), 'status.upstream-error');
 });

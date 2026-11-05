@@ -36,7 +36,7 @@ const NS = "usageBoard";
 const PANEL_ID = "usage-board";
 
 /** Known provider ids, in display order, mirroring the shared protocol. */
-const PROVIDER_IDS = ["deepseek", "glm", "kimi"];
+const PROVIDER_IDS = ["deepseek", "glm", "kimi", "opencode-go"];
 
 /** The URL the panel must use for one provider's envelope. */
 const providerUrl = (id) => `${PROVIDER_PATH}?${PROVIDER_QUERY_PARAM}=${encodeURIComponent(id)}`;
@@ -52,7 +52,12 @@ const requestsFor = (renderer, id) => renderer.requests.filter((request) => requ
  * provider absent from a fixture body uses them, so a partial fixture still
  * behaves like the real host, which always answers with a row per requested id.
  */
-const PROVIDER_LABELS = { deepseek: "DeepSeek", glm: "GLM Coding Plan", kimi: "Kimi Code" };
+const PROVIDER_LABELS = {
+  deepseek: "DeepSeek",
+  glm: "GLM Coding Plan",
+  kimi: "Kimi Code",
+  "opencode-go": "OpenCode Go",
+};
 
 /** Module aliases the shell's frozen platform table answers for every bundle. */
 const PLATFORM_ALIASES = [
@@ -245,7 +250,8 @@ function loadPanelUnit() {
   const exposure = [
     "\n;globalThis.__ub = {",
     "  formatMoney, formatPercent, formatAmount, clamp, clampTtl, truncate,",
-    "  relativeTime, resetText, windowLabel, statusTone, statusKey,",
+    "  relativeTime, resetText, resetAfter, resetClockText, windowResetText,",
+    "  isFiveHourWindow, windowLabel, statusTone, statusKey,",
     "  normalizeWindow, normalizeBalance, normalizeProvider, normalizeSnapshot,",
     "  describeFailure, collectHosts, translateOf, bindPanelTranslate,",
     "  providerTrend, trendScale, asErrorLike, WEEK_TREND_POINTS, MONTH_TREND_POINTS,",
@@ -253,6 +259,7 @@ function loadPanelUnit() {
     "  providerPricing, PricingReminder, PRICING_PHASES,",
     "  providerMessage, derivedPercentOf,",
     "  providerUrl, providerRowOf, providerLabelFor, providerSubtitle, panelSlots, orderedProviders,",
+    "  isUnconfigured, visibleProviders,",
     "  mergedEnvelope, viewTtlMs, boardPhase,",
     "  UsageBoardPanel, UsageBoardPanelIcon, DailyTrend, zh, en,",
     "};",
@@ -355,8 +362,11 @@ function skeletonIds(tree) {
  * The fetch stub speaks the real per-provider contract: every request must hit
  * PROVIDER_PATH with a PROVIDER_QUERY_PARAM id, and the answer is the fixture
  * envelope narrowed to that provider's row. A provider absent from the fixture
- * gets the host's own "not-configured" row instead, because the real host always
- * has a row for every id it is asked about.
+ * gets a minimal "ok" row instead, because the real host always has a row for
+ * every id it is asked about and tests only spell out the providers they assert
+ * on. (An absent provider deliberately does NOT default to "not-configured":
+ * those rows own no card, which would silently turn every card-count assertion
+ * in this file into a one-card board.)
  *
  * @param {object} [options]
  *   - `body`: envelope every synthetic one-row answer is narrowed from.
@@ -417,8 +427,8 @@ function createRenderer(options = {}) {
   /**
    * Narrow the fixture envelope to the one row a PROVIDER_PATH answer carries,
    * exactly like the host's per-provider route. A provider missing from the
-   * fixture gets a not-configured row so tests only spell out the providers
-   * they assert on.
+   * fixture gets a minimal ok row so tests only spell out the providers they
+   * assert on.
    */
   const providerResponse = (id, sourceBody) => {
     const source = sourceBody !== null && typeof sourceBody === "object" ? sourceBody : {};
@@ -427,8 +437,8 @@ function createRenderer(options = {}) {
     const row = match ?? {
       id: id,
       label: PROVIDER_LABELS[id] ?? id,
-      status: "not-configured",
-      messageKey: "notConfigured",
+      status: "ok",
+      messageKey: null,
       windows: [],
       balances: [],
     };
@@ -924,6 +934,48 @@ test("relative time and reset countdown read naturally and tolerate nulls", () =
   assert.equal(unit.resetText(t, now + 45_000, now), "45 秒后重置");
 });
 
+test("the 5-hour windows print the exact local reset clock time", () => {
+  const unit = loadPanelUnit();
+  const t = translateSeat(unit.zh);
+  const now = new Date(2026, 9, 24, 10, 0).getTime();
+  const at = (hour, minute, day = 24) => new Date(2026, 9, day, hour, minute).getTime();
+
+  // Same local day: just the clock. Tomorrow and later: the day is named, so a
+  // window that rolls over midnight can never be misread as today.
+  assert.equal(unit.resetClockText(t, at(16, 35), now), "16:35 重置");
+  assert.equal(unit.resetClockText(t, at(1, 20, 25), now), "明日 01:20 重置");
+  assert.equal(unit.resetClockText(t, at(6, 11, 26), now), "10 月 26 日 06:11 重置");
+  assert.equal(unit.resetClockText(t, null, now), null);
+
+  // A 5-hour window gets BOTH the exact instant and the countdown; every other
+  // window keeps the compact countdown it had.
+  const fiveHour = { id: "glm.5h", unit: 3, resetAt: at(15, 0) };
+  const weekly = { id: "glm.weekly", unit: 6, resetAt: at(15, 0) };
+  assert.equal(unit.windowResetText(t, fiveHour, now), "15:00 重置（5 小时后）");
+  assert.equal(unit.windowResetText(t, weekly, now), "5 小时后重置");
+  assert.equal(unit.windowResetText(t, { id: "kimi.5h", resetAt: at(15, 0) }, now), "15:00 重置（5 小时后）");
+  assert.equal(unit.windowResetText(t, fiveHour, at(15, 0) + 1), "即将重置");
+  assert.equal(unit.windowResetText(t, { id: "glm.5h", resetAt: null }, now), null);
+
+  // Classification behind that decision: stable ids first, provider unit codes
+  // as the fallback for a row shaped by an older host.
+  assert.equal(unit.isFiveHourWindow({ id: "glm.5h" }), true);
+  assert.equal(unit.isFiveHourWindow({ id: "kimi.5h" }), true);
+  assert.equal(unit.isFiveHourWindow({ id: "opencode-go.5h" }), true);
+  assert.equal(unit.isFiveHourWindow({ id: "x", unit: 3 }), true);
+  assert.equal(unit.isFiveHourWindow({ id: "x", unit: "5h" }), true);
+  assert.equal(unit.isFiveHourWindow({ id: "glm.weekly", unit: 6 }), false);
+  assert.equal(unit.isFiveHourWindow({ id: "kimi.weekly" }), false);
+  assert.equal(unit.isFiveHourWindow({ id: "opencode-go.weekly" }), false);
+  assert.equal(unit.isFiveHourWindow(null), false);
+
+  // English shares the shape, not the Chinese words.
+  const en = translateSeat(unit.en);
+  assert.equal(unit.windowResetText(en, fiveHour, now), "Resets at 15:00 (in 5 h)");
+  assert.equal(unit.windowResetText(en, weekly, now), "Resets in 5 h");
+  assert.equal(unit.resetClockText(en, at(1, 20, 25), now), "Resets tomorrow at 01:20");
+});
+
 test("window labels resolve through labelKey, then id, then the provider unit", () => {
   const unit = loadPanelUnit();
   const t = translateSeat(unit.zh);
@@ -1163,7 +1215,7 @@ test("(a) a snapshot restored from sessionStorage paints in the FIRST frame, wit
   assert.match(firstText, /GLM Coding Lite/);
   // Providers the cache does not carry get their own skeletons, not one global
   // loading paragraph: the panel says which services are still coming.
-  assert.deepEqual(skeletonIds(first), ["deepseek", "kimi"]);
+  assert.deepEqual(skeletonIds(first), ["deepseek", "kimi", "opencode-go"]);
   assert.ok(!firstText.includes("正在读取用量数据"), "a restored snapshot must not show the loading copy");
   assert.equal(findByClass(first, "ub-root").props["data-phase"], "ready");
   // One revalidation read per provider is still allowed to be in flight — the
@@ -1179,6 +1231,91 @@ test("(a2) a genuinely empty first visit paints one skeleton card per provider",
   assert.deepEqual(skeletonIds(first), PROVIDER_IDS);
   assert.equal(findByClass(first, "ub-note"), null, "there must be no single global loading paragraph");
   assert.deepEqual(requestIds(renderer), PROVIDER_IDS, "the first paint asks every provider concurrently");
+});
+
+/** A minimal protocol row for the visibility tests. */
+function visibilityRow(id, status, extra = {}) {
+  return {
+    id,
+    label: PROVIDER_LABELS[id] ?? id,
+    status,
+    messageKey: status === "not-configured" ? "notConfigured" : null,
+    windows: [],
+    balances: [],
+    ...extra,
+  };
+}
+
+test("(a3) an unconfigured provider owns no card and no skeleton", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: false,
+      ttlMs: 60_000,
+      providers: [
+        visibilityRow("deepseek", "ok"),
+        visibilityRow("glm", "not-configured"),
+        visibilityRow("kimi", "ok"),
+        visibilityRow("opencode-go", "ok"),
+      ],
+    },
+  });
+  const tree = await renderer.render();
+  assert.deepEqual(cardIds(tree), ["deepseek", "kimi", "opencode-go"]);
+  assert.deepEqual(skeletonIds(tree), []);
+  assert.ok(
+    !treeText(tree).includes("GLM Coding Plan"),
+    "the unconfigured provider must not be named by a card or the subtitle",
+  );
+  assert.equal(findByClass(tree, "ub-subtitle").props.children, "DeepSeek · Kimi Code · OpenCode Go");
+  // The row is still cached: the next mount knows to hide it immediately
+  // instead of flashing a skeleton while it asks again.
+  const stored = JSON.parse(renderer.storage.getItem(renderer.storeKey));
+  assert.ok(stored.providers.some((row) => row.id === "glm"));
+});
+
+test("(a4) a board whose every provider is unconfigured shows the empty state", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: false,
+      ttlMs: 60_000,
+      providers: PROVIDER_IDS.map((id) => visibilityRow(id, "not-configured")),
+    },
+  });
+  const tree = await renderer.render();
+  assert.equal(findByClass(tree, "ub-root").props["data-phase"], "ready");
+  assert.deepEqual(cardIds(tree), []);
+  assert.deepEqual(skeletonIds(tree), []);
+  const note = findByClass(tree, "ub-note");
+  assert.ok(note !== null, "a settled empty board needs an explanation");
+  assert.match(treeText(note), /实例还没有配置任何服务/);
+  assert.equal(findByClass(tree, "ub-subtitle").props.children, "", "an empty board names no service");
+});
+
+test("(a5) a percent-only window prints its percentage, not a fabricated fraction", async () => {
+  const renderer = createRenderer({
+    body: {
+      protocolVersion: 1,
+      ok: true,
+      ttlMs: 60_000,
+      providers: [visibilityRow("opencode-go", "ok", {
+        windows: [{
+          id: "opencode-go.5h", labelKey: "opencode-go.5h", unit: "5h", number: null,
+          limit: null, used: null, remaining: null, percent: 42.5, derivedPercent: null,
+          resetAt: Date.now() + 3_600_000, note: null,
+        }],
+      })],
+    },
+  });
+  const tree = await renderer.render();
+  const card = findCard(tree, "opencode-go");
+  assert.ok(card !== null);
+  const text = treeText(card);
+  assert.match(text, /42\.5%/);
+  assert.ok(!text.includes("— / —"), "no absolute counters exist, so no fraction may be invented");
+  assert.match(text, /5 小时窗口/);
+  assert.match(text, /重置/);
 });
 
 test("(b) a corrupt or wrong-version stored payload falls back to loading without throwing", async () => {
@@ -1221,7 +1358,7 @@ test("(c) an in-flight refresh keeps the previous numbers on screen", async () =
   assert.match(whileBusy, /32\.8%/, "the previous numbers must survive an in-flight request");
   assert.ok(!whileBusy.includes("正在读取用量数据"));
   assert.match(whileBusy, /正在刷新…/, "busy is expressed on the freshness line, not by blanking the body");
-  assert.deepEqual(skeletonIds(renderer.mount()), ["deepseek", "kimi"], "only the uncached providers are still loading");
+  assert.deepEqual(skeletonIds(renderer.mount()), ["deepseek", "kimi", "opencode-go"], "only the uncached providers are still loading");
   const button = findByClass(renderer.mount(), "ub-refresh");
   assert.equal(button.props.disabled, true, "the busy state lives on the header control");
   assert.equal(button.props["aria-busy"], "true");
@@ -1700,7 +1837,7 @@ test("provider slots keep PROVIDER_IDS first and append unknown restored rows", 
   view.providers.zeta = row("zeta");
   view.providers.glm = row("glm");
   const slots = Array.from(unit.panelSlots(view), (slot) => `${slot.kind}:${slot.id}`);
-  assert.deepEqual(slots, ["skeleton:deepseek", "provider:glm", "skeleton:kimi", "provider:zeta"]);
+  assert.deepEqual(slots, ["skeleton:deepseek", "provider:glm", "skeleton:kimi", "skeleton:opencode-go", "provider:zeta"]);
   assert.deepEqual(Array.from(unit.orderedProviders(view), (providerRow) => providerRow.id), ["glm", "zeta"]);
   // The merged cache envelope keeps that order and the protocol version.
   const envelope = plain(unit.mergedEnvelope(view));
@@ -1795,7 +1932,10 @@ test("a provider with a daily trend shows week/month history and drops the walle
   // the lifetime spend the card also carries.
   assert.match(text, /10-01 → 10-03/);
   assert.match(text, /总消耗 ¥128\.25/);
-  assert.ok(!text.includes("不提供用量窗口"), "the trend answers the question the note was covering");
+  assert.ok(
+    !treeText(findCard(tree, "deepseek")).includes("不提供用量窗口"),
+    "the trend answers the question the note was covering",
+  );
   assert.ok(!/近 \d+ 天消耗/.test(text), "the old single-total trend header is gone");
   assert.ok(!text.includes("剩余") && !text.includes("额度"), "spend history must not read as an allowance");
 
@@ -2056,7 +2196,9 @@ test("quota windows render a labelled bar, used/limit, remainder and reset count
   assert.match(text, /32\.8%/);
   assert.match(text, /656 \/ 2,000/);
   assert.match(text, /剩余 1,343/);
-  assert.match(text, /3 小时后重置/);
+  // A 5-hour window prints the exact reset clock time beside the countdown. The
+  // clock is the reader's local time, so the assertion matches the shape.
+  assert.match(text, /\d{2}:\d{2} 重置（3 小时后）/);
   assert.match(text, /GLM Coding Lite/);
   const bar = findByClass(tree, "ub-bar");
   assert.equal(bar.props.role, "progressbar");
@@ -2189,7 +2331,7 @@ test("a non-ok card shows Chinese copy for a known messageKey (D-5)", async () =
       }, {
         id: "kimi",
         label: "Kimi Code",
-        status: "not-configured",
+        status: "upstream-error",
         messageKey: "noCodingPlan",
         message: "The Kimi key has no Coding Plan subscription.",
         windows: [],
@@ -2293,20 +2435,28 @@ test("the wide main panel renders the standalone page's centred card grid", asyn
   assert.deepEqual([...blocks.map((block) => block.type)], ["header", "p", "div", "footer"]);
   assert.equal(blocks[0].props.className, "ub-head");
   assert.equal(blocks[1].props.className, "ub-subtitle");
-  assert.equal(blocks[1].props.children, "DeepSeek \u00b7 GLM Coding Plan \u00b7 Kimi Code");
+  assert.equal(blocks[1].props.children, "DeepSeek \u00b7 GLM Coding Plan \u00b7 Kimi Code \u00b7 OpenCode Go");
   assert.equal(blocks[2].props.className, "ub-body");
   assert.equal(blocks[3].props.className, "ub-foot");
 
-  // Exactly ONE grid, and every provider card is one of its direct children:
-  // the full-bleed single-column stack (one flex child after another) is gone.
+  // Every provider card is a direct grid child. The illustration follows them
+  // as one full-width row rather than taking a provider's grid slot.
   const bodies = findAllByClass(tree, "ub-body");
   assert.equal(bodies.length, 1, "the panel must render a single grid body");
-  const cards = bodies[0].props.children.filter(Boolean);
+  const gridChildren = bodies[0].props.children.filter(Boolean);
+  const cards = gridChildren.filter((child) => child.props.className === "ub-card");
   assert.deepEqual([...cards.map((card) => card.props["data-provider"])], PROVIDER_IDS);
   for (const card of cards) {
     assert.equal(card.type, "article");
-    assert.equal(card.props.className, "ub-card");
   }
+  const cash = gridChildren[gridChildren.length - 1];
+  assert.equal(cash.type, "figure");
+  assert.equal(cash.props.className, "ub-cash");
+  assert.equal(cash.props.children.type, "img");
+  assert.equal(cash.props.children.props.src, "/usage-board/deepseek_cash.png");
+  assert.equal(cash.props.children.props.width, 1280);
+  assert.equal(cash.props.children.props.height, 720);
+  assert.match(cash.props.children.props.alt, /DeepSeek/);
   assert.equal(findByClass(tree, "ub-title").props.children, "用量看板", "the title stays the standalone page's h1");
 });
 
@@ -2353,6 +2503,8 @@ test("the stylesheet carries the standalone page's layout baseline", () => {
   ]);
   // A board-level note or the whole-board failure is not a card: it spans the row.
   assertRule(styleSource, ".ub-body > .ub-note, .ub-body > .ub-failure", ["grid-column: 1 / -1;"]);
+  assertRule(styleSource, ".ub-cash", ["grid-column: 1 / -1;", "justify-content: center;"]);
+  assertRule(styleSource, ".ub-cash-image", ["width: 100%;", "max-width: 960px;", "height: auto;"]);
   assertRule(styleSource, ".ub-card", [
     "padding: 18px 18px 16px;",
     "border-radius: var(--ub-radius-panel, 14px);",

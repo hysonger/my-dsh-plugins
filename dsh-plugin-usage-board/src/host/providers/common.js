@@ -2,7 +2,7 @@
  * Shared plumbing for the usage board's provider adapters.
  *
  * Every adapter is *total*: it resolves a `ProviderSnapshot` and never rejects.
- * The three things all three adapters must agree on live here so they cannot
+ * The three things every adapter must agree on live here so they cannot
  * drift: credential resolution, transport/status classification, and the small
  * numeric coercions the upstream bodies need.
  *
@@ -218,7 +218,8 @@ export function classifyTransport(result) {
 
 /**
  * Pick the most specific failure out of several attempts at the same provider
- * (GLM and Kimi each have a China host and an international fallback).
+ * (GLM and Kimi each have a China host and an international fallback; OpenCode
+ * Go currently exposes a single host).
  *
  * @param {AdapterFailure[]} failures
  * @returns {AdapterFailure}

@@ -4,7 +4,7 @@
  * The host's `SnapshotService` imports {@link PROVIDERS} and calls each
  * adapter's `read()` with the shared context. The order here is the order the
  * dashboard renders, and matches `PROVIDER_IDS` in the frozen protocol:
- * deepseek, glm, kimi.
+ * deepseek, glm, kimi, opencode-go.
  *
  * Each adapter is `{ id, label, credentialRefs, read(context) }` and is total —
  * `read()` always resolves a `ProviderSnapshot` and never rejects, so one
@@ -16,15 +16,16 @@
 import { deepseekAdapter } from './deepseek.js';
 import { glmAdapter } from './glm.js';
 import { kimiAdapter } from './kimi.js';
+import { opencodeGoAdapter } from './opencode-go.js';
 
 /**
  * Every adapter the dashboard knows, in display order.
  *
  * @type {import('./common.js').ProviderAdapter[]}
  */
-export const PROVIDERS = [deepseekAdapter, glmAdapter, kimiAdapter];
+export const PROVIDERS = [deepseekAdapter, glmAdapter, kimiAdapter, opencodeGoAdapter];
 
-export { deepseekAdapter, glmAdapter, kimiAdapter };
+export { deepseekAdapter, glmAdapter, kimiAdapter, opencodeGoAdapter };
 
 /**
  * Look up one adapter by provider id.

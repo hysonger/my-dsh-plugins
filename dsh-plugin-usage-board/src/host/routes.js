@@ -49,10 +49,16 @@ export const PAGE_PATH = `${ROUTE_PREFIX}/`;
 /** Plugin version reported by the health route; kept in sync with package.json. */
 export const HEALTH_PATH = `${ROUTE_PREFIX}/api/health`;
 
+/** Decorative DeepSeek illustration shared by both board renderers. */
+export const DEEPSEEK_CASH_PATH = `${ROUTE_PREFIX}/deepseek_cash.png`;
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** Absolute path of the standalone dashboard document. */
 const PAGE_FILE = join(HERE, 'web', 'dashboard.html');
+
+/** Absolute path of the illustration served at {@link DEEPSEEK_CASH_PATH}. */
+const DEEPSEEK_CASH_FILE = join(HERE, 'web', 'deepseek_cash.png');
 
 /** JSON responses never carry a caller-controlled charset or filename. */
 const JSON_HEADERS = {
@@ -97,6 +103,11 @@ export function registerRoutes(webServer, options) {
       kind: 'exact',
       path: HEALTH_PATH,
       handler: (req, res) => handleHealth(req, res, options),
+    }),
+    webServer.register({
+      kind: 'exact',
+      path: DEEPSEEK_CASH_PATH,
+      handler: (req, res) => handleDeepseekCash(req, res, options),
     }),
   ];
   if (options.servePage !== false) {
@@ -229,6 +240,33 @@ async function handleHealth(req, res, options) {
     },
     req,
   );
+}
+
+/**
+ * Serve the decorative illustration below the board. This asset has its own
+ * exact route so it remains available when the standalone page is disabled.
+ * @param {import('node:http').IncomingMessage} req
+ * @param {import('node:http').ServerResponse} res
+ * @param {RouteOptions} options
+ */
+async function handleDeepseekCash(req, res, options) {
+  if (!isAllowedMethod(req, res, ['GET', 'HEAD'])) return;
+  if (!isAllowedPeer(req, options)) return sendError(res, 403, 'forbidden', 'This asset is restricted to loopback clients.');
+  let image;
+  try {
+    image = await readFile(DEEPSEEK_CASH_FILE);
+  } catch (error) {
+    options.log(`usage-board: DeepSeek illustration unavailable at ${DEEPSEEK_CASH_FILE} (${describe(error)})`);
+    return sendError(res, 500, 'asset-missing', 'The DeepSeek illustration is not installed.');
+  }
+  res.writeHead(200, {
+    'content-type': 'image/png',
+    'content-length': image.length,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+  if (req.method === 'HEAD') res.end();
+  else res.end(image);
 }
 
 /**

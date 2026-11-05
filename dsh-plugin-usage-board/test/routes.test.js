@@ -16,13 +16,14 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFile } from 'node:fs/promises';
 import http from 'node:http';
 
 import { registerRoutes } from '../src/host/routes.js';
 import { makeProvider, makeSnapshot } from '../src/shared/protocol.js';
 
 /** Every provider id the stub service knows, in display order. */
-const IDS = ['deepseek', 'glm', 'kimi'];
+const IDS = ['deepseek', 'glm', 'kimi', 'opencode-go'];
 
 /** An aggregate envelope the stub service serves. */
 const AGGREGATE = makeSnapshot({
@@ -232,7 +233,7 @@ test('an unknown provider id is a 400 that names the known providers', async () 
     assert.equal(response.status, 400);
     assert.equal(response.json.error.code, 'unknown-provider');
     assert.match(response.json.error.message, /openai/);
-    assert.match(response.json.error.message, /deepseek, glm, kimi/);
+    assert.match(response.json.error.message, /deepseek, glm, kimi, opencode-go/);
     assert.deepEqual(server.snapshots.calls, []);
   } finally {
     await server.close();
@@ -320,9 +321,31 @@ test('health reports per-provider cache state additively', async () => {
     assert.equal(body.backgroundReads, 1);
     assert.equal(body.fresh, true);
     assert.deepEqual(body.providers.map((entry) => entry.id), IDS);
-    assert.deepEqual(body.providers.map((entry) => entry.status), ['fresh', 'stale', 'fresh']);
+    assert.deepEqual(body.providers.map((entry) => entry.status), ['fresh', 'stale', 'fresh', 'fresh']);
     assert.deepEqual(body.credentials.providers.map((entry) => entry.id), IDS);
     assert.deepEqual(server.snapshots.calls, [], 'health never reads upstream');
+  } finally {
+    await server.close();
+  }
+});
+
+/* ------------------------------------------------------- static assets */
+
+test('the DeepSeek illustration is served byte-for-byte even with the page disabled', async () => {
+  const server = await startServer({ servePage: false });
+  try {
+    const expected = await readFile(new URL('../src/host/web/deepseek_cash.png', import.meta.url));
+    const response = await fetch(`${server.url}/usage-board/deepseek_cash.png`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('content-length'), String(expected.length));
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), expected);
+
+    const head = await request(`${server.url}/usage-board/deepseek_cash.png`, { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(head.text, '');
+    assert.deepEqual(server.snapshots.calls, [], 'a static asset never reads provider data');
   } finally {
     await server.close();
   }
@@ -336,6 +359,7 @@ test('the standalone page is injected with the per-provider boot contract', asyn
     const response = await request(`${server.url}/usage-board/`);
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type'), /text\/html/);
+    assert.match(response.text, /<img class="cash-image" src="\/usage-board\/deepseek_cash\.png"/);
     const boot = /window\.__USAGE_BOARD__=(\{.*?\});<\/script>/s.exec(response.text);
     assert.ok(boot !== null, 'the page must carry its boot object');
     const injected = JSON.parse(boot[1]);
@@ -404,8 +428,8 @@ test('disposing the routes removes every one of them', async () => {
   const registered = webServer.routes.length;
   assert.equal(
     registered,
-    5,
-    'snapshot, refresh, provider, health, plus the prefix seat (servePage: false claims it for the plugin 404)',
+    6,
+    'snapshot, refresh, provider, health, illustration, plus the prefix seat (servePage: false claims it for the plugin 404)',
   );
   dispose();
   assert.equal(webServer.routes.length, 0);

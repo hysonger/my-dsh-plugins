@@ -45,7 +45,8 @@ const SCRIPT = (() => {
   return blocks[blocks.length - 1];
 })();
 
-const PROVIDER_IDS = ["deepseek", "glm", "kimi"];
+const PROVIDER_IDS = ["deepseek", "glm", "kimi", "opencode-go"];
+const PROVIDER_COUNT = PROVIDER_IDS.length;
 const PROVIDER_PATH = "/usage-board/api/provider";
 const PROVIDER_QUERY_PARAM = "id";
 const TTL_MS = 60_000;
@@ -216,6 +217,44 @@ function fixtureRow(id, nowMs) {
       latencyMs: 240,
     };
   }
+  if (id === "opencode-go") {
+    return {
+      id,
+      label: "OpenCode Go",
+      status: "ok",
+      message: null,
+      messageKey: null,
+      code: null,
+      plan: null,
+      // Percent-only windows: no absolute counters exist upstream.
+      windows: [
+        {
+          id: "opencode-go.5h", labelKey: "opencode-go.5h", unit: "5h", number: null,
+          limit: null, used: null, remaining: null, percent: 42.5, derivedPercent: null,
+          resetAt: nowMs + 3_600_000, note: null,
+        },
+        {
+          id: "opencode-go.weekly", labelKey: "opencode-go.weekly", unit: "weekly", number: null,
+          limit: null, used: null, remaining: null, percent: 30, derivedPercent: null,
+          resetAt: nowMs + 86_400_000, note: null,
+        },
+        {
+          id: "opencode-go.monthly", labelKey: "opencode-go.monthly", unit: "monthly", number: null,
+          limit: null, used: null, remaining: null, percent: 12.5, derivedPercent: null,
+          resetAt: nowMs + 2_592_000_000, note: null,
+        },
+      ],
+      balances: [],
+      account: null,
+      meta: {
+        host: "opencode.ai",
+        source: "zen-go-usage-api",
+        windowStatus: { "opencode-go.5h": "ok", "opencode-go.weekly": "ok", "opencode-go.monthly": "ok" },
+      },
+      fetchedAt: nowMs,
+      latencyMs: 180,
+    };
+  }
   return {
     id,
     label: "Kimi Code",
@@ -306,7 +345,10 @@ async function boot(options = {}) {
   }
 
   const elements = new Map();
-  for (const id of ["grid", "updated", "footer", "refresh"]) elements.set(id, makeNode());
+  for (const id of ["grid", "updated", "footer", "refresh", "subtitle", "empty"]) elements.set(id, makeNode());
+  // The empty-state paragraph carries its copy in the document markup; this DOM
+  // stub does not parse HTML, so seed the same text here.
+  elements.get("empty").textContent = "实例还没有配置任何服务。";
 
   const document = {
     visibilityState: options.hidden === true ? "hidden" : "visible",
@@ -476,69 +518,74 @@ test("(d1) the first input after idling out triggers one immediate catch-up read
   // 60/120/180 s, the 240 s tick is skipped.
   await page.advance(IDLE_AFTER_MS + TTL_MS);
   const quiet = page.requests.length;
-  assert.equal(quiet, 12, "the ttl schedule reads all three providers until the idle budget passes, then pauses");
+  assert.equal(quiet, PROVIDER_COUNT * 4, "the ttl schedule reads every provider until the idle budget passes, then pauses");
   assert.ok(page.requests.every((request) => request.method === "GET"), "auto refresh reads providers with GET");
 
   page.fire("pointerdown");
   await page.flush();
-  assert.equal(page.requests.length, quiet + 3, "activity after idling out must reload every provider immediately");
+  assert.equal(page.requests.length, quiet + PROVIDER_COUNT, "activity after idling out must reload every provider immediately");
 });
 
 test("(d2) a stale answer schedules exactly one follow-up per provider and never chains", async () => {
   const page = await boot({ stale: true });
-  assert.equal(page.requests.length, 3);
+  assert.equal(page.requests.length, PROVIDER_COUNT);
 
   await page.advance(STALE_FOLLOW_UP_MS + 1_000);
-  assert.equal(page.requests.length, 6, "the bounded follow-up fires once for each stale provider");
-  assert.deepEqual(page.requests.slice(3).map((request) => request.method), ["GET", "GET", "GET"], "the follow-up is a serving GET");
+  assert.equal(page.requests.length, PROVIDER_COUNT * 2, "the bounded follow-up fires once for each stale provider");
+  assert.ok(
+    page.requests.slice(PROVIDER_COUNT).every((request) => request.method === "GET"),
+    "the follow-up is a serving GET",
+  );
 
   // The follow-ups themselves came back stale; they must not schedule another.
   await page.advance(10_000);
-  assert.equal(page.requests.length, 6, "a stale follow-up response must not chain");
+  assert.equal(page.requests.length, PROVIDER_COUNT * 2, "a stale follow-up response must not chain");
 });
 
 test("(d3) a follow-up is not sent while the page is hidden", async () => {
   const page = await boot({ stale: true });
-  assert.equal(page.requests.length, 3);
+  assert.equal(page.requests.length, PROVIDER_COUNT);
 
   page.document.visibilityState = "hidden";
   page.fire("visibilitychange");
   await page.advance(3_000);
-  assert.equal(page.requests.length, 3, "a hidden page must not send the follow-ups");
+  assert.equal(page.requests.length, PROVIDER_COUNT, "a hidden page must not send the follow-ups");
 
   page.document.visibilityState = "visible";
   page.fire("visibilitychange");
   await page.flush();
-  assert.equal(page.requests.length, 6, "coming back to the window fetches every provider immediately");
+  assert.equal(page.requests.length, PROVIDER_COUNT * 2, "coming back to the window fetches every provider immediately");
 });
 
 test("(d4) a hidden page still skips its ttl reads until it is visible again", async () => {
   const page = await boot();
-  assert.equal(page.requests.length, 3);
+  assert.equal(page.requests.length, PROVIDER_COUNT);
 
   page.document.visibilityState = "hidden";
   page.fire("visibilitychange");
   await page.advance(TTL_MS + 5_000);
-  assert.equal(page.requests.length, 3, "no polling while hidden");
+  assert.equal(page.requests.length, PROVIDER_COUNT, "no polling while hidden");
 
   page.document.visibilityState = "visible";
   page.fire("visibilitychange");
   await page.flush();
-  assert.equal(page.requests.length, 6, "the reopen catch-up refreshes every provider");
+  assert.equal(page.requests.length, PROVIDER_COUNT * 2, "the reopen catch-up refreshes every provider");
 });
 
 test("(d5) a delayed provider never holds back the cards that already answered", async () => {
   const page = await boot({ hold: ["deepseek"] });
   await page.flush();
-  assert.equal(page.requests.length, 3, "every provider read starts at boot instead of one after another");
+  assert.equal(page.requests.length, PROVIDER_COUNT, "every provider read starts at boot instead of one after another");
 
   const slots = page.slots();
-  assert.equal(slots.length, 3, "one stable slot per provider keeps the display order");
+  assert.equal(slots.length, PROVIDER_COUNT, "one stable slot per provider keeps the display order");
   assert.equal(slots[0].children[0].className, "skeleton", "the slow provider is still a skeleton");
   assert.equal(slots[1].children[0].className, "card", "GLM answered and painted on its own card");
   assert.equal(slots[2].children[0].className, "card", "Kimi answered and painted on its own card");
+  assert.equal(slots[3].children[0].className, "card", "OpenCode Go answered and painted on its own card");
   assert.match(page.slotText(1), /GLM Coding Plan/);
   assert.match(page.slotText(2), /Kimi Code/);
+  assert.match(page.slotText(3), /OpenCode Go/);
   assert.match(page.elements.get("updated").textContent, /正在刷新…/, "the header says the board is still filling in");
   assert.equal(page.elements.get("refresh").disabled, true, "refresh stays disabled while any read is in flight");
 
@@ -548,7 +595,11 @@ test("(d5) a delayed provider never holds back the cards that already answered",
   assert.equal(slots[0].children[0].className, "card", "the delayed provider's own card appears when it answers");
   assert.match(page.slotText(0), /DeepSeek/);
   assert.equal(slots[1].children[0], glmCard, "an answered card is not rebuilt when another provider lands");
-  assert.deepEqual(page.labels(), ["DeepSeek", "GLM Coding Plan", "Kimi Code"], "cards stay in providerIds order");
+  assert.deepEqual(
+    page.labels(),
+    ["DeepSeek", "GLM Coding Plan", "Kimi Code", "OpenCode Go"],
+    "cards stay in providerIds order",
+  );
   assert.equal(page.elements.get("updated").textContent, "刚刚更新");
   assert.equal(page.elements.get("refresh").disabled, false);
 });
@@ -556,20 +607,20 @@ test("(d5) a delayed provider never holds back the cards that already answered",
 test("(d6) manual refresh POSTs every provider concurrently and locks the button", async () => {
   const page = await boot();
   await page.flush();
-  assert.equal(page.requests.length, 3);
+  assert.equal(page.requests.length, PROVIDER_COUNT);
 
   page.holdProvider("glm");
   page.clickRefresh();
   await page.flush();
-  const forced = page.requests.slice(3);
-  assert.equal(forced.length, 3, "one forced read per provider");
+  const forced = page.requests.slice(PROVIDER_COUNT);
+  assert.equal(forced.length, PROVIDER_COUNT, "one forced read per provider");
   assert.deepEqual(forced.map((request) => request.id), PROVIDER_IDS);
   assert.ok(forced.every((request) => request.method === "POST"), "manual refresh forces fresh per-provider reads");
   assert.equal(page.elements.get("refresh").disabled, true, "the button stays locked while a provider read is in flight");
 
   page.releaseProvider("glm");
   await page.flush();
-  assert.equal(page.requests.length, 6, "nothing beyond the requested cycle was fired");
+  assert.equal(page.requests.length, PROVIDER_COUNT * 2, "nothing beyond the requested cycle was fired");
   assert.equal(page.elements.get("refresh").disabled, false);
 });
 
@@ -578,7 +629,7 @@ test("(d7) a provider failure is a card and a degraded header, not a transport e
     providerStatus: { glm: { status: "unauthorized", message: "credentials rejected", messageKey: "authRejected", code: "401" } },
   });
   await page.flush();
-  assert.equal(page.requests.length, 3, "a degraded provider still counts as an answered read");
+  assert.equal(page.requests.length, PROVIDER_COUNT, "a degraded provider still counts as an answered read");
   assert.equal(page.slots()[1].children[0].className, "card");
   assert.match(page.slotText(1), /GLM Coding Plan/);
   assert.match(page.slotText(1), /未授权/);
@@ -587,10 +638,56 @@ test("(d7) a provider failure is a card and a degraded header, not a transport e
   assert.equal(page.elements.get("footer").textContent, "插件 vtest · 缓存 60 秒 · 协议 v1");
 });
 
+test("(d7b) an unconfigured provider has no card and does not degrade the board", async () => {
+  const page = await boot({
+    providerStatus: {
+      glm: {
+        status: "not-configured",
+        message: "Set ZAI_CODING_CN_API_KEY to show the GLM Coding Plan quota.",
+        messageKey: "notConfigured",
+        windows: [],
+        balances: [],
+      },
+    },
+  });
+  await page.flush();
+  const slots = page.slots();
+  assert.equal(slots.length, PROVIDER_COUNT, "the slot stays so a later credential can paint into it");
+  assert.equal(slots[1].children.length, 0, "the unconfigured slot paints nothing at all");
+  assert.deepEqual(page.labels().filter(Boolean), ["DeepSeek", "Kimi Code", "OpenCode Go"]);
+  assert.ok(!page.slotText(1).includes("未配置"), "there is no placeholder card to read");
+  assert.equal(page.elements.get("empty").hidden, true, "other providers have cards, so the board is not empty");
+  assert.equal(page.elements.get("subtitle").textContent, "DeepSeek · Kimi Code · OpenCode Go");
+  assert.equal(
+    page.elements.get("updated").textContent,
+    "刚刚更新",
+    "a missing credential is not a degraded service",
+  );
+});
+
+test("(d7c) a board whose every provider is unconfigured shows the empty state", async () => {
+  const unconfigured = {
+    status: "not-configured",
+    message: "no credential",
+    messageKey: "notConfigured",
+    windows: [],
+    balances: [],
+  };
+  const page = await boot({
+    providerStatus: Object.fromEntries(PROVIDER_IDS.map((id) => [id, unconfigured])),
+  });
+  await page.flush();
+  assert.equal(page.elements.get("empty").hidden, false);
+  assert.match(page.elements.get("empty").textContent, /实例还没有配置任何服务/);
+  assert.deepEqual(page.labels().filter(Boolean), [], "no provider owns a card");
+  assert.equal(page.elements.get("subtitle").textContent, "", "a settled empty board names no service");
+  assert.equal(page.elements.get("updated").textContent, "刚刚更新");
+});
+
 test("(d8) a transport failure paints only that provider's card", async () => {
   const page = await boot({ transportFail: ["glm"] });
   await page.flush();
-  assert.equal(page.requests.length, 3, "every provider still gets its own read");
+  assert.equal(page.requests.length, PROVIDER_COUNT, "every provider still gets its own read");
   assert.equal(page.slots()[0].children[0].className, "card");
   assert.equal(page.slots()[1].children[0].className, "card");
   assert.match(page.slotText(1), /GLM Coding Plan/);
@@ -605,7 +702,7 @@ test("(d9) a board where nothing answered reports failure instead of a false age
   const page = await boot({ transportFail: PROVIDER_IDS });
   await page.flush();
   assert.equal(page.elements.get("updated").textContent, "读取失败");
-  assert.equal(page.slots().length, 3, "one failure card per provider");
+  assert.equal(page.slots().length, PROVIDER_COUNT, "one failure card per provider");
   assert.match(page.slotText(0), /无法读取该服务的用量数据。/);
   assert.equal(page.elements.get("footer").textContent, "", "no envelope answered, so the footer stays empty");
 });
@@ -619,7 +716,7 @@ test("(d10) a failed forced refresh keeps the numbers already on screen", async 
 
   page.clickRefresh();
   await page.flush();
-  assert.equal(page.requests.length, 6);
+  assert.equal(page.requests.length, PROVIDER_COUNT * 2);
   assert.equal(page.slots()[1].children[0], glmCard, "the failed refresh did not blank the known numbers");
   assert.equal(page.slotText(1), before);
   assert.equal(page.elements.get("updated").textContent, "刚刚更新 · 部分服务异常");
@@ -659,7 +756,7 @@ test("(d12) the injected provider contract is used, with safe defaults for an ol
 
   const legacy = await boot({ legacyBoot: true });
   await legacy.flush();
-  assert.equal(legacy.requests.length, 3, "a boot object without provider fields still reads every provider");
+  assert.equal(legacy.requests.length, PROVIDER_COUNT, "a boot object without provider fields still reads every provider");
   assert.ok(legacy.requests.every((request) => request.url.startsWith(PROVIDER_PATH + "?")), "the default provider route is used");
   assert.ok(legacy.requests.every((request) => request.method === "GET"));
   assert.deepEqual(legacy.requests.map((request) => request.id), PROVIDER_IDS);
@@ -722,4 +819,25 @@ test("(d15) a shorter series totals only the points the host shipped", async () 
   assert.match(text, /近一月 ¥3\.75/, "a month window shorter than 30 days sums what exists");
   assert.match(text, /2026-10-16 → 2026-10-18/, "the range note follows the shorter series");
   assert.equal(chartBars(page.slots()[0].children[0]).length, 3, "the chart never invents missing days");
+});
+
+test("(d16) the 5-hour windows also print the exact reset clock time", async () => {
+  const page = await boot();
+  await page.flush();
+
+  // GLM: the 5-hour window keeps its countdown and gains the local reset clock
+  // time to the minute; the weekly window keeps the compact countdown only.
+  const glm = page.slotText(1);
+  assert.match(glm, /5 小时窗口/);
+  assert.match(glm, /\d{2}:\d{2} 重置（2 小时后）/, "the 5-hour reset gives both the exact minute and the countdown");
+  assert.match(glm, /3 天后重置/, "the weekly window still shows its countdown");
+  assert.ok(!/3 天后重置（/.test(glm), "a weekly reset does not grow the exact-time parenthesis");
+
+  // Kimi's 5-hour window gets the same treatment.
+  assert.match(page.slotText(2), /\d{2}:\d{2} 重置（1 小时后）/);
+
+  // The renderers that carry that decision live in the page itself.
+  assert.match(dashboardSource, /function windowResetText\(win\)/);
+  assert.match(dashboardSource, /function resetClockText\(resetAt\)/);
+  assert.match(dashboardSource, /function isFiveHourWindow\(win\)/);
 });

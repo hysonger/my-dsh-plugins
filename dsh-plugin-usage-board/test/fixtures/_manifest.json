@@ -102,6 +102,42 @@
       "source": "live",
       "url": "https://api.kimi.com/coding/v1/nope",
       "status": 404
+    },
+    {
+      "file": "opencode-go-usage.json",
+      "source": "live",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 200,
+      "capturedAt": "2026-11-05T08:05:00.000Z",
+      "note": "Verbatim capture with the OPENCODE_GO_API_KEY already stored by DSH. All three windows reported 0% at capture time; the shape (status/percent/resetsAt per window) is what matters here."
+    },
+    {
+      "file": "opencode-go-active.json",
+      "source": "synthetic",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 200,
+      "note": "SYNTHETIC: exercises fractional percentages (0.5), a rate-limited window and a null resetsAt. The live account had no measurable consumption when captured."
+    },
+    {
+      "file": "opencode-go-unauthorized.json",
+      "source": "live",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 401,
+      "request": "deliberately invalid key (HTTP 401, AuthError body)"
+    },
+    {
+      "file": "opencode-go-no-subscription.json",
+      "source": "synthetic",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 403,
+      "note": "SYNTHETIC: the EntitlementError body independent tools report for a valid key with no Go subscription. The credential on this machine has a subscription, so this branch cannot be captured live."
+    },
+    {
+      "file": "opencode-go-empty.json",
+      "source": "synthetic",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 200,
+      "note": "SYNTHETIC: 200 envelope with an empty usage object, for the invalid-response branch."
     }
   ]
 }

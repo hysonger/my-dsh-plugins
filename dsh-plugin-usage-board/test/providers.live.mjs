@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Live end-to-end verification for the usage board's three provider adapters.
+ * Live end-to-end verification for the usage board's four provider adapters.
  *
  * Run it directly — it is NOT part of the offline test suite:
  * ```sh
@@ -195,7 +195,7 @@ function findLeaks(value, secrets, at = '$') {
 }
 
 /**
- * Run the three adapters against the live APIs.
+ * Run the four adapters against the live APIs.
  */
 async function main() {
   const jsonOnly = process.argv.includes('--json');
@@ -206,6 +206,7 @@ async function main() {
   const secrets = {
     ZAI_CODING_CN_API_KEY: readRef(text, 'ZAI_CODING_CN_API_KEY'),
     KIMI_CODING_API_KEY: readRef(text, 'KIMI_CODING_API_KEY'),
+    OPENCODE_GO_API_KEY: readRef(text, 'OPENCODE_GO_API_KEY'),
     DEEPSEEK_API_KEY: readRef(text, 'DEEPSEEK_API_KEY'),
     DEEPSEEK_PLATFORM_TOKEN: readRecordToken(text, DEEPSEEK_RECORD),
   };
@@ -275,11 +276,11 @@ async function main() {
 
     console.log(`── summary (${(elapsed / 1000).toFixed(2)}s) ─────────────────────────────`);
     console.log(
-      `${pad('provider', 10)} ${pad('status', 16)} ${pad('plan', 8)} ${pad('windows', 9)} ${pad('balances', 9)} ${pad('code', 12)} host`,
+      `${pad('provider', 12)} ${pad('status', 16)} ${pad('plan', 8)} ${pad('windows', 9)} ${pad('balances', 9)} ${pad('code', 12)} host`,
     );
     for (const snapshot of snapshots) {
       console.log(
-        `${pad(snapshot.id, 10)} ${pad(snapshot.status, 16)} ${pad(snapshot.plan, 8)} ${pad(snapshot.windows.length, 9)} ${pad(snapshot.balances.length, 9)} ${pad(snapshot.code, 12)} ${snapshot.meta?.host ?? '-'}`,
+        `${pad(snapshot.id, 12)} ${pad(snapshot.status, 16)} ${pad(snapshot.plan, 8)} ${pad(snapshot.windows.length, 9)} ${pad(snapshot.balances.length, 9)} ${pad(snapshot.code, 12)} ${snapshot.meta?.host ?? '-'}`,
       );
     }
     console.log('');

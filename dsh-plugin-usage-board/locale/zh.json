@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "用量看板",
+    "description": "DeepSeek 余额、近一周/近一月消耗合计与近 7 天消耗趋势，GLM Coding Plan、Kimi Code 与 OpenCode Go 的 5 小时/每周额度窗口，统一呈现在 DSH 侧边栏面板中，数据来自四家官方接口；未配置凭据的服务不会显示卡片。"
+  }
+}

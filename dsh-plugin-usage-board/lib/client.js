@@ -254,6 +254,25 @@ window.__ModuleLoader__.load({
   grid-column: 1 / -1;
 }
 
+/* DeepSeek's illustration occupies the blank row below all provider cards.
+   Cap its width so the whole 16:9 image fits a typical desktop pane without
+   distorting it; the body still scrolls naturally in shorter panes. */
+.ub-cash {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.ub-cash-image {
+  display: block;
+  width: 100%;
+  max-width: 960px;
+  height: auto;
+  border-radius: var(--ub-radius-panel);
+}
+
 /* 14px radius, 18/18/16 padding and a 16px gap are the standalone page's card
    metrics; the panel copies them so a wide main-area render reads as the same
    product, not as a different one. */
@@ -855,10 +874,10 @@ window.__ModuleLoader__.load({
 const PROTOCOL_VERSION = 1;
 
 /** Every provider id this dashboard knows, in display order. */
-const PROVIDER_IDS = ['deepseek', 'glm', 'kimi'];
+const PROVIDER_IDS = ['deepseek', 'glm', 'kimi', 'opencode-go'];
 
 /** Provider ids whose upstream API is a quota window API rather than a wallet. */
-const QUOTA_PROVIDER_IDS = ['glm', 'kimi'];
+const QUOTA_PROVIDER_IDS = ['glm', 'kimi', 'opencode-go'];
 
 /** HTTP path the host half serves the snapshot on (GET). */
 const SNAPSHOT_PATH = '/usage-board/api/snapshot';
@@ -1093,6 +1112,9 @@ const PANEL_ID = "usage-board";
 /** Sidebar position; plugin-manager uses 0, so 20 sits just below it. */
 const PANEL_ORDER = 20;
 
+/** Same-origin asset served by the host, shown below the provider cards. */
+const DEEPSEEK_CASH_URL = ROUTE_PREFIX + "/deepseek_cash.png";
+
 /**
  * Display names for the providers this build knows. Only used before that
  * provider's first row arrives (its skeleton or local failure card); a real row
@@ -1103,6 +1125,7 @@ const PROVIDER_LABELS = {
   deepseek: "DeepSeek",
   glm: "GLM Coding Plan",
   kimi: "Kimi Code",
+  "opencode-go": "OpenCode Go",
 };
 
 /** Auto-refresh bounds: the host's ttl is honoured inside 60s … 5min. */
@@ -1212,10 +1235,19 @@ const zh = {
   "window.usage": "{used} / {limit}",
   "window.remaining": "\u5269\u4f59 {value}",
   "window.reset.due": "\u5373\u5c06\u91cd\u7f6e",
-  "window.reset.seconds": "{n} \u79d2\u540e\u91cd\u7f6e",
-  "window.reset.minutes": "{n} \u5206\u949f\u540e\u91cd\u7f6e",
-  "window.reset.hours": "{n} \u5c0f\u65f6\u540e\u91cd\u7f6e",
-  "window.reset.days": "{n} \u5929\u540e\u91cd\u7f6e",
+  // Countdown phrase without its verb, shared by the plain countdown
+  // ("{after}重置") and the 5-hour window's exact-reset line ("{at}（{after}）").
+  "window.after.seconds": "{n} \u79d2\u540e",
+  "window.after.minutes": "{n} \u5206\u949f\u540e",
+  "window.after.hours": "{n} \u5c0f\u65f6\u540e",
+  "window.after.days": "{n} \u5929\u540e",
+  "window.reset.relative": "{after}\u91cd\u7f6e",
+  // Absolute local clock time of the reset, minute precision. The day is named
+  // only when the instant is not today, because a 5-hour window can cross midnight.
+  "window.reset.at": "{time} \u91cd\u7f6e",
+  "window.reset.tomorrow": "\u660e\u65e5 {time} \u91cd\u7f6e",
+  "window.reset.day": "{month} \u6708 {day} \u65e5 {time} \u91cd\u7f6e",
+  "window.reset.exact": "{at}\uff08{after}\uff09",
   "balance.bonus": "\u8d60\u9001 {value}",
   "balance.spent": "\u603b\u6d88\u8017 {value}",
   "source.host": "\u6570\u636e\u6765\u6e90\uff1a{host}",
@@ -1252,6 +1284,9 @@ const zh = {
   "kimi.5h": "5 \u5c0f\u65f6\u7a97\u53e3",
   "kimi.weekly": "\u6bcf\u5468\u7a97\u53e3",
   "kimi.monthly": "\u6bcf\u6708\u7a97\u53e3",
+  "opencode-go.5h": "5 \u5c0f\u65f6\u7a97\u53e3",
+  "opencode-go.weekly": "\u6bcf\u5468\u7a97\u53e3",
+  "opencode-go.monthly": "\u6bcf\u6708\u7a97\u53e3",
   "deepseek.balance": "\u4f59\u989d",
   // Spend history, never allowance: the week/month labels are window totals of
   // money already spent, not a quota and not something that "remains".
@@ -1299,10 +1334,15 @@ const en = {
   "window.usage": "{used} / {limit}",
   "window.remaining": "{value} left",
   "window.reset.due": "Resets shortly",
-  "window.reset.seconds": "Resets in {n}s",
-  "window.reset.minutes": "Resets in {n} min",
-  "window.reset.hours": "Resets in {n} h",
-  "window.reset.days": "Resets in {n} d",
+  "window.after.seconds": "in {n}s",
+  "window.after.minutes": "in {n} min",
+  "window.after.hours": "in {n} h",
+  "window.after.days": "in {n} d",
+  "window.reset.relative": "Resets {after}",
+  "window.reset.at": "Resets at {time}",
+  "window.reset.tomorrow": "Resets tomorrow at {time}",
+  "window.reset.day": "Resets {month}/{day} at {time}",
+  "window.reset.exact": "{at} ({after})",
   "balance.bonus": "Bonus {value}",
   "balance.spent": "Spent {value}",
   "source.host": "Source: {host}",
@@ -1339,6 +1379,9 @@ const en = {
   "kimi.5h": "5-hour window",
   "kimi.weekly": "Weekly window",
   "kimi.monthly": "Monthly window",
+  "opencode-go.5h": "5-hour window",
+  "opencode-go.weekly": "Weekly window",
+  "opencode-go.monthly": "Monthly window",
   "deepseek.balance": "Balance",
   "daily.week": "Last 7 days",
   "daily.month": "Last 30 days",
@@ -1512,6 +1555,47 @@ function relativeTime(t, then, now) {
   return t("updated.days", { n: String(Math.floor(hours / 24)) });
 }
 
+/** Zero-pad one local clock component to the two digits a time display needs. */
+function pad2(value) {
+  return value < 10 ? "0" + String(value) : String(value);
+}
+
+/**
+ * Whether a window is one of the providers' five-hour rolling quota windows.
+ *
+ * The adapters give those windows stable ids (`glm.5h`, `kimi.5h`,
+ * `opencode-go.5h`), which is the primary signal. `unit` is the provider's own
+ * code (GLM `3`, Kimi's / OpenCode Go's textual `5h`); it is only a fallback for
+ * a row shaped by an older host.
+ * @param {object} window Normalized UsageWindow.
+ * @returns {boolean}
+ */
+function isFiveHourWindow(window) {
+  if (window === null || typeof window !== "object") return false;
+  const id = strOrNull(window.id);
+  if (id === "glm.5h" || id === "kimi.5h" || id === "opencode-go.5h") return true;
+  const unit = strOrNull(window.unit === null || window.unit === undefined ? null : String(window.unit));
+  if (unit === null) return false;
+  return unit === "3" || unit.toLowerCase() === "5h";
+}
+
+/**
+ * Countdown phrase WITHOUT its verb, so the plain countdown and the 5-hour
+ * window's exact-reset line share one rounding rule: "2 小时后" / "in 2 h".
+ * @param {Function} t
+ * @param {number} diff Milliseconds until the reset; positive.
+ * @returns {string}
+ */
+function resetAfter(t, diff) {
+  const seconds = Math.ceil(diff / 1000);
+  if (seconds < 60) return t("window.after.seconds", { n: String(seconds) });
+  const minutes = Math.round(diff / 60000);
+  if (minutes < 60) return t("window.after.minutes", { n: String(minutes) });
+  const hours = Math.round(diff / 3600000);
+  if (hours < 24) return t("window.after.hours", { n: String(hours) });
+  return t("window.after.days", { n: String(Math.round(diff / 86400000)) });
+}
+
 /**
  * Reset countdown sentence, or null when the provider reports no reset.
  * @param {Function} t
@@ -1523,13 +1607,68 @@ function resetText(t, resetAt, now) {
   if (!isNum(resetAt)) return null;
   const diff = resetAt - now;
   if (diff <= 0) return t("window.reset.due");
-  const seconds = Math.ceil(diff / 1000);
-  if (seconds < 60) return t("window.reset.seconds", { n: String(seconds) });
-  const minutes = Math.round(diff / 60000);
-  if (minutes < 60) return t("window.reset.minutes", { n: String(minutes) });
-  const hours = Math.round(diff / 3600000);
-  if (hours < 24) return t("window.reset.hours", { n: String(hours) });
-  return t("window.reset.days", { n: String(Math.round(diff / 86400000)) });
+  return t("window.reset.relative", { after: resetAfter(t, diff) });
+}
+
+/**
+ * The reset instant as a local wall-clock time, precise to the minute:
+ * "16:35 重置", "明日 01:20 重置" or "10 月 26 日 06:11 重置".
+ *
+ * The day is named whenever the instant is not on the current local day, so a
+ * five-hour window that rolls over midnight can never be misread as today. All
+ * comparisons use local calendar fields, and the clock is the browser's own:
+ * providers report absolute instants, so the reader's timezone is the one that
+ * decides what "16:35" means on their screen.
+ *
+ * @param {Function} t
+ * @param {number|null} resetAt Epoch ms.
+ * @param {number} now Epoch ms, for the day comparison.
+ * @returns {string|null}
+ */
+function resetClockText(t, resetAt, now) {
+  if (!isNum(resetAt)) return null;
+  const target = new Date(resetAt);
+  const current = new Date(now);
+  const time = pad2(target.getHours()) + ":" + pad2(target.getMinutes());
+  const sameDay = target.getFullYear() === current.getFullYear()
+    && target.getMonth() === current.getMonth()
+    && target.getDate() === current.getDate();
+  if (sameDay) return t("window.reset.at", { time: time });
+  const tomorrow = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1);
+  const isTomorrow = target.getFullYear() === tomorrow.getFullYear()
+    && target.getMonth() === tomorrow.getMonth()
+    && target.getDate() === tomorrow.getDate();
+  if (isTomorrow) return t("window.reset.tomorrow", { time: time });
+  return t("window.reset.day", {
+    month: String(target.getMonth() + 1),
+    day: String(target.getDate()),
+    time: time,
+  });
+}
+
+/**
+ * The reset line for one quota window, or null when it reports no reset.
+ *
+ * Every window keeps its countdown; a FIVE-HOUR window additionally gets the
+ * exact local reset instant, because "3 小时后重置" alone cannot answer the one
+ * question that window exists to answer — at which minute the allowance comes
+ * back. Weekly windows keep the compact countdown: their reset is days away and
+ * the precise minute adds noise without adding a decision.
+ *
+ * @param {Function} t
+ * @param {object} window Normalized UsageWindow.
+ * @param {number} now Epoch ms.
+ * @returns {string|null}
+ */
+function windowResetText(t, window, now) {
+  if (window === null || typeof window !== "object" || !isNum(window.resetAt)) return null;
+  const diff = window.resetAt - now;
+  if (diff <= 0) return t("window.reset.due");
+  if (!isFiveHourWindow(window)) return resetText(t, window.resetAt, now);
+  return t("window.reset.exact", {
+    at: resetClockText(t, window.resetAt, now),
+    after: resetAfter(t, diff),
+  });
 }
 
 /**
@@ -1872,18 +2011,49 @@ function orderedProviders(view) {
 }
 
 /**
+ * A provider the user has not configured. Its row is still stored (so a later
+ * refresh can reveal it the moment the credential appears), but the board
+ * renders no card, no skeleton and no failure slot for it.
+ * @param {unknown} row Normalized provider row.
+ * @returns {boolean}
+ */
+function isUnconfigured(row) {
+  return row !== null && row !== undefined && row.status === "not-configured";
+}
+
+/**
+ * The rows that actually own a card on screen, in display order. The subtitle
+ * and the board-wide failure note read this rather than the full roster, so a
+ * hidden provider cannot make the board look degraded.
+ * @param {object} view
+ * @returns {object[]}
+ */
+function visibleProviders(view) {
+  return orderedProviders(view).filter(function (row) {
+    return !isUnconfigured(row);
+  });
+}
+
+/**
  * One render slot per provider, in display order: the card when its row is on
  * screen, its local transport-failure card when the last read failed with no
  * row to keep, or the first-paint skeleton otherwise.
+ *
+ * Unconfigured providers are filtered out entirely: they are not a degraded
+ * card, they are simply not part of the board until a credential is configured.
  * @param {object} view
  * @returns {Array<{kind: string, id: string, provider?: object, failure?: object}>}
  */
 function panelSlots(view) {
-  return slotIds(view).map(function (id) {
-    if (view.providers[id] !== undefined) return { kind: "provider", id: id, provider: view.providers[id] };
-    if (view.failures[id] !== undefined) return { kind: "failure", id: id, failure: view.failures[id] };
-    return { kind: "skeleton", id: id };
-  });
+  return slotIds(view)
+    .map(function (id) {
+      if (view.providers[id] !== undefined) return { kind: "provider", id: id, provider: view.providers[id] };
+      if (view.failures[id] !== undefined) return { kind: "failure", id: id, failure: view.failures[id] };
+      return { kind: "skeleton", id: id };
+    })
+    .filter(function (slot) {
+      return slot.kind !== "provider" || !isUnconfigured(slot.provider);
+    });
 }
 
 /**
@@ -1919,16 +2089,20 @@ function viewTtlMs(view) {
 
 /**
  * The board-level phase:
- * - `ready` whenever any row is on screen, even if other providers are still
- *   loading or failed — one slow provider must not downgrade the whole board;
+ * - `ready` whenever a visible row is on screen, even if other providers are
+ *   still loading or failed — one slow provider must not downgrade the whole
+ *   board;
+ * - `ready` also when the only rows are unconfigured ones: the board settled,
+ *   and the panel renders the empty state instead of a spinner;
  * - `error` when nothing has ever loaded and every attempt failed;
  * - `loading` otherwise (first paint, or retries in flight).
  * @param {object} view
  * @returns {'loading'|'ready'|'error'}
  */
 function boardPhase(view) {
-  if (orderedProviders(view).length > 0) return "ready";
+  if (visibleProviders(view).length > 0) return "ready";
   if (Object.keys(view.pending).length > 0) return "loading";
+  if (orderedProviders(view).length > 0) return "ready";
   if (Object.keys(view.failures).length > 0) return "error";
   return "loading";
 }
@@ -1953,7 +2127,10 @@ function latestFailure(view) {
 function retainedFailure(view) {
   let latest = null;
   for (const id of Object.keys(view.failures)) {
-    if (view.providers[id] === undefined) continue;
+    const row = view.providers[id];
+    // An unconfigured provider has no card, so its old row is not "numbers on
+    // screen" and a failure about it must not become the board-wide note.
+    if (row === undefined || isUnconfigured(row)) continue;
     const failure = view.failures[id];
     if (latest === null || failure.at > latest.at) latest = failure;
   }
@@ -2805,15 +2982,21 @@ function useUsageBoard() {
     run("manual");
   }, []);
 
-  const providers = orderedProviders(view);
+  const providers = visibleProviders(view);
   return {
     phase: boardPhase(view),
     slots: panelSlots(view),
     providers: providers,
     updatedAt: latestUpdatedAt(view),
     // With rows on screen a failure is a note about numbers that are still
-    // shown; with nothing loaded yet it is the whole board's error state.
-    failure: providers.length > 0 ? retainedFailure(view) : latestFailure(view),
+    // shown; with nothing loaded yet it is the whole board's error state. When
+    // the only rows are unconfigured ones the board is empty, not broken, so a
+    // failure against a hidden row must not become the board-wide note.
+    failure: providers.length > 0
+      ? retainedFailure(view)
+      : orderedProviders(view).length > 0
+        ? null
+        : latestFailure(view),
     busy: Object.keys(view.pending).length > 0,
     now: now,
     refresh: refresh,
@@ -2867,7 +3050,11 @@ function refreshButton(t, board) {
   });
 }
 
-/** One quota window: label, progress bar, used/limit, remaining, reset countdown. */
+/**
+ * One quota window: label, progress bar, used/limit, remaining, and the reset
+ * line. A 5-hour window also prints the exact reset clock time — see
+ * {@link windowResetText}.
+ */
 function WindowRow(props) {
   const t = props.t;
   const window = props.window;
@@ -2880,12 +3067,20 @@ function WindowRow(props) {
   const level = !isNum(percent) ? "unknown" : percent >= 90 ? "danger" : percent >= 70 ? "warn" : "ok";
   const label = windowLabel(t, window);
   const count = isNum(window.number) && window.number > 1 ? " \u00d7" + String(window.number) : "";
-  const reset = resetText(t, window.resetAt, props.now);
+  // Same fallback as the billing reminder: a caller that renders a row without
+  // the board's ticking clock still gets a real "now" instead of NaN dates.
+  const reset = windowResetText(t, window, isNum(props.now) ? props.now : Date.now());
+  // A provider that reports only a percentage (OpenCode Go) has no absolute
+  // counters. Printing "— / —" would read like a broken fraction, so the line
+  // is omitted and the percentage beside it carries the window.
+  const hasCounters = isNum(window.used) || isNum(window.limit);
   const foot = compact([
-    jsx("span", { key: "usage", className: "ub-nums", children: t("window.usage", {
-      used: formatAmount(window.used),
-      limit: formatAmount(window.limit),
-    }) }),
+    hasCounters
+      ? jsx("span", { key: "usage", className: "ub-nums", children: t("window.usage", {
+        used: formatAmount(window.used),
+        limit: formatAmount(window.limit),
+      }) })
+      : null,
     window.remaining === null
       ? null
       : jsx("span", { key: "rest", className: "ub-rest", children: t("window.remaining", {
@@ -3133,16 +3328,25 @@ function ProviderFailureCard(props) {
 }
 
 /**
- * The subtitle under the panel title: the services this board covers, in
- * protocol order. Spelled from PROVIDER_IDS + PROVIDER_LABELS rather than a
- * locale key so the panel and the standalone page name the same services in the
- * same order, and so a provider added to the protocol cannot silently go
- * unannounced here.
+ * The subtitle under the panel title: the services that actually own a card
+ * right now, in protocol order. Spelled from PROVIDER_IDS + PROVIDER_LABELS
+ * rather than a locale key so the panel and the standalone page name the same
+ * services in the same order, and so a provider added to the protocol cannot
+ * silently go unannounced here.
+ *
+ * Unconfigured providers are omitted: naming a service with no card would
+ * contradict the board. Before any row has arrived (first paint) the full
+ * roster is the only honest answer, so it is used as the fallback.
+ *
+ * @param {object[]} [providers] Rows currently rendered.
  * @returns {string}
  */
-function providerSubtitle() {
-  return PROVIDER_IDS.map(function (id) {
-    return providerLabelFor(id);
+function providerSubtitle(providers) {
+  if (!Array.isArray(providers)) {
+    return PROVIDER_IDS.map(providerLabelFor).join(" \u00b7 ");
+  }
+  return providers.map(function (row) {
+    return providerLabelFor(row.id);
   }).join(" \u00b7 ");
 }
 
@@ -3201,6 +3405,16 @@ function UsageBoardPanel(props) {
         children: t("state.refreshFailed", { reason: reason }),
       }));
     }
+    if (board.phase === "ready" && board.slots.length === 0) {
+      // Every provider is unconfigured: the board settled with no card to
+      // show, which is a state, not a spinner and not an error.
+      body.push(jsx("p", {
+        key: "empty",
+        className: "ub-note",
+        role: "status",
+        children: t("state.empty"),
+      }));
+    }
     for (const slot of board.slots) {
       if (slot.kind === "provider") {
         body.push(jsx(ProviderCard, { provider: slot.provider, t: t, now: board.now }, slot.id));
@@ -3211,6 +3425,21 @@ function UsageBoardPanel(props) {
       }
     }
   }
+
+  // The illustration is a full-width grid row, after every provider card but
+  // still inside the scrollable body, so the source footer remains pinned.
+  body.push(jsx("figure", {
+    key: "deepseek-cash",
+    className: "ub-cash",
+    children: jsx("img", {
+      className: "ub-cash-image",
+      src: DEEPSEEK_CASH_URL,
+      alt: "DeepSeek 鲸元券",
+      width: 1280,
+      height: 720,
+      decoding: "async",
+    }),
+  }));
 
   return jsxs("section", {
     className: "ub-root",
@@ -3246,7 +3475,12 @@ function UsageBoardPanel(props) {
         jsx("p", {
           key: "subtitle",
           className: "ub-subtitle",
-          children: providerSubtitle(),
+          // Before the first row arrives the full roster is the only honest
+          // answer; once settled, only the services with a card are named (a
+          // board whose providers are all unconfigured therefore has none).
+          children: providerSubtitle(
+            board.phase === "loading" && providers.length === 0 ? undefined : providers,
+          ),
         }),
         jsx("div", { key: "body", className: "ub-body", children: body }),
         jsx("footer", {
