@@ -1,0 +1,362 @@
+.dsh-mermaid-card {
+  margin: 6px 0 16px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-lg, 10px);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  overflow: hidden;
+}
+
+.dsh-mermaid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-height: 34px;
+  padding: 4px 10px 4px 14px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.dsh-mermaid-title {
+  color: var(--dsw-alias-label-secondary);
+  font: 500 12px/18px var(--dsw-font-family, sans-serif);
+  letter-spacing: 0.02em;
+}
+
+.dsh-mermaid-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+.dsh-mermaid-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 3px;
+  padding-right: 5px;
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.dsh-mermaid-button,
+.dsh-mermaid-icon-button,
+.dsh-mermaid-zoom-readout {
+  appearance: none;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: 12px/18px var(--dsw-font-family, sans-serif);
+  cursor: pointer;
+}
+
+.dsh-mermaid-button {
+  padding: 4px 8px;
+}
+
+.dsh-mermaid-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.dsh-mermaid-zoom-readout {
+  min-width: 42px;
+  height: 24px;
+  padding: 0 3px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dsh-mermaid-button:hover,
+.dsh-mermaid-button:focus-visible,
+.dsh-mermaid-icon-button:hover,
+.dsh-mermaid-icon-button:focus-visible,
+.dsh-mermaid-zoom-readout:hover,
+.dsh-mermaid-zoom-readout:focus-visible {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dsh-mermaid-button:disabled,
+.dsh-mermaid-icon-button:disabled,
+.dsh-mermaid-zoom-readout:disabled {
+  background: transparent;
+  color: var(--dsw-alias-state-idle-primary);
+  cursor: default;
+  opacity: 0.42;
+}
+
+.dsh-mermaid-button:focus-visible,
+.dsh-mermaid-icon-button:focus-visible,
+.dsh-mermaid-zoom-readout:focus-visible,
+.dsh-mermaid-viewport:focus-visible,
+.dsh-mermaid-lightbox-viewport:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+.dsh-mermaid-body {
+  min-height: 88px;
+}
+
+.dsh-mermaid-status {
+  padding: 20px 16px;
+  color: var(--dsw-alias-label-secondary);
+  font: 13px/20px var(--dsw-font-family, sans-serif);
+}
+
+.dsh-mermaid-canvas {
+  padding: 16px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.dsh-mermaid-viewport {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 120px;
+  max-height: 608px;
+  overflow: hidden;
+  border-radius: var(--dsw-radius-md, 8px);
+  cursor: zoom-in;
+  overscroll-behavior: contain;
+}
+
+.dsh-mermaid-viewport[data-zoomed='true'] {
+  cursor: grab;
+}
+
+.dsh-mermaid-viewport[data-dragging='true'] {
+  cursor: grabbing;
+}
+
+.dsh-mermaid-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 608px;
+  object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.dsh-mermaid-source {
+  box-sizing: border-box;
+  max-height: 600px;
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  background: var(--dsw-alias-markdown-code-block, var(--dsw-alias-bg-base));
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-markdown-code-block, 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dsh-mermaid-source code {
+  font: inherit;
+}
+
+[data-dsh-mermaid-anchor][hidden] {
+  display: none !important;
+}
+
+.dsh-mermaid-card [hidden],
+.dsh-mermaid-lightbox [hidden] {
+  display: none !important;
+}
+
+/* Fullscreen preview */
+.dsh-mermaid-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 24px;
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family, sans-serif);
+}
+
+.dsh-mermaid-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.dsh-mermaid-lightbox-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(96vw, 1500px);
+  height: min(92vh, 1000px);
+  max-height: 92vh;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: calc(var(--dsw-radius-lg, 10px) + 2px);
+  background: var(--dsw-alias-bg-base);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.38);
+  animation: dsh-mermaid-lightbox-in 140ms ease-out;
+}
+
+.dsh-mermaid-lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 0 0 auto;
+  min-height: 46px;
+  padding: 6px 10px 6px 16px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.dsh-mermaid-lightbox-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.dsh-mermaid-lightbox-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dsh-mermaid-lightbox .dsh-mermaid-button,
+.dsh-mermaid-lightbox .dsh-mermaid-icon-button,
+.dsh-mermaid-lightbox .dsh-mermaid-zoom-readout {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dsh-mermaid-lightbox .dsh-mermaid-button:hover,
+.dsh-mermaid-lightbox .dsh-mermaid-button:focus-visible,
+.dsh-mermaid-lightbox .dsh-mermaid-icon-button:hover,
+.dsh-mermaid-lightbox .dsh-mermaid-icon-button:focus-visible,
+.dsh-mermaid-lightbox .dsh-mermaid-zoom-readout:hover,
+.dsh-mermaid-lightbox .dsh-mermaid-zoom-readout:focus-visible {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.dsh-mermaid-lightbox .dsh-mermaid-button:disabled,
+.dsh-mermaid-lightbox .dsh-mermaid-icon-button:disabled {
+  background: transparent;
+  color: var(--dsw-alias-state-idle-primary);
+  cursor: default;
+  opacity: 0.42;
+}
+
+.dsh-mermaid-lightbox-close {
+  margin-left: 6px;
+  font-size: 20px;
+  font-weight: 300;
+}
+
+.dsh-mermaid-lightbox-viewport {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 24px;
+  overflow: hidden;
+  cursor: zoom-in;
+  overscroll-behavior: contain;
+}
+
+.dsh-mermaid-lightbox-viewport[data-zoomed='true'] {
+  cursor: grab;
+}
+
+.dsh-mermaid-lightbox-viewport[data-dragging='true'] {
+  cursor: grabbing;
+}
+
+.dsh-mermaid-lightbox-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.dsh-mermaid-lightbox-hint {
+  flex: 0 0 auto;
+  padding: 8px 16px 10px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+
+@keyframes dsh-mermaid-lightbox-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 700px) {
+  .dsh-mermaid-lightbox {
+    padding: 8px;
+  }
+
+  .dsh-mermaid-lightbox-panel {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: var(--dsw-radius-lg, 10px);
+  }
+
+  .dsh-mermaid-lightbox-header {
+    min-height: 42px;
+    padding-left: 12px;
+  }
+
+  .dsh-mermaid-lightbox-viewport {
+    padding: 10px;
+  }
+
+  .dsh-mermaid-lightbox-hint {
+    padding: 6px 10px 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsh-mermaid-lightbox-panel {
+    animation: none;
+  }
+}
