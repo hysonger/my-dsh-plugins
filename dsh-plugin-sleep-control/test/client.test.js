@@ -37,6 +37,40 @@ function failure(code) {
   return error;
 }
 
+function configScope({ writable = true, status = 'ready', set = null } = {}) {
+  let snapshot = {
+    status,
+    value: { caffeinateDuringSessions: false },
+    writable,
+  };
+  const listeners = new Set();
+  const calls = [];
+  return {
+    calls,
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    async set(field, value) {
+      calls.push([field, value]);
+      if (set) return set(field, value, (accepted) => {
+        if (accepted) {
+          snapshot = {
+            ...snapshot,
+            value: { ...snapshot.value, [field]: value },
+          };
+          for (const listener of listeners) listener(snapshot);
+        }
+        return accepted;
+      });
+      snapshot = { ...snapshot, value: { ...snapshot.value, [field]: value } };
+      for (const listener of listeners) listener(snapshot);
+      return true;
+    },
+  };
+}
+
 test('controller loads the real initial state and notifies subscribers', async () => {
   const { createSleepController } = await loadClient();
   const calls = [];
@@ -116,6 +150,14 @@ test('cancellation retains the previous value if the confirmation read fails', a
   cancelled.dispose();
 });
 
+test('status text preserves cancellation and failure notices with a known value', async () => {
+  const { sleepStatusText } = await loadClient();
+  const t = (key) => key;
+  assert.equal(sleepStatusText({ phase: 'cancelled', sleepDisabled: false, notice: 'cancelled' }, t), 'cancelled');
+  assert.equal(sleepStatusText({ phase: 'error', sleepDisabled: true, notice: 'verification-failed' }, t), 'verificationFailed');
+  assert.equal(sleepStatusText({ phase: 'ready', sleepDisabled: true, notice: null }, t), 'enabled');
+});
+
 test('an ambiguous failure with no readback becomes unknown, not optimistic', async () => {
   const { createSleepController } = await loadClient();
   let initial = true;
@@ -150,9 +192,77 @@ test('unsupported state disables further mutation attempts', async () => {
   controller.dispose();
 });
 
-test('client registers the composer switch and transient status dock', async () => {
+test('caffeinate preference writes the exact volatile field after Host acceptance', async () => {
+  const { createCaffeinatePreference } = await loadClient();
+  const scope = configScope();
+  const preference = createCaffeinatePreference(scope);
+  assert.equal(await preference.setEnabled(true), true);
+  assert.deepEqual(scope.calls, [['caffeinateDuringSessions', true]]);
+  assert.equal(preference.getState().value.caffeinateDuringSessions, true);
+  assert.equal(preference.getState().saving, false);
+  assert.equal(preference.getState().notice, null);
+  preference.dispose();
+});
+
+test('caffeinate preference is not optimistic while a write is pending', async () => {
+  const { createCaffeinatePreference } = await loadClient();
+  let complete;
+  const scope = configScope({
+    set: (field, value, accept) => new Promise((resolve) => {
+      complete = () => resolve(accept(true));
+    }),
+  });
+  const preference = createCaffeinatePreference(scope);
+  const pending = preference.setEnabled(true);
+  assert.equal(preference.getState().saving, true);
+  assert.equal(preference.getState().value.caffeinateDuringSessions, false);
+  complete();
+  assert.equal(await pending, true);
+  assert.equal(preference.getState().value.caffeinateDuringSessions, true);
+  assert.equal(preference.getState().saving, false);
+  preference.dispose();
+});
+
+test('rejected and failed config writes preserve the accepted value and show an error', async () => {
+  const { createCaffeinatePreference } = await loadClient();
+  const rejectedScope = configScope({ set: () => false });
+  const rejected = createCaffeinatePreference(rejectedScope);
+  assert.equal(await rejected.setEnabled(true), false);
+  assert.equal(rejected.getState().value.caffeinateDuringSessions, false);
+  assert.equal(rejected.getState().notice, 'save-failed');
+  rejected.dispose();
+
+  const failedScope = configScope({ set: () => { throw new Error('offline'); } });
+  const failed = createCaffeinatePreference(failedScope);
+  assert.equal(await failed.setEnabled(true), false);
+  assert.equal(failed.getState().value.caffeinateDuringSessions, false);
+  assert.equal(failed.getState().notice, 'save-failed');
+  failed.dispose();
+});
+
+test('read-only or unavailable config cannot be mutated', async () => {
+  const { createCaffeinatePreference } = await loadClient();
+  for (const options of [{ writable: false }, { status: 'unavailable' }]) {
+    const scope = configScope(options);
+    const preference = createCaffeinatePreference(scope);
+    assert.equal(await preference.setEnabled(true), false);
+    assert.equal(scope.calls.length, 0);
+    preference.dispose();
+  }
+});
+
+test('client registers only the named sleep-control settings section', async () => {
   const registrations = [];
   const effects = [];
+  let dictionaries;
+  const scope = {
+    getSnapshot: () => ({
+      status: 'ready',
+      value: { caffeinateDuringSessions: false },
+      writable: true,
+    }),
+    subscribe: () => () => undefined,
+  };
   const client = await loadClient({
     fetch: async () => ({
       ok: true,
@@ -162,14 +272,24 @@ test('client registers the composer switch and transient status dock', async () 
   const ctx = {
     locale: {
       bind: () => (key) => key,
-      register: () => () => undefined,
+      register: (namespace, values) => {
+        assert.equal(namespace, 'sleepControl');
+        dictionaries = values;
+        return () => undefined;
+      },
+    },
+    configForms: {
+      get(id) {
+        assert.equal(id, 'sleep-control');
+        return scope;
+      },
     },
     effect(callback) {
       effects.push(callback());
     },
     slots: {
       inject(name, callback) {
-        assert.equal(typeof callback, 'function');
+        assert.equal(name, 'settings.section');
         callback();
       },
       register(options, component) {
@@ -180,13 +300,15 @@ test('client registers the composer switch and transient status dock', async () 
   };
   client.apply(ctx);
   assert.deepEqual(
-    registrations.map(({ options }) => [options.name, options.id]),
-    [
-      ['conversation.input.right', 'sleep-control'],
-      ['conversation.composer.dock', 'sleep-control-status'],
-    ],
+    registrations.map(({ options }) => [options.name, options.id, options.order]),
+    [['settings.section', 'sleep-control', 5]],
   );
-  assert.deepEqual(plain(client.inject), ['slots', 'locale']);
+  assert.equal(registrations[0].options.label(), 'nav');
+  assert.equal(dictionaries.zh.nav, '防睡眠');
+  assert.match(dictionaries.zh.caffeinateHelp, /开盖.*合盖.*接入电源/);
+  assert.match(dictionaries.zh.fullSleepHelp, /全局持久.*异常耗电/);
+  assert.equal(dictionaries.zh.warning, '警告');
+  assert.deepEqual(plain(client.inject), ['slots', 'locale', 'configForms']);
   await new Promise((resolve) => setImmediate(resolve));
   for (const dispose of effects.reverse()) {
     if (typeof dispose === 'function') dispose();

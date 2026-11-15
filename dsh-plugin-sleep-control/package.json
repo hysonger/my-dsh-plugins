@@ -2,7 +2,7 @@
   "name": "dsh-plugin-sleep-control",
   "version": "0.1.0",
   "private": true,
-  "description": "Control macOS system sleep from the DSH composer with native administrator authorization",
+  "description": "Prevent macOS sleep during running DSH sessions with caffeinate, or disable sleep persistently with authorized pmset controls",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -29,14 +29,17 @@
       "platform": "web",
       "immediately": true,
       "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-locale"
       ]
     }
   },
   "scripts": {
     "test": "node --test test/",
-    "check": "node --check index.js && node --check client.js && node --check src/host/service.js && node --check src/host/routes.js && node --test test/"
+    "check": "node --check index.js && node --check client.js && node --check src/host/caffeinate.js && node --check src/host/service.js && node --check src/host/routes.js && node --test test/"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.5"
+  }
 }

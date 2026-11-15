@@ -1,14 +1,24 @@
 {
   "meta": {
     "title": "Sleep Control",
-    "description": "Control macOS system sleep from the DSH composer with native administrator authorization."
+    "description": "Control macOS sleep from DSH settings with session-driven caffeinate or administrator-authorized pmset."
   },
   "sleepControl": {
-    "label": "Keep awake",
-    "description": "Prevent macOS system sleep; administrator authorization is required",
+    "nav": "Sleep Control",
+    "title": "Sleep Control",
+    "intro": "Manage macOS system sleep. The two methods below are independent and can be used together.",
+    "caffeinateLabel": "Prevent sleep while sessions run",
+    "caffeinateHelp": "Uses caffeinate -s only while a session is running. It works with the lid open; with the lid closed, it works only while connected to power, not on battery.",
+    "caffeinateEnabled": "Enabled: caffeinate starts automatically whenever a session is running.",
+    "caffeinateDisabled": "When enabled, system sleep is prevented automatically while sessions run.",
+    "label": "Disable sleep completely",
+    "description": "Disable macOS system sleep with pmset; administrator authorization is required",
+    "fullSleepHelp": "This is the strongest method, but pmset changes a global, persistent power setting. It remains active after DSH exits; forgetting to restore it may cause abnormal battery drain.",
+    "warning": "Warning",
+    "persistent": "Global and persistent",
     "loading": "Reading the macOS sleep setting…",
     "waiting": "Waiting for macOS administrator authorization…",
-    "enabled": "System sleep is disabled",
+    "enabled": "System sleep is completely disabled",
     "disabled": "System sleep is allowed",
     "cancelled": "Authorization cancelled. The system setting was not changed.",
     "retry": "Retry",
@@ -18,6 +28,10 @@
     "commandFailed": "The privileged command failed. Try again.",
     "verificationFailed": "The resulting system setting could not be verified. Try again.",
     "networkFailed": "Unable to reach the local DSH service.",
-    "requestFailed": "The operation failed. Try again."
+    "requestFailed": "The operation failed. Try again.",
+    "saving": "Saving the setting…",
+    "saveFailed": "The setting was not saved. Try again.",
+    "unavailable": "Sleep-control configuration is currently unavailable.",
+    "readOnly": "This deployment stores settings read-only."
   }
 }
