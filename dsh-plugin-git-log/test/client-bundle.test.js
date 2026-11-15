@@ -178,6 +178,8 @@ test("client bundle obeys DSH __ModuleLoader__ contract, registers sidebar tab &
           loadedEntry = entry;
         },
       },
+      addEventListener() {},
+      removeEventListener() {},
     },
     document: fakeDocument,
     URLSearchParams,
@@ -209,6 +211,7 @@ test("client bundle obeys DSH __ModuleLoader__ contract, registers sidebar tab &
   const registeredShortcuts = [];
   const registeredLocales = {};
   const openedTabs = [];
+  const hiddenTabs = [];
 
   const mockCtx = {
     effect(fn) {
@@ -253,6 +256,15 @@ test("client bundle obeys DSH __ModuleLoader__ contract, registers sidebar tab &
       openTabFromTarget(kind, target) {
         openedTabs.push({ kind, target });
       },
+      openTab(kind) {
+        openedTabs.push({ kind });
+      },
+      tabsIn(sessionId) {
+        return sessionId === "s1" ? [{ id: "tab-1", kind: "git-log" }] : [];
+      },
+      hide(tabId) {
+        hiddenTabs.push(tabId);
+      },
     },
     slots: {
       inject(name, factory) {
@@ -293,7 +305,10 @@ test("client bundle obeys DSH __ModuleLoader__ contract, registers sidebar tab &
   const bodySlot = registeredSlots.find((s) => s.meta.name === "sidebar.right.pane.tab");
   const titleSlot = registeredSlots.find((s) => s.meta.name === "sidebar.right.pane.tab.title");
   const filesActionSlot = registeredSlots.find((s) => s.meta.name === "sidebar.right.tab.files.actions");
-  assert.ok(bodySlot && titleSlot && filesActionSlot);
+  const headerActionSlot = registeredSlots.find((s) => s.meta.name === "conversation.session.header.utilities");
+  assert.ok(bodySlot && titleSlot && filesActionSlot && headerActionSlot);
+  assert.equal(headerActionSlot.meta.id, "git-log");
+  assert.equal(headerActionSlot.meta.order, 0);
 
   // Verify shortcut command behavior
   assert.equal(registeredShortcuts.length, 1);
@@ -329,6 +344,32 @@ test("client bundle obeys DSH __ModuleLoader__ contract, registers sidebar tab &
     t: (k) => dicts.en[k] ?? k,
   });
   assert.equal(filesBtnVNode.props["data-git-log-files-action"], "true");
+
+  // Header shortcut opens the tab, then collapses it while the tab is visible.
+  reactMock.resetCursor();
+  const headerVNode = headerActionSlot.component({
+    sessionId: "s1",
+    sidebarRight: mockCtx.sidebarRight,
+    t: (k) => dicts.en[k] ?? k,
+  });
+  assert.equal(headerVNode.props["data-git-log-header-action"], "true");
+  assert.equal(headerVNode.props["aria-pressed"], false);
+  openedTabs.length = 0;
+  headerVNode.props.onClick({ stopPropagation() {} });
+  assert.deepEqual(openedTabs, [{ kind: "git-log" }]);
+
+  reactMock.flushEffects();
+  reactMock.resetCursor();
+  const pressedHeaderVNode = headerActionSlot.component({
+    sessionId: "s1",
+    sidebarRight: mockCtx.sidebarRight,
+    t: (k) => dicts.en[k] ?? k,
+  });
+  assert.equal(pressedHeaderVNode.props["aria-pressed"], true);
+  hiddenTabs.length = 0;
+  pressedHeaderVNode.props.onClick({ stopPropagation() {} });
+  assert.deepEqual(hiddenTabs, ["tab-1"]);
+  assert.equal(openedTabs.length, 1);
 
   // Verify cleanup removes injected stylesheet
   for (const d of disposers) d();

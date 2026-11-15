@@ -157,7 +157,43 @@
   cursor: default;
 }
 
+/* Conversation-header shortcut left of the right-sidebar toggle. */
+.dsh-gl-header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #57606a);
+  cursor: pointer;
+}
+
+.dsh-gl-header-btn svg {
+  flex: none;
+}
+
+.dsh-gl-header-btn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.1));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.dsh-gl-header-btn[aria-pressed="true"] {
+  background: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.16));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.dsh-gl-header-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .dsh-gl-icon-btn:focus-visible,
+.dsh-gl-header-btn:focus-visible,
 .dsh-gl-select:focus-visible,
 .dsh-gl-search-scope:focus-visible,
 .dsh-gl-commit-row:focus-visible,

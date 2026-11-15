@@ -176,7 +176,43 @@ window.__ModuleLoader__.load({
   cursor: default;
 }
 
+/* Conversation-header shortcut left of the right-sidebar toggle. */
+.dsh-gl-header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #57606a);
+  cursor: pointer;
+}
+
+.dsh-gl-header-btn svg {
+  flex: none;
+}
+
+.dsh-gl-header-btn:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.1));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.dsh-gl-header-btn[aria-pressed="true"] {
+  background: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.16));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.dsh-gl-header-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .dsh-gl-icon-btn:focus-visible,
+.dsh-gl-header-btn:focus-visible,
 .dsh-gl-select:focus-visible,
 .dsh-gl-search-scope:focus-visible,
 .dsh-gl-commit-row:focus-visible,
@@ -1162,6 +1198,7 @@ const LOCALES = {
     "shortcut.label": "打开 Git 日志",
     "shortcut.noSession": "当前没有关联工作区的会话",
     "filesAction.tooltip": "查看 Git 日志",
+    "headerAction.tooltip": "本会话的 Git 日志",
     "empty.noWorkspace.title": "当前会话未绑定工作区目录",
     "empty.noWorkspace.sub": "选择或打开包含本地目录的会话后，将自动加载该目录的 Git 提交历史。",
     "empty.notGit.title": "当前目录不是 Git 仓库",
@@ -1227,6 +1264,7 @@ const LOCALES = {
     "shortcut.label": "Open Git Log",
     "shortcut.noSession": "No active session with a workspace",
     "filesAction.tooltip": "Open Git Log",
+    "headerAction.tooltip": "Git log of this Session",
     "empty.noWorkspace.title": "No workspace directory",
     "empty.noWorkspace.sub": "Bind a workspace folder to this session to view its Git commit history.",
     "empty.notGit.title": "Not a Git repository",
@@ -1298,6 +1336,46 @@ function makeFallbackTranslate() {
     const dict = LOCALES[lang] ?? LOCALES.en;
     const raw = dict[key] ?? LOCALES.en[key] ?? key;
     return formatMessage(raw, vars);
+  };
+}
+
+/**
+ * Tracks which Git Log tab bodies are currently on screen, keyed by Session.
+ * The conversation-header shortcut uses it to show a pressed state and to
+ * collapse the sidebar instead of reopening the tab. A page can live in more
+ * than one pane, so a Session counts as visible while any occurrence is.
+ */
+function createTabVisibilityStore() {
+  const visibleBySession = new Map();
+  const listeners = new Set();
+  const emit = () => {
+    for (const fn of listeners) fn();
+  };
+  return {
+    set(sessionId, tabId, visible) {
+      if (!sessionId || !tabId) return;
+      let visibleTabs = visibleBySession.get(sessionId);
+      if (visible) {
+        if (!visibleTabs) {
+          visibleTabs = new Set();
+          visibleBySession.set(sessionId, visibleTabs);
+        }
+        if (visibleTabs.has(tabId)) return;
+        visibleTabs.add(tabId);
+      } else {
+        if (!visibleTabs || !visibleTabs.delete(tabId)) return;
+        if (visibleTabs.size === 0) visibleBySession.delete(sessionId);
+      }
+      emit();
+    },
+    hasVisible(sessionId) {
+      const visibleTabs = visibleBySession.get(sessionId);
+      return Boolean(visibleTabs && visibleTabs.size > 0);
+    },
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => { listeners.delete(fn); };
+    },
   };
 }
 
@@ -1757,6 +1835,8 @@ function DiffViewer({ diffState, t }) {
 /* ---------- Main Body Component ---------- */
 
 function createGitLogComponents(tabBadgeStore, resolveTranslate) {
+  const visibilityStore = createTabVisibilityStore();
+
   function GitLogTitle({ useTabInfo }) {
     const { tab } = useTabInfo();
     const badge = useSyncExternalStore(
@@ -1850,6 +1930,15 @@ function createGitLogComponents(tabBadgeStore, resolveTranslate) {
         dirty: Boolean(overview.status?.dirty),
       });
     }, [tab.id, cwd, overviewState.data, t]);
+
+    useEffect(() => {
+      visibilityStore.set(sessionId, tab.id, Boolean(tab.visible));
+    }, [sessionId, tab.id, tab.visible]);
+
+    useEffect(
+      () => () => visibilityStore.set(sessionId, tab.id, false),
+      [sessionId, tab.id],
+    );
 
     useEffect(() => () => {
       tabBadgeStore.set(tab.id, null);
@@ -2730,7 +2819,46 @@ function createGitLogComponents(tabBadgeStore, resolveTranslate) {
     );
   }
 
-  return { GitLogTitle, GitLogBody, FilesGitLogAction };
+  /**
+   * Header shortcut beside the right-sidebar toggle. It opens or focuses the
+   * Git Log tab; while that tab is on screen it collapses the column, mirroring
+   * the forge change-request button next to it.
+   */
+  function HeaderGitLogAction({ sessionId, sidebarRight, t: slotT }) {
+    const t = slotT ?? resolveTranslate();
+    const pressed = useSyncExternalStore(
+      visibilityStore.subscribe,
+      () => visibilityStore.hasVisible(sessionId),
+      () => false,
+    );
+    const label = t("headerAction.tooltip");
+    return h(
+      "button",
+      {
+        type: "button",
+        className: "dsh-gl-header-btn",
+        title: label,
+        "aria-label": label,
+        "aria-pressed": pressed,
+        "data-git-log-header-action": "true",
+        onClick: (event) => {
+          event.stopPropagation();
+          if (!sidebarRight) return;
+          const openLogTab = pressed
+            ? sidebarRight.tabsIn?.(sessionId)?.find((item) => item.kind === GIT_LOG_KIND)
+            : undefined;
+          if (openLogTab) {
+            sidebarRight.hide?.(openLogTab.id);
+            return;
+          }
+          sidebarRight.openTab(GIT_LOG_KIND);
+        },
+      },
+      h(GitBranchIcon, { size: 16 }),
+    );
+  }
+
+  return { GitLogTitle, GitLogBody, FilesGitLogAction, HeaderGitLogAction };
 }
 
 const inject = ["slots", "locale", "sidebarRightTabs", "sidebarRight", "sessions"];
@@ -2741,7 +2869,7 @@ function apply(ctx) {
 
   const t = ctx.locale?.bind ? ctx.locale.bind(NS) : makeFallbackTranslate();
   const tabBadgeStore = createTabBadgeStore();
-  const { GitLogTitle, GitLogBody, FilesGitLogAction } = createGitLogComponents(tabBadgeStore, () => t);
+  const { GitLogTitle, GitLogBody, FilesGitLogAction, HeaderGitLogAction } = createGitLogComponents(tabBadgeStore, () => t);
 
   ctx.effect(() => ctx.locale.register(NS, LOCALES), "git-log: locale");
 
@@ -2779,6 +2907,14 @@ function apply(ctx) {
     locale: NS,
     inject: () => ({ sidebarRight: ctx.sidebarRight }),
   }, FilesGitLogAction)), "git-log: files action");
+
+  ctx.effect(() => ctx.slots.inject("conversation.session.header.utilities", () => ctx.slots.register({
+    name: "conversation.session.header.utilities",
+    id: "git-log",
+    order: 0,
+    locale: NS,
+    inject: () => ({ sidebarRight: ctx.sidebarRight }),
+  }, HeaderGitLogAction)), "git-log: header action");
 
   ctx.inject(["shortcuts"], (scoped) => {
     scoped.effect(() => scoped.shortcuts.register({
