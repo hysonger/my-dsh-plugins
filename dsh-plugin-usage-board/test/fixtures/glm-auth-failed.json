@@ -1,0 +1,12 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+    "status": 200,
+    "request": "deliberately invalid key (HTTP 200 + code 1000)",
+    "capturedAt": "2026-10-14T07:00:21.994Z"
+  },
+  "code": 1000,
+  "msg": "身份验证失败。",
+  "success": false
+}

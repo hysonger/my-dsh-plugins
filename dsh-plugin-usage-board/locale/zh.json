@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "用量看板",
+    "description": "在 DSH 侧边栏面板之外，会话输入框下方另有一条当前提供商用量信息条：按当前模型路由显示额度圆环与百分比，悬浮查看全部窗口、剩余量与重置时间；DeepSeek 显示余额，未接入的路由明确提示。面板同时显示 DeepSeek、GLM Coding Plan、Kimi Code 与 OpenCode Go 的用量、额度与余额，并提供 usage_query 工具。"
+  }
+}

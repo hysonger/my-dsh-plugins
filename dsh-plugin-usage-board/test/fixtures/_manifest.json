@@ -1,0 +1,143 @@
+{
+  "_note": "Provenance for every fixture. 'live' = verbatim capture from the URL shown, with only the listed fields redacted. 'synthetic' = hand-written shape, because the situation cannot be produced with the credentials on this machine. The DeepSeek identity endpoint (/auth-api/v0/users/current) is deliberately NOT captured: the adapter must never call it, so no personal-data fixture ships either.",
+  "capturedAt": "2026-10-14T07:00:22.277Z",
+  "fixtures": [
+    {
+      "file": "deepseek-summary.json",
+      "source": "live",
+      "url": "https://platform.deepseek.com/api/v0/users/get_user_summary",
+      "status": 200
+    },
+    {
+      "file": "deepseek-cost.json",
+      "source": "live",
+      "url": "https://platform.deepseek.com/api/v0/usage/cost?month=10&year=2026",
+      "status": 200
+    },
+    {
+      "file": "deepseek-cost-prev.json",
+      "source": "live",
+      "url": "https://platform.deepseek.com/api/v0/usage/cost?month=9&year=2026",
+      "status": 200,
+      "note": "Captured 2026-10-18 so the adapter's trailing 30-day window (current + previous month) can be exercised offline."
+    },
+    {
+      "file": "deepseek-unauthorized.json",
+      "source": "live",
+      "url": "https://platform.deepseek.com/api/v0/users/get_user_summary",
+      "status": 200,
+      "request": "deliberately invalid grant (HTTP 200 + code 40003)"
+    },
+    {
+      "file": "deepseek-apikey-balance.json",
+      "source": "synthetic",
+      "url": "https://api.deepseek.com/user/balance",
+      "note": "SYNTHETIC: no sk- key exists on this machine; documents the optional merge source shape."
+    },
+    {
+      "file": "glm-limit-cn.json",
+      "source": "live",
+      "url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+      "status": 200,
+      "host": "open.bigmodel.cn"
+    },
+    {
+      "file": "glm-limit-intl.json",
+      "source": "live",
+      "url": "https://api.z.ai/api/monitor/usage/quota/limit",
+      "status": 200,
+      "host": "api.z.ai"
+    },
+    {
+      "file": "glm-subscription.json",
+      "source": "live",
+      "url": "https://api.z.ai/api/biz/subscription/list",
+      "status": 200,
+      "redacted": [
+        "data[].id",
+        "data[].customerId",
+        "data[].agreementNo",
+        "data[].orderNo"
+      ]
+    },
+    {
+      "file": "glm-auth-failed.json",
+      "source": "live",
+      "url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+      "status": 200,
+      "request": "deliberately invalid key (HTTP 200 + code 1000)"
+    },
+    {
+      "file": "glm-no-coding-plan.json",
+      "source": "synthetic",
+      "url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+      "note": "SYNTHETIC: exact body reported by independent research for a valid key with no Coding Plan. Must map to upstream-error, never unauthorized."
+    },
+    {
+      "file": "glm-empty-limits.json",
+      "source": "synthetic",
+      "url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+      "note": "SYNTHETIC: 200 envelope with an empty limits array, for the invalid-response branch."
+    },
+    {
+      "file": "kimi-usages.json",
+      "source": "live",
+      "url": "https://api.kimi.com/coding/v1/usages",
+      "status": 200,
+      "redacted": [
+        "booster_wallet.id",
+        "booster_wallet.userId",
+        "booster_wallet.balance.{id,userId,subscriptionId}"
+      ]
+    },
+    {
+      "file": "kimi-unauthorized.json",
+      "source": "live",
+      "url": "https://api.kimi.com/coding/v1/usages",
+      "status": 401,
+      "request": "deliberately invalid key (HTTP 401, no body code)"
+    },
+    {
+      "file": "kimi-not-found.json",
+      "source": "live",
+      "url": "https://api.kimi.com/coding/v1/nope",
+      "status": 404
+    },
+    {
+      "file": "opencode-go-usage.json",
+      "source": "live",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 200,
+      "capturedAt": "2026-11-05T08:05:00.000Z",
+      "note": "Verbatim capture with the OPENCODE_GO_API_KEY already stored by DSH. All three windows reported 0% at capture time; the shape (status/percent/resetsAt per window) is what matters here."
+    },
+    {
+      "file": "opencode-go-active.json",
+      "source": "synthetic",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 200,
+      "note": "SYNTHETIC: exercises fractional percentages (0.5), a rate-limited window and a null resetsAt. The live account had no measurable consumption when captured."
+    },
+    {
+      "file": "opencode-go-unauthorized.json",
+      "source": "live",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 401,
+      "request": "deliberately invalid key (HTTP 401, AuthError body)"
+    },
+    {
+      "file": "opencode-go-no-subscription.json",
+      "source": "synthetic",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 403,
+      "note": "SYNTHETIC: the EntitlementError body independent tools report for a valid key with no Go subscription. The credential on this machine has a subscription, so this branch cannot be captured live."
+    },
+    {
+      "file": "opencode-go-empty.json",
+      "source": "synthetic",
+      "url": "https://opencode.ai/zen/go/v1/usage",
+      "status": 200,
+      "note": "SYNTHETIC: 200 envelope with an empty usage object, for the invalid-response branch."
+    }
+  ]
+}

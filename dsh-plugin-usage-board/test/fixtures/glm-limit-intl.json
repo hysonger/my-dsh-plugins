@@ -1,0 +1,37 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://api.z.ai/api/monitor/usage/quota/limit",
+    "status": 200,
+    "host": "api.z.ai",
+    "capturedAt": "2026-10-14T07:00:21.750Z"
+  },
+  "code": 200,
+  "msg": "Operation successful",
+  "data": {
+    "limits": [
+      {
+        "type": "CREDIT_LIMIT",
+        "unit": 3,
+        "number": 5,
+        "usage": 2000,
+        "currentValue": 656,
+        "remaining": 1343,
+        "percentage": 32,
+        "nextResetTime": 1791973452542
+      },
+      {
+        "type": "CREDIT_LIMIT",
+        "unit": 6,
+        "number": 1,
+        "usage": 10000,
+        "currentValue": 5831,
+        "remaining": 4168,
+        "percentage": 58,
+        "nextResetTime": 1792123975997
+      }
+    ],
+    "level": "lite"
+  },
+  "success": true
+}

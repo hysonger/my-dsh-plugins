@@ -1,0 +1,12 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://platform.deepseek.com/api/v0/users/get_user_summary",
+    "status": 200,
+    "request": "deliberately invalid grant (HTTP 200 + code 40003)",
+    "capturedAt": "2026-10-14T07:00:21.026Z"
+  },
+  "code": 40003,
+  "msg": "Authorization Failed (invalid token)",
+  "data": null
+}

@@ -1,0 +1,13 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://api.kimi.com/coding/v1/usages",
+    "status": 401,
+    "request": "deliberately invalid key (HTTP 401, no body code)",
+    "capturedAt": "2026-10-14T07:00:22.226Z"
+  },
+  "error": {
+    "message": "The API Key appears to be invalid or may have expired. Please verify your credentials and try again.",
+    "type": "invalid_authentication_error"
+  }
+}

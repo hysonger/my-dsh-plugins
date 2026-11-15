@@ -1,0 +1,26 @@
+# Bundle patch for dsh-plugin-usage-board.
+#
+# Installed into a DSH profile through `dsh plugin --profile <name> add <path>`,
+# which records this package in the profile's `dsh.profile.bundles`; the loader
+# then applies this file after the shipped bundle layers.
+#
+# Every row below is restated in full because a patch replaces the targeted
+# row's whole `config`.
+
+- insert:
+    - id: usage-board
+      name: 'dsh-plugin-usage-board'
+      config:
+        # Snapshot cache lifetime in milliseconds (15s - 300s).
+        ttlMs: 60000
+        # Also serve the standalone dashboard at /usage-board/.
+        servePage: true
+        # The API reads credentials, so it stays loopback-only unless a
+        # deployment deliberately opts out.
+        allowRemote: false
+        # Log every upstream fan-out with per-provider outcomes.
+        verbose: false
+        # Expose the `usage_query` tool so the model can read the same board.
+        # Requires the profile to compose a Tool registry; without one the
+        # panel still loads and the tool is never mounted.
+        enableTool: true

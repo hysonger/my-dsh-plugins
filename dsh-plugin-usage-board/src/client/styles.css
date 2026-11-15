@@ -1,0 +1,806 @@
+/* dsh-plugin-usage-board — client panel styles.
+ *
+ * Embedded VERBATIM inside lib/client.js (as the PANEL_CSS string literal) and
+ * injected once into <head> by the bundle. test/client-bundle.test.js asserts
+ * the byte-identical embedding, so edit this file and regenerate the bundle
+ * instead of editing the string in lib/client.js.
+ *
+ * Keep this file free of backticks, and never write a dollar sign immediately
+ * before a brace, so it can live inside a template literal untouched.
+ *
+ * Every DSH token is read as var(<real token>, <literal>) so the panel still
+ * renders sensibly where a token is missing. --dsw-alias-border-1 is accepted
+ * as a secondary name because older frames publish it; the shipped frame
+ * publishes --dsw-alias-border-l1.
+ */
+
+.ub-root {
+  --ub-fg: var(--dsw-alias-label-primary, #1f1f1f);
+  --ub-fg-secondary: var(--dsw-alias-label-secondary, #5c5c5c);
+  --ub-fg-tertiary: var(--dsw-alias-label-tertiary, #8a8a8a);
+  --ub-layer: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.03));
+  --ub-layer-3: var(--dsw-alias-bg-layer-3, rgba(0, 0, 0, 0.06));
+  --ub-border: var(--dsw-alias-border-l1, var(--dsw-alias-border-1, rgba(0, 0, 0, 0.08)));
+  --ub-border-strong: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.16));
+  --ub-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --ub-ok: var(--dsw-alias-state-success-primary, #1f9d55);
+  --ub-ok-soft: var(--dsw-alias-state-success-tertiary, rgba(31, 157, 85, 0.12));
+  --ub-warn: var(--dsw-alias-state-warn-primary, #c77700);
+  --ub-warn-soft: var(--dsw-alias-state-warn-tertiary, rgba(199, 119, 0, 0.14));
+  --ub-danger: var(--dsw-alias-state-error-primary, #d92d20);
+  --ub-danger-soft: var(--dsw-alias-state-error-secondary, rgba(217, 45, 32, 0.12));
+  --ub-idle: var(--dsw-alias-state-idle-primary, #8a8a8a);
+  --ub-info: var(--dsw-alias-state-business-primary, #2f6fed);
+  --ub-radius: var(--dsw-radius-md, 8px);
+  /* 14px matches the standalone page's cards; the literal fallback keeps the
+     panel identical when the DSH frame publishes no radius token at all. */
+  --ub-radius-panel: var(--dsw-radius-panel, 14px);
+  --ub-focus: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #2f6fed));
+
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  padding: var(--dsh-frame-top-clearance, 48px) clamp(16px, 2.4vw, 32px) 16px;
+  background: transparent;
+  color: var(--ub-fg);
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 20px;
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ub-root {
+    --ub-fg: var(--dsw-alias-label-primary, #ececec);
+    --ub-fg-secondary: var(--dsw-alias-label-secondary, #b0b0b0);
+    --ub-fg-tertiary: var(--dsw-alias-label-tertiary, #8a8a8a);
+    --ub-layer: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.05));
+    --ub-layer-3: var(--dsw-alias-bg-layer-3, rgba(255, 255, 255, 0.09));
+    --ub-border: var(--dsw-alias-border-l1, var(--dsw-alias-border-1, rgba(255, 255, 255, 0.12)));
+    --ub-border-strong: var(--dsw-alias-border-l3, rgba(255, 255, 255, 0.2));
+    --ub-hover: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+    --ub-ok: var(--dsw-alias-state-success-primary, #4ade80);
+    --ub-ok-soft: var(--dsw-alias-state-success-tertiary, rgba(74, 222, 128, 0.16));
+    --ub-warn: var(--dsw-alias-state-warn-primary, #f5b544);
+    --ub-warn-soft: var(--dsw-alias-state-warn-tertiary, rgba(245, 181, 68, 0.16));
+    --ub-danger: var(--dsw-alias-state-error-primary, #f87171);
+    --ub-danger-soft: var(--dsw-alias-state-error-secondary, rgba(248, 113, 113, 0.16));
+    --ub-idle: var(--dsw-alias-state-idle-primary, #9a9a9a);
+    --ub-info: var(--dsw-alias-state-business-primary, #7aa2ff);
+  }
+}
+
+.ub-root *,
+.ub-root *::before,
+.ub-root *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- layout shell ---------- */
+
+/* The DSH main-area slot is wide; the standalone page is the reading-width
+   baseline the user chose. The .ub-inner rule centres the whole panel at that width
+   (header, subtitle, card grid, footer) while still filling the slot's height,
+   so the body scrolls but the footer stays pinned below it. */
+.ub-inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- header ---------- */
+
+.ub-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+  padding-left: var(--dsh-frame-leading-clearance, 0px);
+  padding-bottom: 6px;
+}
+
+.ub-head-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ub-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  color: var(--ub-fg);
+}
+
+.ub-updated {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The services this board covers, exactly the standalone page's subtitle line.
+   The 20px bottom margin is that page's spacer between the title block and the
+   card grid; keeping it here makes the two surfaces share one vertical rhythm. */
+.ub-subtitle {
+  margin: 0 0 20px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ub-fg-tertiary);
+}
+
+/* ---------- refresh controls ---------- */
+
+.ub-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: 0.5px solid var(--ub-border-strong);
+  border-radius: var(--ub-radius);
+  background: var(--ub-layer);
+  color: var(--ub-fg);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ub-refresh:hover:not(:disabled) {
+  background: var(--ub-hover);
+}
+
+.ub-refresh:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.ub-refresh:focus-visible,
+.ub-retry:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--ub-focus);
+  outline-offset: 1px;
+}
+
+.ub-spin {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: currentColor;
+}
+
+.ub-spin.is-on {
+  animation: ub-spin 900ms linear infinite;
+}
+
+@keyframes ub-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ub-spin.is-on {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ---------- body / cards ---------- */
+
+.ub-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The standalone page's card grid: as many equal-width columns as fit, one
+     column when the pane is narrow, and rows that shrink to their content
+     instead of stretching to fill a short pane. */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-content: start;
+  padding-right: 2px;
+}
+
+/* The grid's direct children are normally provider cards. A board-level note
+   (a failed refresh) or the whole-board failure is not a card and must not be
+   squeezed into one column: it spans the full row. */
+.ub-body > .ub-note,
+.ub-body > .ub-failure {
+  grid-column: 1 / -1;
+}
+
+/* DeepSeek's illustration occupies the blank row below all provider cards.
+   Cap its width so the whole 16:9 image fits a typical desktop pane without
+   distorting it; the body still scrolls naturally in shorter panes. */
+.ub-cash {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.ub-cash-image {
+  display: block;
+  width: 100%;
+  max-width: 960px;
+  height: auto;
+  border-radius: var(--ub-radius-panel);
+}
+
+/* 14px radius, 18/18/16 padding and a 16px gap are the standalone page's card
+   metrics; the panel copies them so a wide main-area render reads as the same
+   product, not as a different one. */
+.ub-card {
+  border: 0.5px solid var(--ub-border);
+  border-radius: var(--ub-radius-panel, 14px);
+  background: var(--ub-layer);
+  padding: 18px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ub-card[data-status="ok"] {
+  border-color: var(--ub-border);
+}
+
+.ub-card[data-status="rate-limited"],
+.ub-card[data-status="not-configured"],
+.ub-card[data-status="disabled"] {
+  background: transparent;
+}
+
+.ub-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ub-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- first-paint skeletons ---------- */
+
+/* One placeholder card per provider until that provider's own row lands. A
+   single global "loading…" line would hide which services are still coming;
+   these lines keep the card's rhythm so the numbers do not jump in later. */
+.ub-card[data-skeleton="true"] {
+  min-height: 104px;
+}
+
+.ub-skeleton-line,
+.ub-skeleton-bar {
+  display: block;
+  border-radius: 4px;
+  background: var(--ub-layer-3);
+}
+
+.ub-skeleton-line {
+  height: 10px;
+}
+
+.ub-skeleton-line[data-width="short"] {
+  width: 38%;
+}
+
+.ub-skeleton-line[data-width="wide"] {
+  width: 88%;
+}
+
+.ub-skeleton-bar {
+  height: 6px;
+  border-radius: 999px;
+}
+
+.ub-card-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ub-card-title {
+  margin: 0;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ub-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-plan {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: var(--dsw-radius-sm, 4px);
+  background: var(--ub-layer-3);
+  color: var(--ub-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ub-account {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--ub-fg-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+/* ---------- status pill ---------- */
+
+.ub-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 20px;
+  white-space: nowrap;
+  background: var(--ub-layer-3);
+  color: var(--ub-fg-secondary);
+}
+
+.ub-pill[data-tone="ok"] {
+  background: var(--ub-ok-soft);
+  color: var(--ub-ok);
+}
+
+.ub-pill[data-tone="warn"] {
+  background: var(--ub-warn-soft);
+  color: var(--ub-warn);
+}
+
+.ub-pill[data-tone="danger"] {
+  background: var(--ub-danger-soft);
+  color: var(--ub-danger);
+}
+
+.ub-pill[data-tone="idle"] {
+  background: var(--ub-layer-3);
+  color: var(--ub-idle);
+}
+
+.ub-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ---------- quota window ---------- */
+
+.ub-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ub-metric-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ub-metric-label {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ub-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-metric-value {
+  flex: none;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ub-fg);
+}
+
+.ub-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ub-layer-3);
+  overflow: hidden;
+}
+
+.ub-bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: var(--ub-info);
+  transition: width 240ms ease-out;
+}
+
+.ub-bar-fill[data-level="ok"] {
+  background: var(--ub-ok);
+}
+
+.ub-bar-fill[data-level="warn"] {
+  background: var(--ub-warn);
+}
+
+.ub-bar-fill[data-level="danger"] {
+  background: var(--ub-danger);
+}
+
+.ub-bar-fill[data-level="unknown"] {
+  background: var(--ub-idle);
+  min-width: 0;
+}
+
+.ub-bar-fill[data-empty="true"] {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ub-bar-fill {
+    transition: none;
+  }
+}
+
+.ub-metric-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-nums {
+  color: var(--ub-fg-secondary);
+}
+
+.ub-hint {
+  color: var(--ub-fg-tertiary);
+  font-style: normal;
+}
+
+/* ---------- daily spend trend (history, never allowance) ---------- */
+
+.ub-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Two trailing spend windows side by side: the label stays quiet, the amount
+   carries the emphasis, and both use tabular numerals so the pair lines up
+   across every card. These sizes are the standalone page's trend stats. */
+.ub-trend-stats {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-trend-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ub-trend-stat-label {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ub-fg-secondary);
+  white-space: nowrap;
+}
+
+.ub-trend-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ub-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 34px;
+  padding: 0 1px;
+  border-bottom: 0.5px solid var(--ub-border);
+}
+
+.ub-trend-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  /* Both ends of the range matter: a zero-cost day is still a day, and a tiny
+     nonzero day must not shrink below the same 2px floor as the zero stub —
+     otherwise a ¥0.10 day reads as an empty slot. */
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--ub-info);
+}
+
+/* A zero-spend day is still a day. The min-height floor keeps all seven slots
+   visible even when the week was mostly idle, so a sparse window cannot be
+   mistaken for a chart that lost its data. */
+.ub-trend-bar[data-empty="true"] {
+  background: var(--ub-border-strong);
+  min-height: 2px;
+}
+
+.ub-trend-range {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- balances ---------- */
+
+.ub-balances {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ub-balance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.ub-balance-value {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--ub-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-balance-meta {
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- notes, diagnostics, failures ---------- */
+
+.ub-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ub-fg-tertiary);
+}
+
+.ub-state {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ub-state-line {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--ub-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.ub-code {
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.ub-failure {
+  border: 0.5px solid var(--ub-border-strong);
+  border-radius: var(--ub-radius-panel);
+  background: var(--ub-layer);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ub-failure-line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ub-danger);
+}
+
+.ub-failure-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ub-fg-secondary);
+}
+
+.ub-retry {
+  height: 28px;
+  padding: 0 12px;
+  border: 0.5px solid var(--ub-border-strong);
+  border-radius: var(--ub-radius);
+  background: transparent;
+  color: var(--ub-fg);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ub-retry:hover:not(:disabled) {
+  background: var(--ub-hover);
+}
+
+.ub-retry:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* ---------- DeepSeek peak / off-peak billing reminder ---------- */
+
+.ub-price {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--ub-radius);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-price[data-phase="peak"] {
+  background: var(--ub-warn-soft);
+}
+
+.ub-price[data-phase="offpeak"] {
+  background: var(--ub-ok-soft);
+}
+
+.ub-price-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ub-price-icon {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ub-warn);
+}
+
+.ub-price[data-phase="offpeak"] .ub-price-icon {
+  color: var(--ub-ok);
+}
+
+.ub-price-slogan {
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--ub-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-price-chip {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ub-layer-3);
+  color: var(--ub-fg-secondary);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ub-price[data-phase="peak"] .ub-price-chip {
+  color: var(--ub-warn);
+}
+
+.ub-price[data-phase="offpeak"] .ub-price-chip {
+  color: var(--ub-ok);
+}
+
+.ub-price-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--ub-fg-tertiary);
+}
+
+.ub-price-when {
+  color: var(--ub-fg-secondary);
+}
+
+.ub-price-caveat {
+  color: var(--ub-warn);
+}
+
+/* ---------- footer ---------- */
+
+/* One child only — the host line. The refresh control lives in the header, so
+   this row needs no distribution, just the divider and the muted text. */
+.ub-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 0.5px solid var(--ub-border);
+}
+
+.ub-source {
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- narrow main column ---------- */
+
+@media (max-width: 520px) {
+  .ub-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+}
+
+/* Below one 300px grid track plus the shell's horizontal padding, a single
+   column is the only layout that cannot overflow horizontally. */
+@media (max-width: 380px) {
+  .ub-body {
+    grid-template-columns: 1fr;
+  }
+}

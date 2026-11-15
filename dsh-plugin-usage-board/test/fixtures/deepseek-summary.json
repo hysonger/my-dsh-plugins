@@ -1,0 +1,36 @@
+{
+  "_fixture": {
+    "source": "live",
+    "url": "https://platform.deepseek.com/api/v0/users/get_user_summary",
+    "status": 200,
+    "capturedAt": "2026-10-14T07:00:20.406Z"
+  },
+  "code": 0,
+  "msg": "",
+  "data": {
+    "biz_code": 0,
+    "biz_msg": "",
+    "biz_data": {
+      "normal_wallets": [
+        {
+          "currency": "CNY",
+          "balance": "27.7475092200000000",
+          "token_estimation": "0"
+        }
+      ],
+      "bonus_wallets": [
+        {
+          "currency": "CNY",
+          "balance": "0",
+          "token_estimation": "0"
+        }
+      ],
+      "total_costs": [
+        {
+          "currency": "CNY",
+          "amount": "128.2548868200000000"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,425 @@
+/* dsh-plugin-usage-board — composer usage strip styles.
+ *
+ * Embedded VERBATIM inside lib/client.js (as the COMPOSER_CSS string literal)
+ * by scripts/build-client.mjs. Keep this file free of backticks and of a
+ * dollar sign immediately before a brace.
+ *
+ * The trigger sits in the composer's dock row beside the shipped stats; the
+ * popover portals to document.body (the docked composer is the containing
+ * block for fixed descendants), so both scopes carry the custom properties
+ * they need on their own roots. Colors follow the shared panel rules: below
+ * 70% ok, 70-89% warn, 90%+ danger, unknown idle.
+ */
+
+.ub-composer,
+.ub-composer-popover {
+  --ub-fg: var(--dsw-alias-label-primary, #1f1f1f);
+  --ub-fg-secondary: var(--dsw-alias-label-secondary, #5c5c5c);
+  --ub-fg-tertiary: var(--dsw-alias-label-tertiary, #8a8a8a);
+  --ub-layer-3: var(--dsw-alias-bg-layer-3, rgba(0, 0, 0, 0.06));
+  --ub-border: var(--dsw-alias-border-l1, var(--dsw-alias-border-1, rgba(0, 0, 0, 0.08)));
+  --ub-border-strong: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.16));
+  --ub-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --ub-ok: var(--dsw-alias-state-success-primary, #1f9d55);
+  --ub-ok-soft: var(--dsw-alias-state-success-tertiary, rgba(31, 157, 85, 0.12));
+  --ub-warn: var(--dsw-alias-state-warn-primary, #c77700);
+  --ub-warn-soft: var(--dsw-alias-state-warn-tertiary, rgba(199, 119, 0, 0.14));
+  --ub-danger: var(--dsw-alias-state-error-primary, #d92d20);
+  --ub-danger-soft: var(--dsw-alias-state-error-secondary, rgba(217, 45, 32, 0.12));
+  --ub-idle: var(--dsw-alias-state-idle-primary, #8a8a8a);
+  --ub-radius: var(--dsw-radius-md, 8px);
+  --ub-focus: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #2f6fed));
+
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ub-composer,
+  .ub-composer-popover {
+    --ub-fg: var(--dsw-alias-label-primary, #ececec);
+    --ub-fg-secondary: var(--dsw-alias-label-secondary, #b0b0b0);
+    --ub-fg-tertiary: var(--dsw-alias-label-tertiary, #8a8a8a);
+    --ub-layer-3: var(--dsw-alias-bg-layer-3, rgba(255, 255, 255, 0.09));
+    --ub-border: var(--dsw-alias-border-l1, var(--dsw-alias-border-1, rgba(255, 255, 255, 0.12)));
+    --ub-border-strong: var(--dsw-alias-border-l3, rgba(255, 255, 255, 0.2));
+    --ub-hover: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+    --ub-ok: var(--dsw-alias-state-success-primary, #4ade80);
+    --ub-ok-soft: var(--dsw-alias-state-success-tertiary, rgba(74, 222, 128, 0.16));
+    --ub-warn: var(--dsw-alias-state-warn-primary, #f5b544);
+    --ub-warn-soft: var(--dsw-alias-state-warn-tertiary, rgba(245, 181, 68, 0.16));
+    --ub-danger: var(--dsw-alias-state-error-primary, #f87171);
+    --ub-danger-soft: var(--dsw-alias-state-error-secondary, rgba(248, 113, 113, 0.16));
+    --ub-idle: var(--dsw-alias-state-idle-primary, #9a9a9a);
+  }
+}
+
+.ub-composer *,
+.ub-composer *::before,
+.ub-composer *::after,
+.ub-composer-popover *,
+.ub-composer-popover *::before,
+.ub-composer-popover *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- compact trigger (one dock row with the shipped stats) ---------- */
+
+.ub-composer {
+  display: inline-flex;
+  flex: none;
+  min-width: 0;
+}
+
+.ub-composer-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: none;
+  border-radius: var(--dsw-radius-sm, 4px);
+  background: transparent;
+  color: var(--ub-fg-tertiary);
+  font-family: inherit;
+  /* Match the shipped usage/performance pills exactly: their anchor is one
+     pixel below the secondary content size (12px at the default 13px). */
+  font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px);
+  font-variant-numeric: tabular-nums;
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ub-composer-trigger[aria-expanded="true"] {
+  background: var(--ub-hover);
+  color: var(--ub-fg-secondary);
+}
+
+@media (hover: hover) {
+  .ub-composer-trigger:hover {
+    background: var(--ub-hover);
+    color: var(--ub-fg-secondary);
+  }
+}
+
+.ub-composer-trigger:focus-visible,
+.ub-composer-refresh:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--ub-focus);
+  outline-offset: 1px;
+}
+
+.ub-composer-route {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ub-fg-secondary);
+}
+
+.ub-composer-window-short {
+  flex: none;
+}
+
+.ub-composer-percent {
+  flex: none;
+  color: var(--ub-fg);
+  font-weight: 500;
+}
+
+.ub-composer-reading {
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-composer-more {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ub-layer-3);
+  color: var(--ub-fg-tertiary);
+  font-size: 10.5px;
+  line-height: 14px;
+}
+
+.ub-composer-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--ub-danger-soft);
+  color: var(--ub-danger);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ub-composer[data-state="degraded"] .ub-composer-reading,
+.ub-composer[data-state="unauthorized"] .ub-composer-reading,
+.ub-composer[data-state="upstream-error"] .ub-composer-reading,
+.ub-composer[data-state="network-error"] .ub-composer-reading,
+.ub-composer[data-state="invalid-response"] .ub-composer-reading {
+  color: var(--ub-danger);
+}
+
+/* ---------- quota ring ---------- */
+
+.ub-composer-ring {
+  display: inline-flex;
+  flex: none;
+}
+
+.ub-composer-ring-track {
+  fill: none;
+  stroke: var(--ub-border-strong);
+  stroke-width: 2;
+}
+
+.ub-composer-ring-fill {
+  fill: none;
+  stroke: var(--ub-idle);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: stroke-dasharray 240ms ease-out;
+}
+
+.ub-composer-ring[data-level="ok"] .ub-composer-ring-fill {
+  stroke: var(--ub-ok);
+}
+
+.ub-composer-ring[data-level="warn"] .ub-composer-ring-fill {
+  stroke: var(--ub-warn);
+}
+
+.ub-composer-ring[data-level="danger"] .ub-composer-ring-fill {
+  stroke: var(--ub-danger);
+}
+
+.ub-composer-ring[data-level="unknown"] .ub-composer-ring-fill {
+  stroke: var(--ub-idle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ub-composer-ring-fill {
+    transition: none;
+  }
+}
+
+/* ---------- popover ---------- */
+
+.ub-composer-popover {
+  position: fixed;
+  z-index: 1100;
+  width: min(320px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 12px - max(12px, var(--dsh-frame-overlay-top, 12px)));
+  height: fit-content;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-alias-bg-overlay, #ffffff);
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(20px));
+  --dsw-elevation-stroke-color: var(--ub-border);
+  box-shadow: var(--dsw-elevation-prominent, 0 8px 24px rgba(0, 0, 0, 0.12));
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--ub-fg-secondary);
+  cursor: default;
+  overflow-x: hidden;
+  overflow-y: auto;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2, rgba(0, 0, 0, 0.2));
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2, rgba(0, 0, 0, 0.3));
+  position-area: none;
+  top: max(12px, var(--dsh-frame-overlay-top, 12px));
+  bottom: max(12px, calc(anchor(top) + 8px));
+  left: max(12px, anchor(left));
+  right: 12px;
+  position-try-fallbacks: --ub-composer-below, --ub-composer-viewport;
+  align-self: end;
+  justify-self: start;
+}
+
+@position-try --ub-composer-below {
+  top: max(12px, calc(anchor(bottom) + 8px));
+  bottom: 12px;
+  align-self: start;
+}
+
+@position-try --ub-composer-viewport {
+  position-area: none;
+  inset: max(12px, var(--dsh-frame-overlay-top, 12px)) 12px 12px;
+  margin: 0;
+  align-self: safe start;
+  justify-self: safe end;
+}
+
+.ub-composer-popover-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.ub-composer-popover-title {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.ub-composer-popover-provider {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ub-fg);
+}
+
+.ub-composer-model {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  color: var(--ub-fg-tertiary);
+}
+
+.ub-composer-popover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ub-composer-window {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ub-composer-window-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ub-composer-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ub-composer-window-label {
+  min-width: 0;
+  color: var(--ub-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-composer-window-percent {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--ub-fg);
+  font-weight: 500;
+}
+
+.ub-composer-window-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-composer-note {
+  margin: 0;
+  color: var(--ub-fg-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.ub-composer-error {
+  margin: 0;
+  color: var(--ub-danger);
+  overflow-wrap: anywhere;
+}
+
+.ub-composer-state {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ub-composer-popover-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--ub-border);
+}
+
+.ub-composer-updated {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ub-composer-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border: 0.5px solid var(--ub-border-strong);
+  border-radius: var(--ub-radius);
+  background: transparent;
+  color: var(--ub-fg);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .ub-composer-refresh:hover:not(:disabled) {
+    background: var(--ub-hover);
+  }
+}
+
+.ub-composer-refresh:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Narrow composers keep the provider name and reading; the window's short
+   label is the first thing to go so the dock row cannot overflow. */
+@media (max-width: 640px) {
+  .ub-composer-window-short {
+    display: none;
+  }
+
+  .ub-composer-route {
+    max-width: 96px;
+  }
+}

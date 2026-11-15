@@ -1,0 +1,54 @@
+{
+  "name": "dsh-plugin-usage-board",
+  "version": "0.7.0",
+  "private": true,
+  "description": "DSH usage board: DeepSeek (balance, spend trend, peak/off-peak billing reminder), GLM Coding Plan, Kimi Code and OpenCode Go quota in one sidebar panel, a selected-provider quota strip with ring popover under the composer, plus a usage_query tool the model can call",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "src/",
+    "docs/",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-model-selection"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "build": "node scripts/build-client.mjs",
+    "check": "node scripts/build-client.mjs --check && node --test test/",
+    "live": "node test/providers.live.mjs",
+    "update-holidays": "npm install chinese-days@latest --save-exact && node --test test/holidays.test.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "chinese-days": "1.5.9"
+  }
+}

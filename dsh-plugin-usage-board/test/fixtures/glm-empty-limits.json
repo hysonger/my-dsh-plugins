@@ -1,0 +1,15 @@
+{
+  "_fixture": {
+    "source": "synthetic",
+    "url": "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+    "note": "SYNTHETIC: 200 envelope with an empty limits array, for the invalid-response branch.",
+    "capturedAt": "2026-10-14T07:00:21.995Z"
+  },
+  "code": 200,
+  "msg": "操作成功",
+  "data": {
+    "limits": [],
+    "level": "lite"
+  },
+  "success": true
+}

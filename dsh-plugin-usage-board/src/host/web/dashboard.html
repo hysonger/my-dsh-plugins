@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用量看板 · Usage Board</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --fg: #111827;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --line: #e5e7eb;
+    --accent: #4d6bfe;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    --track: #eceef2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --card: #171a21;
+      --fg: #e5e7eb;
+      --muted: #9ca3af;
+      --faint: #6b7280;
+      --line: #262b35;
+      --track: #232833;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 20px; }
+  /* One stable grid slot per provider. `display: contents` keeps the slot's
+     child (skeleton, card, or failure card) as the real grid item, so replacing
+     one provider's card in place changes neither the layout nor the other
+     cards' DOM nodes. */
+  .slot { display: contents; }
+  .cash { width: 100%; max-width: 960px; margin: 16px auto 0; }
+  .cash-image { display: block; width: 100%; height: auto; border-radius: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px; }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
+  .pill { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.ok { color: var(--ok); }
+  .pill.warn { color: var(--warn); }
+  .pill.err { color: var(--err); }
+  .pill.idle { color: var(--faint); }
+  .plan { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  .metric { margin-bottom: 14px; }
+  .metric:last-child { margin-bottom: 0; }
+  .metric-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+  .metric-head .name { color: var(--fg); }
+  .metric-head .spacer { flex: 1; }
+  .metric-head .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track { height: 7px; border-radius: 999px; background: var(--track); overflow: hidden; margin-top: 6px; }
+  .fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s ease; }
+  .fill.warn { background: var(--warn); }
+  .fill.err { background: var(--err); }
+  .note { color: var(--faint); font-size: 11px; margin-top: 4px; }
+  .money { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .money small { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 34px; margin-top: 6px; }
+  /* Both ends of the range matter: the 2px floor keeps a zero-cost day visible
+     AND keeps a tiny nonzero day from shrinking below the zero stub, so a
+     ¥0.10 day never reads as an empty slot. */
+  .bar { flex: 1; min-width: 2px; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .85; }
+  .bar:hover { opacity: 1; }
+  /* A zero-cost day still draws a visible stub with its own muted tone. */
+  .bar.empty { background: var(--track); opacity: 1; min-height: 2px; }
+  /* Spend-history stats: a muted window label beside an emphasised amount.
+     History, never allowance — this row never prints a remainder. */
+  .trend-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; font-variant-numeric: tabular-nums; }
+  .trend-stat { display: flex; align-items: baseline; gap: 6px; }
+  .trend-stat .name { color: var(--muted); font-size: 11px; }
+  .trend-stat .val { color: var(--fg); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* DeepSeek peak / off-peak billing reminder. The tinted card says "cheap"
+     (green) or "full price" (amber) at a glance; the countdown text is updated
+     once a second by the page's wall-clock ticker. */
+  .price { border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+  .price.peak { background: rgba(217, 119, 6, .13); }
+  .price.offpeak { background: rgba(22, 163, 74, .13); }
+  .price-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .price-slogan { min-width: 0; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .price-chip { flex: none; margin-left: auto; padding: 0 6px; border-radius: 999px; background: var(--track); color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+  .price.peak .price-chip { color: var(--warn); }
+  .price.offpeak .price-chip { color: var(--ok); }
+  .price-foot { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; color: var(--faint); }
+  .price-when { color: var(--muted); }
+  .price-caveat { color: var(--warn); }
+  .err-box { color: var(--muted); font-size: 12px; }
+  .err-box code { color: var(--faint); font-size: 11px; }
+  .skeleton { height: 140px; border-radius: 14px; background: linear-gradient(90deg, var(--track), var(--card), var(--track)); background-size: 200% 100%; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .fill { transition: none; } }
+  footer { margin-top: 24px; color: var(--faint); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>用量看板</h1>
+    <span class="sub" id="updated">加载中…</span>
+    <span class="spacer"></span>
+    <button id="refresh" type="button">刷新</button>
+  </header>
+  <p class="sub" id="subtitle" style="margin:0">DeepSeek · GLM Coding Plan · Kimi Code · OpenCode Go</p>
+  <div class="grid" id="grid"></div>
+  <p class="sub" id="empty" style="margin:12px 0 0" hidden>实例还没有配置任何服务。</p>
+  <figure class="cash">
+    <img class="cash-image" src="/usage-board/deepseek_cash.png" alt="DeepSeek 鲸元券" width="1280" height="720" decoding="async">
+  </figure>
+  <footer id="footer"></footer>
+</main>
+<!--USAGE_BOARD_BOOT-->
+<script>
+ (() => {
+  const boot = window.__USAGE_BOARD__ || {};
+  const grid = document.getElementById('grid');
+  const updatedEl = document.getElementById('updated');
+  const footerEl = document.getElementById('footer');
+  const refreshBtn = document.getElementById('refresh');
+  const subtitleEl = document.getElementById('subtitle');
+  const emptyEl = document.getElementById('empty');
+  /** Provider display order when the served page carries no boot data. */
+  const DEFAULT_PROVIDER_IDS = ['deepseek', 'glm', 'kimi', 'opencode-go'];
+  const DEFAULT_PROVIDER_PATH = '/usage-board/api/provider';
+  const DEFAULT_PROVIDER_QUERY_PARAM = 'id';
+  /** Card titles for a provider that failed before ever sending a row. */
+  const PROVIDER_LABELS = {
+    deepseek: 'DeepSeek',
+    glm: 'GLM Coding Plan',
+    kimi: 'Kimi Code',
+    'opencode-go': 'OpenCode Go',
+  };
+  /**
+   * One request per provider, so a slow or hanging upstream holds back only its
+   * own card. `providerIds` is the display order; a boot object without it (an
+   * older host) falls back to the providers this plugin ships.
+   */
+  const providerIds = normalizeProviderIds(boot.providerIds);
+  const providerPath = typeof boot.providerPath === 'string' && boot.providerPath !== '' ? boot.providerPath : DEFAULT_PROVIDER_PATH;
+  const providerQueryParam = typeof boot.providerQueryParam === 'string' && boot.providerQueryParam !== '' ? boot.providerQueryParam : DEFAULT_PROVIDER_QUERY_PARAM;
+  let ttlMs = 60000;
+  let timer = null;
+  let protocolVersion = null;
+  /** id -> last ProviderSnapshot row painted on that provider's card. */
+  const rows = new Map();
+  /** id -> card slot in `grid`; its only child is a skeleton, a card, or a failure card. */
+  const slots = new Map();
+  /** id -> transport-level failure (network/HTTP) of that provider's latest read. */
+  const transportErrors = new Map();
+  /** id -> generatedAt of the envelope backing the painted row (merged freshness). */
+  const generatedAtById = new Map();
+  /** id -> true when that provider's last envelope came from a stale cache. */
+  const staleById = new Map();
+  /** ids with a request in flight; the refresh button is disabled while non-empty. */
+  const pending = new Set();
+  /** ids with a scheduled single-shot stale follow-up; a follow-up never chains. */
+  const staleFollowUps = new Set();
+  /** id -> once-a-second DeepSeek billing repaint; dropped when that card is replaced. */
+  const pricingTickers = new Map();
+
+  function normalizeProviderIds(raw) {
+    const ids = [];
+    if (Array.isArray(raw)) {
+      for (const id of raw) {
+        if (typeof id !== 'string' || id === '' || ids.indexOf(id) !== -1) continue;
+        ids.push(id);
+      }
+    }
+    return ids.length > 0 ? ids : DEFAULT_PROVIDER_IDS.slice();
+  }
+
+  /**
+   * Auto-refresh gate, the same policy as the sidebar panel: fetch only while
+   * the page is visible AND the user interacted recently. A visible but
+   * unattended page is idle — nobody is reading, so the upstream reads an
+   * expired poll triggers are pure waste. Coming back (any input, or the tab
+   * becoming visible) picks the data up immediately instead of waiting a ttl.
+   */
+  const IDLE_AFTER_MS = 3 * 60 * 1000;
+  /**
+   * How often the gate re-evaluates. The only transition no event announces is
+   * "visible but idle"; without this recheck the closed gate would only be
+   * discovered by a ttl tick, so the first input after idling out could wait a
+   * whole ttl for its catch-up read. Same cadence as the sidebar panel.
+   */
+  const GATE_RECHECK_MS = 30 * 1000;
+  let lastActivityAt = Date.now();
+  let gateOpen = true;
+
+  function gateAllows() {
+    if (document.visibilityState !== 'visible') return false;
+    return Date.now() - lastActivityAt <= IDLE_AFTER_MS;
+  }
+
+  function evaluateGate() {
+    const next = gateAllows();
+    const reopened = next === true && gateOpen !== true;
+    gateOpen = next;
+    if (reopened) loadAll(false);
+  }
+
+  const LABELS = {
+    'glm.5h': '5 小时窗口',
+    'glm.weekly': '每周窗口',
+    'kimi.5h': '5 小时窗口',
+    'kimi.weekly': '每周窗口',
+    'kimi.monthly': '每月窗口',
+    'opencode-go.5h': '5 小时窗口',
+    'opencode-go.weekly': '每周窗口',
+    'opencode-go.monthly': '每月窗口',
+    'deepseek.balance': '余额',
+  };
+  const STATUS_TEXT = {
+    ok: '正常',
+    'not-configured': '未配置',
+    unauthorized: '未授权',
+    'rate-limited': '限流',
+    'upstream-error': '上游错误',
+    'network-error': '网络错误',
+    'invalid-response': '响应异常',
+    disabled: '已停用',
+  };
+  const STATUS_CLASS = {
+    ok: 'ok', 'not-configured': 'idle', unauthorized: 'err', 'rate-limited': 'warn',
+    'upstream-error': 'err', 'network-error': 'err', 'invalid-response': 'err', disabled: 'idle',
+  };
+  /**
+   * Localized diagnostics. The host writes `message` in English and attaches a
+   * stable `messageKey`; this page shows the Chinese wording for a known key and
+   * falls back to the host's own sentence otherwise (a provider's error text is
+   * not translatable anyway).
+   */
+  const MESSAGE_TEXT = {
+    notConfigured: '尚未配置这家服务的凭据，请在 DSH 设置里填写对应密钥。',
+    authRejected: '凭据被服务方拒绝，可能已过期或填错。',
+    noCodingPlan: '这个密钥没有有效的 Coding Plan 套餐。',
+    rateLimited: '服务方正在限流，请稍后重试。',
+    unreachable: '无法连接实例的用量服务。',
+    cancelled: '本次读取已取消。',
+    badResponse: '服务方返回了无法解析的内容。',
+    adapterFailed: '读取过程中出现意外错误。',
+    noHost: '没有可用的上游地址。',
+    'status.upstream-error': '上游服务返回错误。',
+    'status.network-error': '网络异常。',
+    'status.unauthorized': '凭据被拒绝。',
+    'status.invalid-response': '服务方返回了异常内容。',
+    'status.rate-limited': '服务方正在限流。',
+    'status.not-configured': '尚未配置凭据。',
+    'status.disabled': '这家服务已被停用。',
+  };
+  const SYMBOL = { CNY: '¥', USD: '$' };
+
+  /**
+   * DeepSeek peak / off-peak billing reminder (same schedule the sidebar panel
+   * renders). The host ships the schedule in `row.meta.pricing` as absolute
+   * transition instants; this page only walks them against the wall clock, so
+   * a cached snapshot still flips on the right second. The pun swaps one
+   * character of DeepSeek founder 梁文峰's name: peak keeps 峰, off-peak
+   * becomes 梁文谷.
+   */
+  const PRICING_DEFAULT_OFFSET_MINUTES = 480;
+  const PRICING_PHASES = ['peak', 'offpeak'];
+  const PRICING_SLOGAN = { peak: '现在是梁文峰时段！', offpeak: '现在是梁文谷时段！' };
+  const PRICING_CHIP = { peak: '高峰 · 标准价', offpeak: '空闲 · 5 折' };
+  const PRICING_RULE = '北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰时段；其余时间（含周末与法定节假日）为空闲时段，空闲价为高峰价的一半。';
+
+  function normalizePricing(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (PRICING_PHASES.indexOf(raw.phase) === -1) return null;
+    const transitions = [];
+    if (Array.isArray(raw.transitions)) {
+      for (const entry of raw.transitions) {
+        if (!entry || typeof entry !== 'object') continue;
+        if (typeof entry.at !== 'number' || !Number.isFinite(entry.at)) continue;
+        if (PRICING_PHASES.indexOf(entry.phase) === -1) continue;
+        transitions.push({ at: entry.at, phase: entry.phase });
+      }
+    }
+    transitions.sort((left, right) => left.at - right.at);
+    const calendar = raw.holidayCalendar && typeof raw.holidayCalendar === 'object' && typeof raw.holidayCalendar.through === 'number'
+      ? {
+        source: raw.holidayCalendar.source,
+        through: raw.holidayCalendar.through,
+        coversHorizon: typeof raw.holidayCalendar.coversHorizon === 'boolean' ? raw.holidayCalendar.coversHorizon : null,
+      }
+      : null;
+    return {
+      phase: raw.phase,
+      utcOffsetMinutes: typeof raw.utcOffsetMinutes === 'number' ? raw.utcOffsetMinutes : PRICING_DEFAULT_OFFSET_MINUTES,
+      holidayCalendar: calendar,
+      transitions,
+    };
+  }
+
+  /** Phase at `nowMs` plus the next change, from the shipped transitions. */
+  function pricingStateAt(pricing, nowMs) {
+    let phase = pricing.phase;
+    for (const transition of pricing.transitions) {
+      if (transition.at <= nowMs) { phase = transition.phase; continue; }
+      return { phase, nextAt: transition.at, nextPhase: transition.phase };
+    }
+    return { phase, nextAt: null, nextPhase: null };
+  }
+
+  /** "2 小时 8 分" / "22 分钟" / "38 秒" — at most two units. */
+  function pricingWhenText(nextAt, nowMs) {
+    const remaining = nextAt - nowMs;
+    if (!(remaining > 0)) return '即将切换';
+    // Completed units only: rounding a 65-second wait up to "2 分钟" or a
+    // 23:59:59 wait up to "1 天" looks like a bug to anyone watching it.
+    const seconds = Math.floor(remaining / 1000);
+    if (seconds < 60) return seconds === 0 ? '即将切换' : seconds + ' 秒';
+    const totalMinutes = Math.floor(remaining / 60000);
+    if (totalMinutes < 60) return totalMinutes + ' 分钟';
+    const totalHours = Math.floor(remaining / 3600000);
+    if (totalHours < 24) {
+      const minutes = Math.floor((remaining - totalHours * 3600000) / 60000);
+      return minutes === 0 ? totalHours + ' 小时' : totalHours + ' 小时 ' + minutes + ' 分';
+    }
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    return hours === 0 ? days + ' 天' : days + ' 天 ' + hours + ' 小时';
+  }
+
+  function pricingCaveat(pricing, nowMs) {
+    if (!pricing.holidayCalendar) return '未安装节假日日历，暂按工作日估算。';
+    // In late December the shipped horizon reaches into next year; if that
+    // year's arrangement is not in the calendar yet, the far edge of the
+    // countdown is an estimate even though the current phase is right.
+    if (pricing.holidayCalendar.coversHorizon === false) return '节假日日历尚未覆盖完整计划区间，暂按工作日估算。';
+    if (pricing.holidayCalendar.coversHorizon === null) {
+      const offsetMs = (typeof pricing.utcOffsetMinutes === 'number' ? pricing.utcOffsetMinutes : PRICING_DEFAULT_OFFSET_MINUTES) * 60000;
+      const year = new Date(nowMs + offsetMs).getUTCFullYear();
+      if (pricing.holidayCalendar.through < year) return '节假日日历尚未覆盖完整计划区间，暂按工作日估算。';
+    }
+    return null;
+  }
+
+  /**
+   * Build the reminder node and register its once-a-second repaint under the
+   * card's provider id. Returns null when the row carries no usable schedule.
+   * Registering by id (rather than appending to a global list) is what lets a
+   * replaced card unregister exactly its own repaint instead of leaving a
+   * closure that repaints a detached node forever.
+   */
+  function pricingBadge(raw, id) {
+    const pricing = normalizePricing(raw);
+    if (pricing === null) return null;
+    const node = el('div', { class: 'price' });
+    const render = () => {
+      const nowMs = Date.now();
+      const state = pricingStateAt(pricing, nowMs);
+      const peak = state.phase === 'peak';
+      node.className = 'price ' + (peak ? 'peak' : 'offpeak');
+      node.setAttribute('data-phase', peak ? 'peak' : 'offpeak');
+      const caveat = pricingCaveat(pricing, nowMs);
+      node.title = caveat === null ? PRICING_RULE : PRICING_RULE + ' ' + caveat;
+      const foot = [];
+      if (state.nextAt !== null) {
+        const verb = state.nextPhase === 'peak' ? '距涨价 ' : '距降价 ';
+        foot.push(el('span', { class: 'price-when', text: verb + pricingWhenText(state.nextAt, nowMs) }));
+      }
+      foot.push(el('span', { text: '北京时间' }));
+      if (caveat !== null) foot.push(el('span', { class: 'price-caveat', text: caveat }));
+      node.replaceChildren(
+        el('div', { class: 'price-main' }, [
+          el('span', { class: 'price-slogan', text: PRICING_SLOGAN[peak ? 'peak' : 'offpeak'] }),
+          el('span', { class: 'price-chip', text: PRICING_CHIP[peak ? 'peak' : 'offpeak'] }),
+        ]),
+        el('div', { class: 'price-foot' }, foot),
+      );
+    };
+    render();
+    if (typeof id === 'string' && id !== '') pricingTickers.set(id, render);
+    return node;
+  }
+
+  function el(tag, props, children) {
+    const node = document.createElement(tag);
+    if (props) for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') node.className = v;
+      else if (k === 'text') node.textContent = v;
+      else node.setAttribute(k, v);
+    }
+    for (const child of children || []) if (child) node.appendChild(child);
+    return node;
+  }
+  function num(value, digits) {
+    return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : null;
+  }
+  function money(balance) {
+    const symbol = SYMBOL[balance.currency] || '';
+    const amount = num(balance.available, 2);
+    return amount === null ? '—' : symbol + amount;
+  }
+  /**
+   * Countdown phrase without its verb ("2 小时后"), the same rounding the
+   * sidebar panel uses (src/client/panel.js `resetAfter`). Both renderers must
+   * agree, so a user comparing them never sees "2 天后重置" beside "1 天后重置"
+   * for one timestamp.
+   */
+  function resetAfter(delta) {
+    const seconds = Math.ceil(delta / 1000);
+    if (seconds < 60) return seconds + ' 秒后';
+    const minutes = Math.round(delta / 60000);
+    if (minutes < 60) return minutes + ' 分钟后';
+    const hours = Math.round(delta / 3600000);
+    if (hours < 24) return hours + ' 小时后';
+    return Math.round(delta / 86400000) + ' 天后';
+  }
+  /** Reset countdown sentence, or null when the provider reports no reset. */
+  function resetText(resetAt) {
+    if (typeof resetAt !== 'number') return null;
+    const delta = resetAt - Date.now();
+    if (delta <= 0) return '即将重置';
+    return resetAfter(delta) + '重置';
+  }
+  /** Zero-pad one local clock component to the two digits a time display needs. */
+  function pad2(value) {
+    return value < 10 ? '0' + value : String(value);
+  }
+  /**
+   * The reset instant as a local wall-clock time, minute precision: "16:35 重置",
+   * "明日 01:20 重置" or "10 月 26 日 06:11 重置". The day is named whenever the
+   * instant is not today, so a 5-hour window rolling over midnight stays clear.
+   */
+  function resetClockText(resetAt) {
+    const target = new Date(resetAt);
+    const current = new Date(Date.now());
+    const time = pad2(target.getHours()) + ':' + pad2(target.getMinutes());
+    if (target.getFullYear() === current.getFullYear()
+      && target.getMonth() === current.getMonth()
+      && target.getDate() === current.getDate()) return time + ' 重置';
+    const tomorrow = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1);
+    if (target.getFullYear() === tomorrow.getFullYear()
+      && target.getMonth() === tomorrow.getMonth()
+      && target.getDate() === tomorrow.getDate()) return '明日 ' + time + ' 重置';
+    return (target.getMonth() + 1) + ' 月 ' + target.getDate() + ' 日 ' + time + ' 重置';
+  }
+  /**
+   * Whether a window is one of the 5-hour rolling quota windows. The stable
+   * ids are the primary signal; `unit` is the provider's raw code (GLM 3, Kimi
+   * and OpenCode Go "5h") and only covers a row shaped by an older host.
+   */
+  function isFiveHourWindow(win) {
+    if (!win || typeof win !== 'object') return false;
+    if (win.id === 'glm.5h' || win.id === 'kimi.5h' || win.id === 'opencode-go.5h') return true;
+    const unit = win.unit === null || win.unit === undefined ? '' : String(win.unit);
+    return unit === '3' || unit.toLowerCase() === '5h';
+  }
+  /**
+   * The reset line for one quota window. Every window keeps its countdown; a
+   * 5-hour window also prints the exact local reset clock time, because the
+   * countdown alone cannot say at which minute the allowance comes back.
+   */
+  function windowResetText(win) {
+    if (!win || typeof win.resetAt !== 'number') return null;
+    const delta = win.resetAt - Date.now();
+    if (delta <= 0) return '即将重置';
+    if (!isFiveHourWindow(win)) return resetText(win.resetAt);
+    return resetClockText(win.resetAt) + '（' + resetAfter(delta) + '）';
+  }
+  /** Relative "last updated" sentence, the same shape as the sidebar panel's. */
+  function relative(ts) {
+    if (typeof ts !== 'number') return null;
+    const delta = Math.max(0, Date.now() - ts);
+    if (delta < 5000) return '刚刚更新';
+    if (delta < 60000) return Math.round(delta / 1000) + ' 秒前更新';
+    if (delta < 3600000) return Math.round(delta / 60000) + ' 分钟前更新';
+    return Math.round(delta / 3600000) + ' 小时前更新';
+  }
+  function progressClass(percent) {
+    if (typeof percent !== 'number') return '';
+    if (percent >= 90) return 'err';
+    if (percent >= 70) return 'warn';
+    return '';
+  }
+  /**
+   * The share to display: the fraction implied by the window's own numbers when
+   * it can be computed, otherwise what the provider declared.
+   *
+   * Providers round aggressively — GLM declares 32% beside 656/2000, which is
+   * 32.8% — and a percentage that contradicts the `used / limit` printed next to
+   * it makes the whole card look untrustworthy.
+   */
+  function displayPercent(win) {
+    if (typeof win.derivedPercent === 'number') return win.derivedPercent;
+    if (typeof win.percent === 'number') return win.percent;
+    if (typeof win.used === 'number' && typeof win.limit === 'number' && win.limit > 0) {
+      return Math.round((win.used / win.limit) * 1000) / 10;
+    }
+    return null;
+  }
+
+  /** Days of meta.dailyUsage the chart draws; the same window is the 近一周 total. */
+  const DAILY_TREND_DAYS = 7;
+  /** Trailing days summed as 近一月. The host ships at most this many points. */
+  const MONTH_TOTAL_DAYS = 30;
+
+  /** One spend-history stat: muted window label beside an emphasised amount. */
+  function trendStat(name, total, symbol) {
+    return el('div', { class: 'trend-stat' }, [
+      el('span', { class: 'name', text: name }),
+      el('span', { class: 'val', text: symbol + total.toFixed(2) }),
+    ]);
+  }
+
+  /**
+   * Draw the trailing daily-spend trend an adapter may attach to meta.dailyUsage.
+   * History, not allowance: the bars show what was spent, never what is left.
+   * The chart and the 近一周 total both cover the trailing 7 points; 近一月 sums
+   * the trailing 30, or every point the host shipped when it has fewer.
+   */
+  function dailyTrend(series) {
+    if (!series || !Array.isArray(series.points) || series.points.length === 0) return null;
+    const points = series.points;
+    const symbol = SYMBOL[series.currency] || '';
+    const costs = points.map((point) => (typeof point.cost === 'number' && Number.isFinite(point.cost) ? point.cost : 0));
+    const sum = (values) => values.reduce((total, value) => total + value, 0);
+    const weekTotal = sum(costs.slice(-DAILY_TREND_DAYS));
+    const monthTotal = sum(costs.slice(-MONTH_TOTAL_DAYS));
+    const chartPoints = points.slice(-DAILY_TREND_DAYS);
+    const chartCosts = costs.slice(-DAILY_TREND_DAYS);
+    const first = chartPoints[0].date;
+    const last = chartPoints[chartPoints.length - 1].date;
+    const peak = Math.max(...chartCosts, 0);
+    const bars = el('div', {
+      class: 'bars',
+      role: 'img',
+      'aria-label': '近 ' + chartPoints.length + ' 天消耗趋势（' + first + ' → ' + last + '）：'
+        + '近一周 ' + symbol + weekTotal.toFixed(2) + '，近一月 ' + symbol + monthTotal.toFixed(2),
+    });
+    for (const [index, cost] of chartCosts.entries()) {
+      // A zero-cost day keeps a visible stub (3%, floored by `.bar.empty`'s
+      // min-height), so a sparse week still reads as seven days.
+      const height = Math.max(cost > 0 ? 2 : 3, peak > 0 ? Math.round((cost / peak) * 100) : 0);
+      bars.appendChild(el('span', {
+        class: 'bar' + (cost > 0 ? '' : ' empty'),
+        style: 'height:' + height + '%',
+        title: chartPoints[index].date + ' · ' + symbol + cost.toFixed(2),
+      }));
+    }
+    const stats = el('div', { class: 'trend-stats' }, [
+      trendStat('近一周', weekTotal, symbol),
+      trendStat('近一月', monthTotal, symbol),
+    ]);
+    return el('div', { class: 'metric trend' }, [
+      stats,
+      bars,
+      el('div', { class: 'note', text: first + ' → ' + last }),
+    ]);
+  }
+
+  function windowMetric(win) {
+    const name = LABELS[win.id] || win.id;
+    const used = num(win.used, 0);
+    const limit = num(win.limit, 0);
+    // A percentage-only window (OpenCode Go) has no absolute counters. An
+    // em-dash fraction would read as a broken reading, so the line is omitted
+    // and the percentage in the note beside it carries the window.
+    const hasCounters = used !== null || limit !== null;
+    const head = el('div', { class: 'metric-head' }, [
+      el('span', { class: 'name', text: name }),
+      el('span', { class: 'spacer' }),
+      hasCounters ? el('span', { class: 'val', text: (used === null || limit === null ? '—' : used + ' / ' + limit) }) : null,
+    ]);
+    const percent = displayPercent(win);
+    const track = el('div', { class: 'track' }, [
+      el('div', { class: 'fill ' + progressClass(percent), style: 'width:' + (percent === null ? 0 : Math.max(0, Math.min(100, percent))) + '%' }),
+    ]);
+    const bits = [];
+    if (percent !== null) bits.push('已用 ' + percent.toFixed(1) + '%');
+    const remaining = num(win.remaining, 0);
+    if (remaining !== null) bits.push('剩余 ' + remaining);
+    const reset = windowResetText(win);
+    if (reset) bits.push(reset);
+    const metric = el('div', { class: 'metric' }, [head, track]);
+    if (bits.length > 0) metric.appendChild(el('div', { class: 'note', text: bits.join(' · ') }));
+    return metric;
+  }
+
+  function card(row) {
+    const node = el('section', { class: 'card' });
+    node.appendChild(el('h2', {}, [
+      el('span', { text: row.label }),
+      el('span', { class: 'pill ' + (STATUS_CLASS[row.status] || 'idle'), text: STATUS_TEXT[row.status] || row.status }),
+    ]));
+    if (row.plan) node.appendChild(el('p', { class: 'plan', text: '套餐：' + row.plan }));
+    // DeepSeek's billing phase describes the list price, not this account, so
+    // the reminder stays on the card even when the row itself failed.
+    if (row.id === 'deepseek' && row.meta) {
+      const badge = pricingBadge(row.meta.pricing, row.id);
+      if (badge) node.appendChild(badge);
+    }
+
+    if (row.balances && row.balances.length > 0) {
+      for (const balance of row.balances) {
+        const line = el('div', { class: 'metric' });
+        const amount = el('div', { class: 'money', text: money(balance) });
+        const extra = [];
+        const bonus = num(balance.bonus, 2);
+        if (bonus !== null && Number(bonus) > 0) extra.push('赠送 ' + (SYMBOL[balance.currency] || '') + bonus);
+        const spent = num(balance.totalSpent, 2);
+        if (spent !== null) extra.push('累计消耗 ' + (SYMBOL[balance.currency] || '') + spent);
+        if (extra.length > 0) amount.appendChild(el('small', { text: extra.join(' · ') }));
+        line.appendChild(amount);
+        node.appendChild(line);
+      }
+    }
+    if (row.windows && row.windows.length > 0) {
+      for (const win of row.windows) node.appendChild(windowMetric(win));
+    }
+    const trend = dailyTrend(row.meta && row.meta.dailyUsage);
+    if (trend) node.appendChild(trend);
+    if (row.status === 'ok' && (!row.windows || row.windows.length === 0) && (!row.balances || row.balances.length === 0) && !trend) {
+      node.appendChild(el('div', { class: 'err-box', text: '该服务暂未提供可展示的用量数据。' }));
+    }
+    if (row.status !== 'ok') {
+      const box = el('div', { class: 'err-box' });
+      const localized = MESSAGE_TEXT[row.messageKey];
+      box.appendChild(el('div', { text: localized || row.message || '读取失败。' }));
+      if (row.code) box.appendChild(el('code', { text: row.code }));
+      node.appendChild(box);
+    }
+    const meta = [];
+    if (row.meta && row.meta.host) meta.push(row.meta.host);
+    if (typeof row.latencyMs === 'number') meta.push(row.latencyMs + ' ms');
+    if (meta.length > 0) node.appendChild(el('div', { class: 'note', text: meta.join(' · ') }));
+    return node;
+  }
+
+  /** Merge the per-provider read times into one "board is this old" instant. */
+  function mergedGeneratedAt() {
+    let oldest = null;
+    for (const generatedAt of generatedAtById.values()) {
+      if (typeof generatedAt !== 'number' || !Number.isFinite(generatedAt)) continue;
+      if (oldest === null || generatedAt < oldest) oldest = generatedAt;
+    }
+    return oldest;
+  }
+
+  /** Whether one provider currently has a usable (ok) row on its card. */
+  function providerOk(id) {
+    if (transportErrors.has(id)) return false;
+    const row = rows.get(id);
+    return Boolean(row) && row.status === 'ok';
+  }
+
+  /**
+   * Whether a provider is configured but has no credential, so this page owns
+   * no card for it. The row still exists in `rows` (it is what tells the page
+   * to keep asking, so a credential added later makes the card appear); it is
+   * only hidden. Not-configured is a state, not a degraded board.
+   */
+  function isHiddenProvider(id) {
+    const row = rows.get(id);
+    return Boolean(row) && row.status === 'not-configured';
+  }
+
+  /**
+   * Header and footer from the merged per-provider state.
+   *
+   * - `加载中…` while the first paint has nothing yet;
+   * - `X 前更新 · 正在刷新…` while at least one provider's read is in flight;
+   * - `X 前更新 · 部分服务异常` when a settled provider has a degraded row or a
+   *   failed transport read (unconfigured providers are excluded);
+   * - `读取失败` when no provider answered at all.
+   *
+   * The subtitle names the cards actually on screen, and `#empty` explains a
+   * board whose every provider is unconfigured instead of leaving a blank grid.
+   */
+  function updateChrome() {
+    const busy = pending.size > 0;
+    const haveRows = rows.size;
+    refreshBtn.disabled = busy;
+    if (busy) {
+      updatedEl.textContent = haveRows === 0 ? '加载中…' : relative(mergedGeneratedAt()) + ' · 正在刷新…';
+    } else if (haveRows === 0) {
+      updatedEl.textContent = '读取失败';
+    } else {
+      const degraded = providerIds.some((id) => !isHiddenProvider(id) && !providerOk(id));
+      const stale = providerIds.some((id) => !isHiddenProvider(id) && staleById.get(id) === true);
+      updatedEl.textContent = relative(mergedGeneratedAt()) + (degraded ? ' · 部分服务异常' : '') + (stale ? ' · 后台刷新中' : '');
+    }
+    if (subtitleEl !== null) {
+      const visible = providerIds.filter((id) => {
+        const row = rows.get(id);
+        return Boolean(row) && row.status !== 'not-configured';
+      });
+      // Before the first row arrives the full roster is the only honest answer;
+      // once settled, only services with a card are named.
+      const named = visible.length > 0 ? visible : (rows.size === 0 ? providerIds : []);
+      subtitleEl.textContent = named.map((id) => PROVIDER_LABELS[id] || id).join(' · ');
+    }
+    if (emptyEl !== null) {
+      const anyCard = [...slots.values()].some((slot) => slot.children.length > 0);
+      emptyEl.hidden = busy || anyCard || haveRows === 0;
+    }
+    if (haveRows > 0 || protocolVersion !== null) {
+      footerEl.textContent = '插件 v' + (typeof boot.version === 'string' ? boot.version : '?')
+        + ' · 缓存 ' + Math.round(ttlMs / 1000) + ' 秒'
+        + ' · 协议 v' + (protocolVersion === null ? '?' : protocolVersion);
+    }
+  }
+
+  /**
+   * One skeleton slot per provider, in display order. The slot is a stable grid
+   * child (CSS `display: contents` keeps its content the real grid item), so a
+   * provider's card can be swapped in place later without rebuilding — or
+   * blanking — the cards that already answered.
+   */
+  function paintSkeletons() {
+    grid.replaceChildren();
+    slots.clear();
+    for (const id of providerIds) {
+      const slot = el('div', { class: 'slot' });
+      slot.appendChild(el('div', { class: 'skeleton' }));
+      slots.set(id, slot);
+      grid.appendChild(slot);
+    }
+  }
+
+  /** The card for a provider whose HTTP read never produced an envelope. */
+  function failureCard(id, reason) {
+    const node = el('section', { class: 'card' });
+    node.appendChild(el('h2', {}, [
+      el('span', { text: PROVIDER_LABELS[id] || id }),
+      el('span', { class: 'pill err', text: '读取失败' }),
+    ]));
+    const box = el('div', { class: 'err-box' });
+    box.appendChild(el('div', { text: '无法读取该服务的用量数据。' }));
+    if (reason) box.appendChild(el('code', { text: reason }));
+    node.appendChild(box);
+    return node;
+  }
+
+  /**
+   * Paint one provider's slot from its last known row, or its transport
+   * failure. Replacing a card also unregisters the billing repaint that
+   * belonged to the card it replaces; every other card is left untouched.
+   */
+  function paintProvider(id) {
+    const slot = slots.get(id);
+    if (!slot) return;
+    pricingTickers.delete(id);
+    const row = rows.get(id);
+    if (row) {
+      // Not configured: no card, no skeleton, no error. Clearing the slot keeps
+      // it in `slots` so a later successful read can paint a card in place.
+      if (row.status === 'not-configured') {
+        slot.replaceChildren();
+        return;
+      }
+      slot.replaceChildren(card(row));
+      return;
+    }
+    const error = transportErrors.get(id);
+    if (error !== undefined) slot.replaceChildren(failureCard(id, error));
+  }
+
+  /** Absolute URL of one provider's narrowed envelope on the host. */
+  function providerUrl(id) {
+    const separator = providerPath.indexOf('?') === -1 ? '?' : '&';
+    return providerPath + separator + encodeURIComponent(providerQueryParam) + '=' + encodeURIComponent(id);
+  }
+
+  /**
+   * Read ONE provider and repaint only its card.
+   *
+   * GET is the serving read (the host may answer `stale: true` while it
+   * refreshes behind the response); a manual refresh passes `force` and POSTs,
+   * which makes the host wait for that provider's fresh read. Either way this
+   * call never waits for another provider: the other cards keep whatever they
+   * have while this read is outstanding.
+   */
+  async function loadProvider(id, force, followUp) {
+    if (pending.has(id) || !slots.has(id)) return;
+    pending.add(id);
+    updateChrome();
+    try {
+      const response = await fetch(providerUrl(id), {
+        method: force ? 'POST' : 'GET',
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      });
+      const body = await response.json();
+      if (!response.ok || !Array.isArray(body.providers)) throw new Error('HTTP ' + response.status);
+      // The contract narrows this envelope to exactly one row; selecting by id
+      // also tolerates a host build that still answers with the whole board.
+      const row = body.providers.length === 1
+        ? body.providers[0]
+        : body.providers.find((entry) => entry && entry.id === id);
+      if (!row || typeof row !== 'object') throw new Error('empty provider row');
+      rows.set(id, row);
+      transportErrors.delete(id);
+      generatedAtById.set(id, typeof body.generatedAt === 'number' ? body.generatedAt : Date.now());
+      staleById.set(id, body.stale === true);
+      if (typeof body.ttlMs === 'number') ttlMs = body.ttlMs;
+      if (typeof body.protocolVersion === 'number') protocolVersion = body.protocolVersion;
+      paintProvider(id);
+      // A stale answer means the host is already refreshing behind the
+      // response; one short follow-up picks the fresh numbers up without the
+      // user acting. It is single-shot — a follow-up response that is itself
+      // stale schedules nothing, exactly like the sidebar panel — and gated:
+      // when nobody is watching, the gate's reopen catch-up fetches instead.
+      // Without those two guards a host that stays stale for a few seconds
+      // turns this into a 1.5 s poll per provider.
+      if (body.stale === true && followUp !== true && !staleFollowUps.has(id) && gateAllows()) {
+        staleFollowUps.add(id);
+        setTimeout(function () {
+          staleFollowUps.delete(id);
+          if (!gateAllows()) return;
+          loadProvider(id, false, true);
+        }, 1500);
+      }
+    } catch (error) {
+      const reason = String(error && error.message ? error.message : error);
+      transportErrors.set(id, reason);
+      // Never blank known numbers: a failed read only replaces a card that
+      // never managed to paint a row in the first place. Otherwise the header
+      // reports the degraded board.
+      if (!rows.has(id)) paintProvider(id);
+    } finally {
+      pending.delete(id);
+      if (pending.size === 0) schedule();
+      updateChrome();
+    }
+  }
+
+  /**
+   * Start one concurrent read per provider. A refresh never blanks the board:
+   * whatever is already on screen stays until that provider's own answer
+   * replaces it, and skeletons only ever paint the genuinely empty first load.
+   * A cycle is never stacked on one in flight — the refresh button is disabled
+   * for the same reason, but the gate's reopen catch-up can fire mid-read.
+   */
+  function loadAll(force) {
+    if (pending.size > 0) return;
+    for (const id of providerIds) loadProvider(id, force, false);
+  }
+
+  function schedule() {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      // Idle or hidden: skip the read entirely and look again next ttl. No
+      // upstream traffic happens while nobody can see the page; the gate's
+      // event listeners trigger the catch-up read the moment that changes.
+      if (!gateAllows()) {
+        // Remember the closed gate so the first input/visibility event reads
+        // as a real false→true reopen and reloads immediately, instead of the
+        // user waiting out the next ttl tick.
+        gateOpen = false;
+        schedule();
+        return;
+      }
+      loadAll(false);
+    }, Math.min(300000, Math.max(60000, ttlMs)));
+  }
+
+  refreshBtn.addEventListener('click', () => loadAll(true));
+  for (const name of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) {
+    window.addEventListener(name, () => {
+      lastActivityAt = Date.now();
+      evaluateGate();
+    }, { passive: true });
+  }
+  document.addEventListener('visibilitychange', () => {
+    // Coming back to the window is presence even before the first input.
+    if (document.visibilityState === 'visible') lastActivityAt = Date.now();
+    evaluateGate();
+  });
+  // Idling out is the one transition no DOM event announces; this is what closes
+  // the gate while the page is visible so the next input triggers a catch-up.
+  setInterval(evaluateGate, GATE_RECHECK_MS);
+  // Live billing countdowns. Pure local text repaints: no requests, and a
+  // hidden page does no work at all.
+  setInterval(() => {
+    if (document.visibilityState === 'hidden') return;
+    for (const repaint of pricingTickers.values()) repaint();
+  }, 1000);
+  paintSkeletons();
+  evaluateGate();
+  loadAll(false);
+ })();
+</script>
+</body>
+</html>
