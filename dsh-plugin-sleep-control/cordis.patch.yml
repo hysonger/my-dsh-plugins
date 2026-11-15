@@ -1,0 +1,6 @@
+- insert:
+    - id: sleep-control
+      name: 'dsh-plugin-sleep-control'
+      config:
+        # Persisted user preference; the Host reads it as a live volatile ref.
+        caffeinateDuringSessions: false
