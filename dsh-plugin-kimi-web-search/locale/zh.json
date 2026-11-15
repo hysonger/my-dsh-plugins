@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Kimi Code 网页工具",
+    "description": "新增独立的 Kimi 网页搜索和抓取工具，同时保留 DSH 当前默认提供方。"
+  }
+}

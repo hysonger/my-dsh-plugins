@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Kimi Code Web Tools",
+    "description": "Adds independent Kimi Code web search and fetch tools while preserving the default DSH providers."
+  }
+}

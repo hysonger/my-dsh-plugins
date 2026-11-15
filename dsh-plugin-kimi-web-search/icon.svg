@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Kimi web tools</title>
+  <rect width="64" height="64" rx="14" fill="#182033"/>
+  <circle cx="27" cy="27" r="13" fill="none" stroke="#8ec5ff" stroke-width="5"/>
+  <path d="M37 37 49 49" fill="none" stroke="#8ec5ff" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="27" cy="27" r="3" fill="#d8e9ff"/>
+  <path d="M27 14v6m0 14v6M14 27h6m14 0h6" stroke="#d8e9ff" stroke-width="2" stroke-linecap="round"/>
+</svg>

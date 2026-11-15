@@ -1,0 +1,5 @@
+# Mount the compatible Provider and independent tools; default selection is unchanged.
+- insert:
+    - id: kimi-web-search
+      name: dsh-plugin-kimi-web-search
+      config: {}
