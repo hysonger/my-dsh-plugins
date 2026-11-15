@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# dsh-open — open a directory as a DeepSeek Harness workspace, from the terminal.
+#
+# Usage:
+#   dsh-open [DIR]     Open DIR (default: current directory) in DSH.
+#   dsh-open --app     Only consider the desktop App.
+#   dsh-open --web     Only consider a running `dsh web` instance.
+#   dsh-open -h|--help
+#
+# How it works: the dsh-plugin-open-here host half publishes a discovery file
+# per profile at $DSH_HOME/open-here/runtime-<profile>.json plus a shared
+# bearer token at $DSH_HOME/open-here/token. This script health-checks each
+# discovery file, POSTs the directory to /open-here/open, then brings the GUI
+# to the front (desktop App via the dsh:// deep link, web via the
+# authenticated URL recorded in the discovery file).
+#
+# macOS only (uses the `open` command for focusing/launching).
+
+set -euo pipefail
+
+ROUTE_PREFIX="/open-here"
+LAUNCH_WAIT_SECONDS=45
+
+mode="any"
+dir_arg=""
+
+usage() {
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --app) mode="app" ;;
+    --web) mode="web" ;;
+    --) shift; break ;;
+    -*) echo "dsh-open: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)
+      if [ -n "$dir_arg" ]; then
+        echo "dsh-open: only one directory argument is supported" >&2; exit 2
+      fi
+      dir_arg="$1"
+      ;;
+  esac
+  shift
+done
+
+# --- resolve the target directory -------------------------------------------
+
+target="${dir_arg:-$PWD}"
+if [ ! -d "$target" ]; then
+  echo "dsh-open: not a directory: $target" >&2
+  exit 2
+fi
+dir_path="$(cd "$target" 2>/dev/null && pwd -P)" || {
+  echo "dsh-open: cannot resolve directory: $target" >&2
+  exit 2
+}
+
+# --- locate the plugin state -------------------------------------------------
+
+dsh_home="${DSH_HOME:-$HOME/.dsh}"
+state_dir="$dsh_home/open-here"
+token_file="$state_dir/token"
+
+if [ ! -f "$token_file" ]; then
+  echo "dsh-open: no token at $token_file" >&2
+  echo "dsh-open: is dsh-plugin-open-here installed and has DSH run once since?" >&2
+  exit 1
+fi
+token="$(tr -d '[:space:]' < "$token_file")"
+if [ -z "$token" ]; then
+  echo "dsh-open: token file $token_file is empty" >&2
+  exit 1
+fi
+
+# --- tiny JSON helpers -------------------------------------------------------
+# The discovery file is written by the plugin as flat JSON, one key per line,
+# so scalar extraction with sed is reliable here.
+
+json_get() {
+  # $1 = file, $2 = key
+  sed -n \
+    -e "s/^[[:space:]]*\"$2\": \"\\(.*\\)\",\{0,1\}[[:space:]]*\$/\\1/p" \
+    -e "s/^[[:space:]]*\"$2\": \\([0-9][0-9]*\\),\{0,1\}[[:space:]]*\$/\\1/p" \
+    "$1" | head -n 1
+}
+
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# --- talk to one instance ----------------------------------------------------
+
+try_instance() {
+  # $1 = discovery file path
+  local file="$1"
+  [ -f "$file" ] || return 1
+
+  local origin profile url
+  origin="$(json_get "$file" origin)"
+  [ -n "$origin" ] || return 1
+  profile="$(json_get "$file" profile)"
+  profile="${profile:-unknown}"
+  url="$(json_get "$file" url)"
+
+  # Validate the instance is alive and is really the plugin (token check).
+  if ! curl -fsS -m 2 -o /dev/null \
+      -H "Authorization: Bearer $token" \
+      "$origin$ROUTE_PREFIX/health" 2>/dev/null; then
+    return 1
+  fi
+
+  local payload
+  payload="$(printf '{"path":"%s"}' "$(json_escape "$dir_path")")"
+  if ! curl -fsS -m 15 -X POST \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/json" \
+      --data "$payload" \
+      "$origin$ROUTE_PREFIX/open"; then
+    return 1
+  fi
+  echo
+
+  # Bring the GUI to the front.
+  if [ "$profile" = "desktop" ]; then
+    open "dsh://open" 2>/dev/null || true
+  elif [ -n "$url" ]; then
+    open "$url" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# --- pick candidates and try them -------------------------------------------
+
+shopt -s nullglob
+candidates=()
+desktop_file="$state_dir/runtime-desktop.json"
+
+if [ "$mode" != "web" ] && [ -f "$desktop_file" ]; then
+  candidates+=("$desktop_file")
+fi
+for file in "$state_dir"/runtime-*.json; do
+  [ "$file" = "$desktop_file" ] && [ "$mode" != "web" ] && continue
+  if [ "$mode" = "app" ]; then
+    [ "$(json_get "$file" profile)" = "desktop" ] || continue
+  fi
+  candidates+=("$file")
+done
+
+for file in ${candidates[@]+"${candidates[@]}"}; do
+  if try_instance "$file"; then
+    exit 0
+  fi
+done
+
+# --- nothing alive: launch the App and wait for its backend -----------------
+
+if [ "$mode" != "web" ]; then
+  if command -v open >/dev/null 2>&1; then
+    echo "dsh-open: no running DSH instance found — launching the app…" >&2
+    if open "dsh://open" 2>/dev/null; then
+      waited=0
+      while [ "$waited" -lt "$LAUNCH_WAIT_SECONDS" ]; do
+        sleep 1
+        waited=$((waited + 1))
+        if [ -f "$desktop_file" ] && try_instance "$desktop_file"; then
+          exit 0
+        fi
+      done
+      echo "dsh-open: the app did not come up within ${LAUNCH_WAIT_SECONDS}s" >&2
+      echo "dsh-open: open it manually, or install dsh-plugin-open-here if it is missing" >&2
+      exit 1
+    fi
+    echo "dsh-open: could not launch the DeepSeek Harness app (dsh:// not registered)" >&2
+  fi
+fi
+
+echo "dsh-open: no reachable DSH instance with dsh-plugin-open-here" >&2
+echo "dsh-open: start the app, or run 'dsh web' with the plugin installed there" >&2
+exit 1
