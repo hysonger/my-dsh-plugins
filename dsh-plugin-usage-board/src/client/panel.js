@@ -236,6 +236,20 @@ const zh = {
   "pricing.rule": "\u5317\u4eac\u65f6\u95f4\u5468\u4e00\u81f3\u5468\u4e94 09:00\u201312:00\u300114:00\u201318:00 \u4e3a\u9ad8\u5cf0\u65f6\u6bb5\uff1b\u5176\u4f59\u65f6\u95f4\uff08\u542b\u5468\u672b\u4e0e\u6cd5\u5b9a\u8282\u5047\u65e5\uff09\u4e3a\u7a7a\u95f2\u65f6\u6bb5\uff0c\u7a7a\u95f2\u4ef7\u4e3a\u9ad8\u5cf0\u4ef7\u7684\u4e00\u534a\u3002",
   "pricing.calendarUnavailable": "\u672a\u5b89\u88c5\u8282\u5047\u65e5\u65e5\u5386\uff0c\u6682\u6309\u5de5\u4f5c\u65e5\u4f30\u7b97\u3002",
   "pricing.calendarStale": "\u8282\u5047\u65e5\u65e5\u5386\u5c1a\u672a\u8986\u76d6\u5b8c\u6574\u8ba1\u5212\u533a\u95f4\uff0c\u6682\u6309\u5de5\u4f5c\u65e5\u4f30\u7b97\u3002",
+  "composer.window.5h": "5 小时",
+  "composer.window.weekly": "每周",
+  "composer.window.monthly": "每月",
+  "composer.unsupported": "未接入",
+  "composer.unsupportedDetail": "该提供商路由未接入用量看板，没有可显示的配额。",
+  "composer.balance": "余额 {value}",
+  "composer.loading": "读取中…",
+  "composer.unavailable": "不可用",
+  "composer.noQuota": "无配额",
+  "composer.noData": "暂无用量数据。",
+  "composer.more": "还有 {n} 个额度窗口",
+  "composer.stale": "刷新失败，显示上次成功读取的数据。",
+  "composer.aria": "{provider} 用量：{reading}",
+  "composer.popup": "{provider} 用量详情",
 };
 
 const en = {
@@ -333,6 +347,20 @@ const en = {
   "pricing.rule": "Peak: Beijing time, Monday\u2013Friday 09:00\u201312:00 and 14:00\u201318:00, excluding Chinese statutory holidays. All other times, including weekends and holidays, are off-peak at half the peak price.",
   "pricing.calendarUnavailable": "No holiday calendar is installed; weekday estimate only.",
   "pricing.calendarStale": "The holiday calendar does not cover the full shipped window yet; weekday estimate only.",
+  "composer.window.5h": "5h",
+  "composer.window.weekly": "Weekly",
+  "composer.window.monthly": "Monthly",
+  "composer.unsupported": "Not linked",
+  "composer.unsupportedDetail": "This provider route is not linked to the usage board, so no quota is available.",
+  "composer.balance": "Balance {value}",
+  "composer.loading": "Reading…",
+  "composer.unavailable": "Unavailable",
+  "composer.noQuota": "No quota",
+  "composer.noData": "No usage data yet.",
+  "composer.more": "{n} more quota windows",
+  "composer.stale": "Refresh failed; showing the last successful reading.",
+  "composer.aria": "{provider} usage: {reading}",
+  "composer.popup": "{provider} usage details",
 };
 
 /** Translate seat bound in `apply`, used when the slot renderer passes no `t`. */

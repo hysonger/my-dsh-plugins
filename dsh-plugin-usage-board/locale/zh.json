@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "用量看板",
-    "description": "DeepSeek 余额、近一周/近一月消耗合计与近 7 天消耗趋势，GLM Coding Plan、Kimi Code 与 OpenCode Go 的 5 小时/每周额度窗口，统一呈现在 DSH 侧边栏面板中，数据来自四家官方接口；未配置凭据的服务不会显示卡片。另提供 usage_query 工具，让 AI 直接查询同一份用量、额度与余额。"
+    "description": "在 DSH 侧边栏面板之外，会话输入框下方另有一条当前提供商用量信息条：按当前模型路由显示额度圆环与百分比，悬浮查看全部窗口、剩余量与重置时间；DeepSeek 显示余额，未接入的路由明确提示。面板同时显示 DeepSeek、GLM Coding Plan、Kimi Code 与 OpenCode Go 的用量、额度与余额，并提供 usage_query 工具。"
   }
 }

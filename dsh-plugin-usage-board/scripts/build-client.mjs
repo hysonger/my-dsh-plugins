@@ -2,12 +2,14 @@
  * Regenerate `lib/client.js` from the browser-half sources.
  *
  * This package deliberately ships no bundler: `lib/client.js` is a
- * hand-assembled DSH client-module combo script whose factory embeds three
+ * hand-assembled DSH client-module combo script whose factory embeds five
  * sources byte for byte:
  *
  *   - `src/client/styles.css`      inside the `PANEL_CSS` template literal
+ *   - `src/client/composer.css`    inside the `COMPOSER_CSS` template literal
  *   - `src/client/protocol-copy.js` between its `//#region` markers
  *   - `src/client/panel.js`         between its `//#region` markers
+ *   - `src/client/composer.js`      between its `//#region` markers
  *
  * `test/client-bundle.test.js` already fails when the embedding drifts, but
  * fixing that by hand is where mistakes come from. This script performs the
@@ -27,14 +29,19 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BUNDLE = join(ROOT, 'lib/client.js');
 
-/** The three embedded regions, in bundle order. */
-const REGIONS = [
-  { kind: 'css', marker: '    //#region src/client/styles.css — embedded verbatim' },
-  { kind: 'region', marker: '    //#region src/client/protocol-copy.js — embedded verbatim (generated)', source: 'src/client/protocol-copy.js' },
-  { kind: 'region', marker: '    //#region src/client/panel.js — embedded verbatim', source: 'src/client/panel.js' },
+/** The embedded stylesheet literals, in bundle order. */
+const CSS_BLOCKS = [
+  { prefix: '    const PANEL_CSS = `', source: 'src/client/styles.css' },
+  { prefix: '    const COMPOSER_CSS = `', source: 'src/client/composer.css' },
 ];
 
-const CSS_PREFIX = '    const PANEL_CSS = `';
+/** The embedded code regions, in bundle order. */
+const REGIONS = [
+  { marker: '    //#region src/client/protocol-copy.js — embedded verbatim (generated)', source: 'src/client/protocol-copy.js' },
+  { marker: '    //#region src/client/panel.js — embedded verbatim', source: 'src/client/panel.js' },
+  { marker: '    //#region src/client/composer.js — embedded verbatim', source: 'src/client/composer.js' },
+];
+
 const CSS_TERMINATOR = '`;';
 
 /**
@@ -64,19 +71,20 @@ function rebuild(bundle) {
   const lines = bundle.split('\n');
 
   // CSS first: it is inside a template literal, so it needs escaping rules the
-  // other two regions do not.
-  const cssOpen = lines.findIndex((line) => line.startsWith(CSS_PREFIX));
-  if (cssOpen === -1) throw new Error('lib/client.js: the PANEL_CSS template literal moved or was renamed');
-  const cssClose = lines.findIndex((line, index) => index > cssOpen && line === CSS_TERMINATOR);
-  if (cssClose === -1) throw new Error('lib/client.js: the PANEL_CSS template literal is not terminated by `;');
-  const css = readFileSync(join(ROOT, 'src/client/styles.css'), 'utf8');
-  if (css.includes('`') || css.includes('${')) {
-    throw new Error('src/client/styles.css contains a backtick or ${, which cannot be embedded unescaped');
+  // other regions do not.
+  for (const block of CSS_BLOCKS) {
+    const cssOpen = lines.findIndex((line) => line.startsWith(block.prefix));
+    if (cssOpen === -1) throw new Error(`lib/client.js: the template literal starting ${JSON.stringify(block.prefix)} moved or was renamed`);
+    const cssClose = lines.findIndex((line, index) => index > cssOpen && line === CSS_TERMINATOR);
+    if (cssClose === -1) throw new Error(`lib/client.js: the template literal starting ${JSON.stringify(block.prefix)} is not terminated by \`;`);
+    const css = readFileSync(join(ROOT, block.source), 'utf8');
+    if (css.includes('`') || css.includes('${')) {
+      throw new Error(`${block.source} contains a backtick or \${, which cannot be embedded unescaped`);
+    }
+    lines.splice(cssOpen, cssClose - cssOpen + 1, `${block.prefix}${css}${CSS_TERMINATOR}`);
   }
-  lines.splice(cssOpen, cssClose - cssOpen + 1, `${CSS_PREFIX}${css}${CSS_TERMINATOR}`);
 
   for (const region of REGIONS) {
-    if (region.kind !== 'region') continue;
     const open = lines.findIndex((line) => line === region.marker);
     if (open === -1) throw new Error(`lib/client.js: region marker not found: ${region.marker}`);
     const close = lines.findIndex((line, index) => index > open && line === '    //#endregion');

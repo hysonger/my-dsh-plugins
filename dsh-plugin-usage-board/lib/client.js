@@ -4,7 +4,9 @@
  * ASSEMBLED FROM, and byte-identical to, these source files:
  *   - src/client/protocol-copy.js  (itself generated from src/shared/protocol.js)
  *   - src/client/panel.js
+ *   - src/client/composer.js
  *   - src/client/styles.css        (embedded below as the PANEL_CSS string)
+ *   - src/client/composer.css      (embedded below as the COMPOSER_CSS string)
  * test/client-bundle.test.js asserts each embedded region still matches its
  * source file byte for byte, so edit the sources and regenerate rather than
  * editing the embedded regions here.
@@ -15,9 +17,9 @@
  * module-table `require`, returns module.exports, and must export `apply` and
  * `inject`.
  *
- * require() aliases used: "react" and "react/jsx-runtime" only. Both are
- * members of the shell's frozen platform module table, so neither needs a
- * dsh.client.external entry.
+ * require() aliases used: "react", "react-dom" and "react/jsx-runtime" only.
+ * All three are members of the shell's frozen platform module table, so none
+ * needs a dsh.client.external entry.
  */
 
 window.__ModuleLoader__.load({
@@ -28,6 +30,7 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 
     const react = require("react");
+    const reactDom = require("react-dom");
     const jsxRuntime = require("react/jsx-runtime");
 
     //#region src/client/styles.css — embedded verbatim
@@ -838,20 +841,446 @@ window.__ModuleLoader__.load({
   }
 }
 `;
-    const PANEL_CSS_ID = "dsh-plugin-usage-board/panel.css";
+    const COMPOSER_CSS = `/* dsh-plugin-usage-board — composer usage strip styles.
+ *
+ * Embedded VERBATIM inside lib/client.js (as the COMPOSER_CSS string literal)
+ * by scripts/build-client.mjs. Keep this file free of backticks and of a
+ * dollar sign immediately before a brace.
+ *
+ * The trigger sits in the composer's dock row beside the shipped stats; the
+ * popover portals to document.body (the docked composer is the containing
+ * block for fixed descendants), so both scopes carry the custom properties
+ * they need on their own roots. Colors follow the shared panel rules: below
+ * 70% ok, 70-89% warn, 90%+ danger, unknown idle.
+ */
 
-    /** Install the panel stylesheet once, guarded against a second registration. */
-    function injectPanelStyles() {
+.ub-composer,
+.ub-composer-popover {
+  --ub-fg: var(--dsw-alias-label-primary, #1f1f1f);
+  --ub-fg-secondary: var(--dsw-alias-label-secondary, #5c5c5c);
+  --ub-fg-tertiary: var(--dsw-alias-label-tertiary, #8a8a8a);
+  --ub-layer-3: var(--dsw-alias-bg-layer-3, rgba(0, 0, 0, 0.06));
+  --ub-border: var(--dsw-alias-border-l1, var(--dsw-alias-border-1, rgba(0, 0, 0, 0.08)));
+  --ub-border-strong: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.16));
+  --ub-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  --ub-ok: var(--dsw-alias-state-success-primary, #1f9d55);
+  --ub-ok-soft: var(--dsw-alias-state-success-tertiary, rgba(31, 157, 85, 0.12));
+  --ub-warn: var(--dsw-alias-state-warn-primary, #c77700);
+  --ub-warn-soft: var(--dsw-alias-state-warn-tertiary, rgba(199, 119, 0, 0.14));
+  --ub-danger: var(--dsw-alias-state-error-primary, #d92d20);
+  --ub-danger-soft: var(--dsw-alias-state-error-secondary, rgba(217, 45, 32, 0.12));
+  --ub-idle: var(--dsw-alias-state-idle-primary, #8a8a8a);
+  --ub-radius: var(--dsw-radius-md, 8px);
+  --ub-focus: var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary, #2f6fed));
+
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ub-composer,
+  .ub-composer-popover {
+    --ub-fg: var(--dsw-alias-label-primary, #ececec);
+    --ub-fg-secondary: var(--dsw-alias-label-secondary, #b0b0b0);
+    --ub-fg-tertiary: var(--dsw-alias-label-tertiary, #8a8a8a);
+    --ub-layer-3: var(--dsw-alias-bg-layer-3, rgba(255, 255, 255, 0.09));
+    --ub-border: var(--dsw-alias-border-l1, var(--dsw-alias-border-1, rgba(255, 255, 255, 0.12)));
+    --ub-border-strong: var(--dsw-alias-border-l3, rgba(255, 255, 255, 0.2));
+    --ub-hover: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08));
+    --ub-ok: var(--dsw-alias-state-success-primary, #4ade80);
+    --ub-ok-soft: var(--dsw-alias-state-success-tertiary, rgba(74, 222, 128, 0.16));
+    --ub-warn: var(--dsw-alias-state-warn-primary, #f5b544);
+    --ub-warn-soft: var(--dsw-alias-state-warn-tertiary, rgba(245, 181, 68, 0.16));
+    --ub-danger: var(--dsw-alias-state-error-primary, #f87171);
+    --ub-danger-soft: var(--dsw-alias-state-error-secondary, rgba(248, 113, 113, 0.16));
+    --ub-idle: var(--dsw-alias-state-idle-primary, #9a9a9a);
+  }
+}
+
+.ub-composer *,
+.ub-composer *::before,
+.ub-composer *::after,
+.ub-composer-popover *,
+.ub-composer-popover *::before,
+.ub-composer-popover *::after {
+  box-sizing: border-box;
+}
+
+/* ---------- compact trigger (one dock row with the shipped stats) ---------- */
+
+.ub-composer {
+  display: inline-flex;
+  flex: none;
+  min-width: 0;
+}
+
+.ub-composer-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: none;
+  border-radius: var(--dsw-radius-sm, 4px);
+  background: transparent;
+  color: var(--ub-fg-tertiary);
+  font-family: inherit;
+  /* Match the shipped usage/performance pills exactly: their anchor is one
+     pixel below the secondary content size (12px at the default 13px). */
+  font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px);
+  font-variant-numeric: tabular-nums;
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ub-composer-trigger[aria-expanded="true"] {
+  background: var(--ub-hover);
+  color: var(--ub-fg-secondary);
+}
+
+@media (hover: hover) {
+  .ub-composer-trigger:hover {
+    background: var(--ub-hover);
+    color: var(--ub-fg-secondary);
+  }
+}
+
+.ub-composer-trigger:focus-visible,
+.ub-composer-refresh:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--ub-focus);
+  outline-offset: 1px;
+}
+
+.ub-composer-route {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ub-fg-secondary);
+}
+
+.ub-composer-window-short {
+  flex: none;
+}
+
+.ub-composer-percent {
+  flex: none;
+  color: var(--ub-fg);
+  font-weight: 500;
+}
+
+.ub-composer-reading {
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-composer-more {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ub-layer-3);
+  color: var(--ub-fg-tertiary);
+  font-size: 10.5px;
+  line-height: 14px;
+}
+
+.ub-composer-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--ub-danger-soft);
+  color: var(--ub-danger);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ub-composer[data-state="degraded"] .ub-composer-reading,
+.ub-composer[data-state="unauthorized"] .ub-composer-reading,
+.ub-composer[data-state="upstream-error"] .ub-composer-reading,
+.ub-composer[data-state="network-error"] .ub-composer-reading,
+.ub-composer[data-state="invalid-response"] .ub-composer-reading {
+  color: var(--ub-danger);
+}
+
+/* ---------- quota ring ---------- */
+
+.ub-composer-ring {
+  display: inline-flex;
+  flex: none;
+}
+
+.ub-composer-ring-track {
+  fill: none;
+  stroke: var(--ub-border-strong);
+  stroke-width: 2;
+}
+
+.ub-composer-ring-fill {
+  fill: none;
+  stroke: var(--ub-idle);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: stroke-dasharray 240ms ease-out;
+}
+
+.ub-composer-ring[data-level="ok"] .ub-composer-ring-fill {
+  stroke: var(--ub-ok);
+}
+
+.ub-composer-ring[data-level="warn"] .ub-composer-ring-fill {
+  stroke: var(--ub-warn);
+}
+
+.ub-composer-ring[data-level="danger"] .ub-composer-ring-fill {
+  stroke: var(--ub-danger);
+}
+
+.ub-composer-ring[data-level="unknown"] .ub-composer-ring-fill {
+  stroke: var(--ub-idle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ub-composer-ring-fill {
+    transition: none;
+  }
+}
+
+/* ---------- popover ---------- */
+
+.ub-composer-popover {
+  position: fixed;
+  z-index: 1100;
+  width: min(320px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 12px - max(12px, var(--dsh-frame-overlay-top, 12px)));
+  height: fit-content;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-alias-bg-overlay, #ffffff);
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(20px));
+  --dsw-elevation-stroke-color: var(--ub-border);
+  box-shadow: var(--dsw-elevation-prominent, 0 8px 24px rgba(0, 0, 0, 0.12));
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--ub-fg-secondary);
+  cursor: default;
+  overflow-x: hidden;
+  overflow-y: auto;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2, rgba(0, 0, 0, 0.2));
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2, rgba(0, 0, 0, 0.3));
+  position-area: none;
+  top: max(12px, var(--dsh-frame-overlay-top, 12px));
+  bottom: max(12px, calc(anchor(top) + 8px));
+  left: max(12px, anchor(left));
+  right: 12px;
+  position-try-fallbacks: --ub-composer-below, --ub-composer-viewport;
+  align-self: end;
+  justify-self: start;
+}
+
+@position-try --ub-composer-below {
+  top: max(12px, calc(anchor(bottom) + 8px));
+  bottom: 12px;
+  align-self: start;
+}
+
+@position-try --ub-composer-viewport {
+  position-area: none;
+  inset: max(12px, var(--dsh-frame-overlay-top, 12px)) 12px 12px;
+  margin: 0;
+  align-self: safe start;
+  justify-self: safe end;
+}
+
+.ub-composer-popover-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+.ub-composer-popover-title {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.ub-composer-popover-provider {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ub-fg);
+}
+
+.ub-composer-model {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  color: var(--ub-fg-tertiary);
+}
+
+.ub-composer-popover-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ub-composer-window {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ub-composer-window-detail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ub-composer-window-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ub-composer-window-label {
+  min-width: 0;
+  color: var(--ub-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ub-composer-window-percent {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--ub-fg);
+  font-weight: 500;
+}
+
+.ub-composer-window-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ub-composer-note {
+  margin: 0;
+  color: var(--ub-fg-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.ub-composer-error {
+  margin: 0;
+  color: var(--ub-danger);
+  overflow-wrap: anywhere;
+}
+
+.ub-composer-state {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ub-composer-popover-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--ub-border);
+}
+
+.ub-composer-updated {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ub-fg-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ub-composer-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border: 0.5px solid var(--ub-border-strong);
+  border-radius: var(--ub-radius);
+  background: transparent;
+  color: var(--ub-fg);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .ub-composer-refresh:hover:not(:disabled) {
+    background: var(--ub-hover);
+  }
+}
+
+.ub-composer-refresh:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* Narrow composers keep the provider name and reading; the window's short
+   label is the first thing to go so the dock row cannot overflow. */
+@media (max-width: 640px) {
+  .ub-composer-window-short {
+    display: none;
+  }
+
+  .ub-composer-route {
+    max-width: 96px;
+  }
+}
+`;
+
+    /** Install one plugin stylesheet once, guarded against a second registration. */
+    function injectPluginStyles(id, css) {
       if (typeof document === "undefined") return;
-      if (document.querySelector("style[data-plugin-css=" + JSON.stringify(PANEL_CSS_ID) + "]") !== null) return;
+      if (document.querySelector("style[data-plugin-css=" + JSON.stringify(id) + "]") !== null) return;
       const tag = document.createElement("style");
       tag.dataset.plugin = "dsh-plugin-usage-board";
-      tag.dataset.pluginCss = PANEL_CSS_ID;
-      tag.textContent = PANEL_CSS;
+      tag.dataset.pluginCss = id;
+      tag.textContent = css;
       document.head.appendChild(tag);
     }
 
-    injectPanelStyles();
+    injectPluginStyles("dsh-plugin-usage-board/panel.css", PANEL_CSS);
+    injectPluginStyles("dsh-plugin-usage-board/composer.css", COMPOSER_CSS);
     //#endregion
 
     //#region src/client/protocol-copy.js — embedded verbatim (generated)
@@ -1312,6 +1741,20 @@ const zh = {
   "pricing.rule": "\u5317\u4eac\u65f6\u95f4\u5468\u4e00\u81f3\u5468\u4e94 09:00\u201312:00\u300114:00\u201318:00 \u4e3a\u9ad8\u5cf0\u65f6\u6bb5\uff1b\u5176\u4f59\u65f6\u95f4\uff08\u542b\u5468\u672b\u4e0e\u6cd5\u5b9a\u8282\u5047\u65e5\uff09\u4e3a\u7a7a\u95f2\u65f6\u6bb5\uff0c\u7a7a\u95f2\u4ef7\u4e3a\u9ad8\u5cf0\u4ef7\u7684\u4e00\u534a\u3002",
   "pricing.calendarUnavailable": "\u672a\u5b89\u88c5\u8282\u5047\u65e5\u65e5\u5386\uff0c\u6682\u6309\u5de5\u4f5c\u65e5\u4f30\u7b97\u3002",
   "pricing.calendarStale": "\u8282\u5047\u65e5\u65e5\u5386\u5c1a\u672a\u8986\u76d6\u5b8c\u6574\u8ba1\u5212\u533a\u95f4\uff0c\u6682\u6309\u5de5\u4f5c\u65e5\u4f30\u7b97\u3002",
+  "composer.window.5h": "5 小时",
+  "composer.window.weekly": "每周",
+  "composer.window.monthly": "每月",
+  "composer.unsupported": "未接入",
+  "composer.unsupportedDetail": "该提供商路由未接入用量看板，没有可显示的配额。",
+  "composer.balance": "余额 {value}",
+  "composer.loading": "读取中…",
+  "composer.unavailable": "不可用",
+  "composer.noQuota": "无配额",
+  "composer.noData": "暂无用量数据。",
+  "composer.more": "还有 {n} 个额度窗口",
+  "composer.stale": "刷新失败，显示上次成功读取的数据。",
+  "composer.aria": "{provider} 用量：{reading}",
+  "composer.popup": "{provider} 用量详情",
 };
 
 const en = {
@@ -1409,6 +1852,20 @@ const en = {
   "pricing.rule": "Peak: Beijing time, Monday\u2013Friday 09:00\u201312:00 and 14:00\u201318:00, excluding Chinese statutory holidays. All other times, including weekends and holidays, are off-peak at half the peak price.",
   "pricing.calendarUnavailable": "No holiday calendar is installed; weekday estimate only.",
   "pricing.calendarStale": "The holiday calendar does not cover the full shipped window yet; weekday estimate only.",
+  "composer.window.5h": "5h",
+  "composer.window.weekly": "Weekly",
+  "composer.window.monthly": "Monthly",
+  "composer.unsupported": "Not linked",
+  "composer.unsupportedDetail": "This provider route is not linked to the usage board, so no quota is available.",
+  "composer.balance": "Balance {value}",
+  "composer.loading": "Reading…",
+  "composer.unavailable": "Unavailable",
+  "composer.noQuota": "No quota",
+  "composer.noData": "No usage data yet.",
+  "composer.more": "{n} more quota windows",
+  "composer.stale": "Refresh failed; showing the last successful reading.",
+  "composer.aria": "{provider} usage: {reading}",
+  "composer.popup": "{provider} usage details",
 };
 
 /** Translate seat bound in `apply`, used when the slot renderer passes no `t`. */
@@ -3515,10 +3972,655 @@ function UsageBoardPanelIcon(props) {
 }
     //#endregion
 
+    //#region src/client/composer.js — embedded verbatim
+/* ------------------------------------------------------------------------- *
+ * dsh-plugin-usage-board — selected-provider composer usage.
+ *
+ * Plain-JS body fragment embedded after panel.js in lib/client.js. It reuses
+ * the panel's protocol, normalization, formatting and refresh-gate helpers.
+ * The only network route is the existing single-provider endpoint.
+ *
+ * Extra free variables the embedding factory provides beyond panel.js's:
+ *   reactDom  the "react-dom" module (createPortal for the body popover).
+ * ------------------------------------------------------------------------- */
+
+const { useSyncExternalStore, useId } = react;
+
+/** createPortal from the embedding factory's `reactDom` free variable. */
+function portalToBody(element) {
+  return reactDom.createPortal(element, document.body);
+}
+
+/** Safe Element.contains against stub elements in the offline render harness. */
+function containsElement(root, target) {
+  return root !== null && root !== undefined && typeof root.contains === "function" && root.contains(target);
+}
+
+/** New cell beside the shipped activity/order-0 and usage/order-1 entries. */
+const COMPOSER_SLOT_ID = "usage-board-provider";
+const COMPOSER_SLOT_ORDER = 2;
+
+/** DSH provider-route id -> usage-board provider id. No name heuristics. */
+const USAGE_PROVIDER_BY_ROUTE = {
+  "deepseek-account": "deepseek",
+  "deepseek-official": "deepseek",
+  "kimi-coding": "kimi",
+  "zai": "glm",
+  "zai-coding-cn": "glm",
+  "opencode-go": "opencode-go",
+};
+
+/** Let a hover cross from the trigger to its body-portalled popover. */
+const COMPOSER_CLOSE_DELAY_MS = 140;
+const COMPOSER_CLOCK_MS = 30 * 1000;
+
+/** Resolve the board row for an exact DSH route, or null for an unsupported one. */
+function usageProviderForRoute(route) {
+  return typeof route === "string" && Object.prototype.hasOwnProperty.call(USAGE_PROVIDER_BY_ROUTE, route)
+    ? USAGE_PROVIDER_BY_ROUTE[route]
+    : null;
+}
+
+/**
+ * Match the model selector's source of truth, with the durable projection as a
+ * loading/subagent fallback. `current` already includes the catalog default.
+ */
+function composerSelection(directoryState, projection) {
+  if (directoryState !== null && directoryState !== undefined && directoryState.current !== null && directoryState.current !== undefined) {
+    return directoryState.current;
+  }
+  if (projection === null || projection === undefined) return null;
+  return projection.next ?? projection.lastUsed ?? null;
+}
+
+/** Provider name from the model catalog when available, else a stable fallback. */
+function composerRouteLabel(selection, directoryState) {
+  const groups = directoryState !== null && directoryState !== undefined && Array.isArray(directoryState.groups)
+    ? directoryState.groups
+    : [];
+  for (const group of groups) {
+    if (group !== null && typeof group === "object" && group.id === selection.provider && typeof group.name === "string") {
+      return group.name;
+    }
+  }
+  const usageId = usageProviderForRoute(selection.provider);
+  return usageId === null ? selection.provider : providerLabelFor(usageId);
+}
+
+/** Display share, preferring the counters' arithmetic over the upstream rounding. */
+function composerWindowPercent(window) {
+  return isNum(window.derivedPercent) ? window.derivedPercent : window.percent;
+}
+
+/** The compact trigger leads with the five-hour window, then the first readable one. */
+function primaryUsageWindow(provider) {
+  if (provider === null || provider === undefined || !Array.isArray(provider.windows)) return null;
+  const windows = provider.windows.filter(function (window) {
+    return window !== null && typeof window === "object";
+  });
+  for (const window of windows) {
+    if (isFiveHourWindow(window) && isNum(composerWindowPercent(window))) return window;
+  }
+  for (const window of windows) {
+    if (isNum(composerWindowPercent(window))) return window;
+  }
+  return windows.length === 0 ? null : windows[0];
+}
+
+/** Short trigger label; the popover continues to use the full localized label. */
+function composerWindowShortLabel(t, window) {
+  if (isFiveHourWindow(window)) return t("composer.window.5h");
+  const id = strOrNull(window.id) ?? "";
+  if (id.includes("weekly")) return t("composer.window.weekly");
+  if (id.includes("monthly")) return t("composer.window.monthly");
+  return windowLabel(t, window);
+}
+
+/** Same severity thresholds as the full board. */
+function composerLevel(percent) {
+  return !isNum(percent) ? "unknown" : percent >= 90 ? "danger" : percent >= 70 ? "warn" : "ok";
+}
+
+/** SVG ring with accessible values; only geometry is clamped, never the reading. */
+function QuotaRing(props) {
+  const percent = props.percent;
+  const size = isNum(props.size) ? props.size : 14;
+  const value = isNum(percent) ? clamp(percent, 0, 100) : 0;
+  const radius = 8;
+  const circumference = 2 * Math.PI * radius;
+  const level = composerLevel(percent);
+  return jsxs("svg", {
+    className: "ub-composer-ring",
+    "data-level": level,
+    width: size,
+    height: size,
+    viewBox: "0 0 20 20",
+    fill: "none",
+    role: "progressbar",
+    "aria-label": props.label,
+    "aria-valuemin": 0,
+    "aria-valuemax": 100,
+    "aria-valuenow": isNum(percent) ? Math.round(value * 10) / 10 : undefined,
+    "aria-valuetext": formatPercent(percent),
+    children: [
+      jsx("circle", {
+        key: "track",
+        className: "ub-composer-ring-track",
+        cx: 10,
+        cy: 10,
+        r: radius,
+      }),
+      // A true 0% is data, not a dot: draw no arc at all, exactly like the
+      // board's zero-width bar fills. Unknown percentages do the same.
+      value <= 0 ? null : jsx("circle", {
+        key: "fill",
+        className: "ub-composer-ring-fill",
+        cx: 10,
+        cy: 10,
+        r: radius,
+        strokeDasharray: String(circumference * value / 100) + " " + String(circumference),
+        transform: "rotate(-90 10 10)",
+      }),
+    ],
+  });
+}
+
+/** Read only the selected row from the panel's existing first-paint cache. */
+function storedComposerProvider(id) {
+  if (id === null) return null;
+  const snapshot = readStoredSnapshot();
+  if (snapshot === null) return null;
+  for (const provider of snapshot.providers) {
+    if (provider.id === id) return provider;
+  }
+  return null;
+}
+
+/**
+ * One selected provider, with the panel's stale-while-revalidate and visibility
+ * semantics. A keyed remount plus generation guard prevents cross-route writes.
+ */
+function useComposerProvider(id) {
+  const [state, setState] = useState(function () {
+    return { row: storedComposerProvider(id), failure: null, pending: false, ttlMs: TTL_MIN_MS };
+  });
+  const stateRef = useRef(state);
+  const mountedRef = useRef(true);
+  const generationRef = useRef(0);
+  const followUpRef = useRef(null);
+  const startRef = useRef(null);
+  const rootRef = useRef(null);
+  const gate = useAutoRefreshGate(rootRef);
+  const gateAllowsRef = gate.allows;
+
+  const commit = useCallback(function (mutate) {
+    const next = Object.assign({}, stateRef.current);
+    mutate(next);
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
+  function clearFollowUp() {
+    if (followUpRef.current !== null) clearTimeout(followUpRef.current);
+    followUpRef.current = null;
+  }
+
+  function scheduleFollowUp() {
+    if (followUpRef.current !== null || gateAllowsRef.current !== true) return;
+    followUpRef.current = setTimeout(function () {
+      followUpRef.current = null;
+      if (gateAllowsRef.current === true && startRef.current !== null) startRef.current("followup");
+    }, STALE_FOLLOW_UP_MS);
+  }
+
+  const start = useCallback(function (kind) {
+    if (id === null || stateRef.current.pending === true) return;
+    clearFollowUp();
+    const generation = ++generationRef.current;
+    commit(function (next) {
+      next.pending = true;
+      next.failure = null;
+    });
+    let request;
+    try {
+      request = requestJson(providerUrl(id), kind === "manual" ? { method: "POST" } : undefined);
+    } catch (error) {
+      request = Promise.reject(error);
+    }
+    request.then(function (body) {
+      if (mountedRef.current !== true || generation !== generationRef.current) return;
+      const row = providerRowOf(body, id);
+      if (row === null) {
+        const failure = new Error("payload carries no row for " + id);
+        failure.kind = "shape";
+        throw failure;
+      }
+      commit(function (next) {
+        next.row = row;
+        next.failure = null;
+        next.pending = false;
+        next.ttlMs = clampTtl(numOrNull(body.ttlMs));
+      });
+      if (body.stale === true && kind !== "followup") scheduleFollowUp();
+    }, function (error) {
+      if (mountedRef.current !== true || generation !== generationRef.current) return;
+      commit(function (next) {
+        next.failure = describeFailure(error);
+        next.pending = false;
+      });
+    });
+  }, [id]);
+  startRef.current = start;
+
+  useEffect(function () {
+    mountedRef.current = true;
+    return function () {
+      mountedRef.current = false;
+      ++generationRef.current;
+      clearFollowUp();
+    };
+  }, []);
+
+  useEffect(function () {
+    if (gate.open === true) start("auto");
+    else clearFollowUp();
+  }, [gate.open, start]);
+
+  useEffect(function () {
+    const timer = setInterval(function () {
+      if (gateAllowsRef.current === true) start("auto");
+    }, clampTtl(state.ttlMs));
+    return function () {
+      clearInterval(timer);
+    };
+  }, [state.ttlMs, start]);
+
+  return {
+    row: state.row,
+    failure: state.failure,
+    pending: state.pending,
+    rootRef: rootRef,
+    read: useCallback(function () { start("auto"); }, [start]),
+    refresh: useCallback(function () { start("manual"); }, [start]),
+  };
+}
+
+/** One full popover quota row: ring, exact counters and reset information. */
+function ComposerWindow(props) {
+  const window = props.window;
+  const t = props.t;
+  const percent = composerWindowPercent(window);
+  const label = windowLabel(t, window);
+  const hasCounters = isNum(window.used) || isNum(window.limit);
+  const reset = windowResetText(t, window, isNum(props.now) ? props.now : Date.now());
+  const foot = compact([
+    hasCounters ? jsx("span", { key: "usage", children: t("window.usage", {
+      used: formatAmount(window.used),
+      limit: formatAmount(window.limit),
+    }) }) : null,
+    window.remaining === null ? null : jsx("span", { key: "remaining", children: t("window.remaining", {
+      value: formatAmount(window.remaining),
+    }) }),
+    reset === null ? null : jsx("span", { key: "reset", children: reset }),
+    window.note === null ? null : jsx("span", { key: "note", children: window.note }),
+  ]);
+  return jsxs("div", {
+    className: "ub-composer-window",
+    "data-window": window.id,
+    children: [
+      jsx(QuotaRing, { key: "ring", percent: percent, label: label, size: 38 }),
+      jsxs("div", {
+        key: "detail",
+        className: "ub-composer-window-detail",
+        children: [
+          jsxs("div", {
+            key: "head",
+            className: "ub-composer-window-head",
+            children: [
+              jsx("span", { className: "ub-composer-window-label", title: label, children: label }),
+              jsx("span", { className: "ub-composer-window-percent", children: formatPercent(percent) }),
+            ],
+          }),
+          foot.length === 0 ? null : jsx("div", { key: "foot", className: "ub-composer-window-foot", children: foot }),
+        ],
+      }),
+    ],
+  });
+}
+
+/** Selected provider trigger and its hover/focus/click popover. */
+function ComposerProviderUsage(props) {
+  const t = props.t;
+  const selection = props.selection;
+  const usageId = usageProviderForRoute(selection.provider);
+  const usage = useComposerProvider(usageId);
+  const row = usage.row;
+  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [now, setNow] = useState(function () { return Date.now(); });
+  const closeTimerRef = useRef(null);
+  const triggerRef = useRef(null);
+  const popoverRef = useRef(null);
+  const refreshRef = useRef(null);
+  const anchorName = "--ub-composer-" + useId().replaceAll(":", "");
+  const popoverId = "ub-composer-popover-" + useId().replaceAll(":", "");
+
+  function clearCloseTimer() {
+    if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }
+  function show() {
+    clearCloseTimer();
+    setOpen(true);
+  }
+  function close() {
+    clearCloseTimer();
+    setOpen(false);
+    setPinned(false);
+  }
+  function scheduleClose() {
+    if (pinned) return;
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(function () {
+      closeTimerRef.current = null;
+      setOpen(false);
+    }, COMPOSER_CLOSE_DELAY_MS);
+  }
+  function leave() {
+    if (!pinned) scheduleClose();
+  }
+
+  useEffect(function () {
+    return clearCloseTimer;
+  }, []);
+
+  useEffect(function () {
+    if (!open) return undefined;
+    setNow(Date.now());
+    const timer = setInterval(function () { setNow(Date.now()); }, COMPOSER_CLOCK_MS);
+    return function () { clearInterval(timer); };
+  }, [open]);
+
+  useEffect(function () {
+    if (open) usage.read();
+  }, [open, usage.read]);
+
+  useEffect(function () {
+    if (!open || typeof document === "undefined" || document === null) return undefined;
+    const onPointerDown = function (event) {
+      const target = event.target;
+      if (containsElement(usage.rootRef.current, target)) return;
+      if (containsElement(popoverRef.current, target)) return;
+      close();
+    };
+    const onKeyDown = function (event) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close();
+      if (triggerRef.current !== null && typeof triggerRef.current.focus === "function") triggerRef.current.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return function () {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [open, pinned]);
+
+  const providerLabel = row === null ? composerRouteLabel(selection, props.directoryState) : row.label;
+  const primary = row !== null && row.status === "ok" ? primaryUsageWindow(row) : null;
+  const primaryPercent = primary === null ? null : composerWindowPercent(primary);
+  const additional = row !== null && primary !== null ? Math.max(0, row.windows.length - 1) : 0;
+  const firstBalance = row !== null && row.balances.length > 0 ? row.balances[0] : null;
+  let reading;
+  if (usageId === null) reading = t("composer.unsupported");
+  else if (primary !== null) reading = formatPercent(primaryPercent);
+  else if (row !== null && row.status !== "ok") reading = t(statusKey(row.status));
+  else if (firstBalance !== null) reading = t("composer.balance", { value: formatMoney(firstBalance.available, firstBalance.currency) });
+  else if (usage.failure !== null && row === null) reading = t("composer.unavailable");
+  else if (row === null) reading = t("composer.loading");
+  else reading = t("composer.noQuota");
+
+  const triggerChildren = [
+    jsx("span", { key: "provider", className: "ub-composer-route", children: providerLabel }),
+  ];
+  if (primary !== null) {
+    triggerChildren.push(jsx("span", { key: "window", className: "ub-composer-window-short", children: composerWindowShortLabel(t, primary) }));
+    triggerChildren.push(jsx(QuotaRing, { key: "ring", percent: primaryPercent, label: windowLabel(t, primary), size: 14 }));
+    triggerChildren.push(jsx("span", { key: "percent", className: "ub-composer-percent", children: formatPercent(primaryPercent) }));
+    if (additional > 0) {
+      triggerChildren.push(jsx("span", {
+        key: "more",
+        className: "ub-composer-more",
+        title: t("composer.more", { n: String(additional) }),
+        children: "+" + String(additional),
+      }));
+    }
+  } else {
+    triggerChildren.push(jsx("span", { key: "reading", className: "ub-composer-reading", children: reading }));
+  }
+  if (usage.failure !== null) {
+    triggerChildren.push(jsx("span", {
+      key: "alert",
+      className: "ub-composer-alert",
+      role: "img",
+      "aria-label": t("composer.stale"),
+      title: t("composer.stale"),
+      children: "!",
+    }));
+  }
+
+  const body = [];
+  if (usageId === null) {
+    body.push(jsx("p", { key: "unsupported", className: "ub-composer-note", children: t("composer.unsupportedDetail") }));
+  } else {
+    if (usage.failure !== null) {
+      body.push(jsx("p", {
+        key: "failure",
+        className: "ub-composer-error",
+        role: "status",
+        children: t("state.refreshFailed", { reason: usage.failure.detail ?? t(usage.failure.key, usage.failure.params) }),
+      }));
+    }
+    if (row === null) {
+      body.push(jsx("p", {
+        key: "loading",
+        className: "ub-composer-note",
+        role: "status",
+        children: usage.pending || usage.failure === null ? t("state.loading") : t("composer.noData"),
+      }));
+    } else if (row.status !== "ok") {
+      body.push(jsxs("div", {
+        key: "status",
+        className: "ub-composer-state",
+        children: compact([
+          jsx("p", { key: "message", className: "ub-composer-note", children: providerMessage(t, row) }),
+          row.code === null ? null : jsx("code", { key: "code", className: "ub-code", children: row.code }),
+        ]),
+      }));
+    } else {
+      for (const window of row.windows) {
+        body.push(jsx(ComposerWindow, { key: window.id, window: window, t: t, now: now }));
+      }
+      if (row.balances.length > 0) {
+        body.push(jsx("div", {
+          key: "balances",
+          className: "ub-balances",
+          children: row.balances.map(function (balance, index) {
+            return jsx(BalanceRow, { balance: balance, t: t }, balance.currency + "-" + String(index));
+          }),
+        }));
+      }
+      if (row.windows.length === 0 && row.balances.length === 0) {
+        body.push(jsx("p", { key: "empty", className: "ub-composer-note", children: t("state.noWindows") }));
+      }
+    }
+  }
+
+  return jsxs("span", {
+    className: "ub-composer",
+    ref: usage.rootRef,
+    style: { anchorName: anchorName },
+    "data-provider": selection.provider,
+    "data-usage-provider": usageId ?? "unsupported",
+    "data-state": usage.failure !== null ? "degraded" : row === null ? "loading" : row.status,
+    onMouseEnter: show,
+    onMouseLeave: leave,
+    children: [
+      jsxs("button", {
+        key: "trigger",
+        ref: triggerRef,
+        type: "button",
+        className: "ub-composer-trigger",
+        "aria-label": t("composer.aria", { provider: providerLabel, reading: reading }),
+        "aria-haspopup": "dialog",
+        "aria-expanded": open,
+        "aria-controls": popoverId,
+        onFocus: show,
+        onBlur: function (event) {
+          const next = event.relatedTarget;
+          if (next !== null && containsElement(popoverRef.current, next)) return;
+          leave();
+        },
+        onClick: function () {
+          clearCloseTimer();
+          if (open && pinned) close();
+          else {
+            setOpen(true);
+            setPinned(true);
+          }
+        },
+        // The popover portals to body, so plain Tab would leave it behind.
+        // ArrowDown/ArrowUp is the explicit keyboard path into its one action.
+        onKeyDown: function (event) {
+          if (!open || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
+          if (refreshRef.current === null || typeof refreshRef.current.focus !== "function") return;
+          event.preventDefault();
+          refreshRef.current.focus();
+        },
+        children: triggerChildren,
+      }),
+      open ? portalToBody(jsxs("div", {
+        id: popoverId,
+        ref: popoverRef,
+        className: "ub-composer-popover",
+        style: { positionAnchor: anchorName },
+        role: "dialog",
+        "aria-label": t("composer.popup", { provider: providerLabel }),
+        onMouseEnter: show,
+        onMouseLeave: leave,
+        children: [
+          jsxs("div", {
+            key: "head",
+            className: "ub-composer-popover-head",
+            children: [
+              jsxs("div", {
+                key: "title",
+                className: "ub-composer-popover-title",
+                children: [
+                  jsx("strong", { className: "ub-composer-popover-provider", children: providerLabel }),
+                  row !== null && row.plan !== null ? jsx("span", { className: "ub-plan", children: row.plan }) : null,
+                  jsx("span", { className: "ub-composer-model", title: selection.model, children: selection.model }),
+                ],
+              }),
+              usageId !== null && row !== null && row.status !== "ok" ? jsx("span", {
+                key: "status",
+                className: "ub-pill",
+                "data-tone": statusTone(row.status),
+                children: t(statusKey(row.status)),
+              }) : null,
+            ],
+          }),
+          jsx("div", { key: "body", className: "ub-composer-popover-body", children: body }),
+          usageId === null ? null : jsxs("div", {
+            key: "foot",
+            className: "ub-composer-popover-foot",
+            children: [
+              jsx("span", {
+                key: "updated",
+                className: "ub-composer-updated",
+                children: row === null || !isNum(row.fetchedAt) ? t("updated.none") : relativeTime(t, row.fetchedAt, now),
+              }),
+              jsxs("button", {
+                key: "refresh",
+                ref: refreshRef,
+                type: "button",
+                className: "ub-composer-refresh",
+                disabled: usage.pending,
+                "aria-busy": usage.pending ? "true" : undefined,
+                onClick: usage.refresh,
+                children: [
+                  jsx("span", {
+                    key: "glyph",
+                    className: usage.pending ? "ub-spin is-on" : "ub-spin",
+                    "aria-hidden": "true",
+                    children: jsx(RefreshGlyph, {}),
+                  }),
+                  jsx("span", { key: "label", children: usage.pending ? t("action.refreshing") : t("action.refresh") }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      })) : null,
+    ],
+  });
+}
+
+/** Resolve the model directory once, then key the data view by exact route. */
+function ComposerUsageBar(props) {
+  const t = translateOf(props);
+  const directoryState = useSyncExternalStore(
+    function (fn) { return props.directory.subscribe(fn); },
+    function () { return props.directory.getSnapshot(); },
+  );
+  const projection = props.useProjection("modelSelection");
+  useEffect(function () {
+    if (props.available === true && typeof props.load === "function") props.load();
+  }, [props.available, props.load]);
+  const selection = composerSelection(directoryState, projection);
+  if (selection === null) return null;
+  return jsx(ComposerProviderUsage, {
+    selection: selection,
+    directoryState: directoryState,
+    t: t,
+  }, selection.provider + "/" + selection.model);
+}
+
+/** Optional contribution: the full board remains usable without model selection. */
+function registerComposerUsage(ctx) {
+  ctx.inject(["modelDirectories", "sessions"], function (scope) {
+    const models = scope.modelDirectories;
+    const sessions = scope.sessions;
+    scope.slots.inject("conversation.composer.dock", function () {
+      return scope.slots.register({
+        name: "conversation.composer.dock",
+        id: COMPOSER_SLOT_ID,
+        order: COMPOSER_SLOT_ORDER,
+        locale: NS,
+        inject: function (sessionId) {
+          const directory = models.directoryFor(sessionId);
+          const available = sessions.subagentAddress(sessionId) === undefined;
+          return {
+            directory: directory.store,
+            available: available,
+            load: function () {
+              if (available) directory.load().catch(function () { /* the directory store carries the error */ });
+            },
+          };
+        },
+      }, ComposerUsageBar);
+    });
+  });
+}
+    //#endregion
+
     //#region dsh-plugin-usage-board: client registration
     /**
-     * Required Cordis services: `slots` carries both registrations, `locale`
+     * Required Cordis services: `slots` carries the registrations, `locale`
      * carries the `usageBoard` namespace the panel and sidebar label read.
+     * The composer strip's `modelDirectories`/`sessions` dependencies are
+     * optional and resolved through `ctx.inject` at mount time.
      */
     const inject = ["slots", "locale"];
 
@@ -3542,6 +4644,10 @@ function UsageBoardPanelIcon(props) {
         key: PANEL_ID,
         locale: NS,
       }, UsageBoardPanel));
+      // The selected-provider strip below the composer is optional: it mounts
+      // only when the model-selection client services are composed, and the
+      // sidebar board above never depends on them.
+      registerComposerUsage(ctx);
     }
     //#endregion
 

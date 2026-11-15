@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Usage Board",
-    "description": "DeepSeek balance, 7-day/30-day spend totals and a 7-day daily trend, plus GLM Coding Plan, Kimi Code and OpenCode Go 5-hour, weekly (and monthly) quota windows, together in one DSH sidebar panel using the four official APIs; services without a configured credential show no card. The usage_query tool lets the model read the same usage, quota and balance."
+    "description": "Besides the sidebar panel, a compact selected-provider usage strip under the composer shows the current model route’s quota ring and percentage, with a hover popover for every window, remaining amount and reset time; DeepSeek shows its balance and unsupported routes are labelled. The panel still shows DeepSeek, GLM Coding Plan, Kimi Code and OpenCode Go usage, quota and balance, plus the usage_query tool."
   }
 }

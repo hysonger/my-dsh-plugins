@@ -32,6 +32,10 @@ dsh-plugin-usage-board/
     │   ├── providers/        四家服务各自的适配器
     │   └── web/dashboard.html 独立页面（纯 HTML，不依赖面板）
     └── client/               浏览器半边源码（打包进 lib/client.js）
+        ├── panel.js          侧边栏面板与独立页面共用数据的渲染层
+        ├── composer.js       输入框下方的当前提供商信息条与悬浮窗
+        ├── styles.css        面板样式（嵌入 PANEL_CSS）
+        └── composer.css      信息条样式（嵌入 COMPOSER_CSS）
 ```
 
 **为什么要主机半边？** 三个理由，缺一不可：
@@ -148,6 +152,31 @@ POST /usage-board/api/refresh      （聚合强制；语义与旧版一致）
 - 任何一个服务商失败，接口仍然返回 **HTTP 200**，信封里 `ok: false`，出错的那一行带上自己的
   `status` / `message` / `code`。
 - 任何一家挂了，其余几家照常显示。
+
+### 第四个消费者：composer 当前提供商条
+
+`src/client/composer.js` 是同一份单提供商数据在输入框下方的消费端，挂到 `conversation.composer.dock` 的一个独立 id（`usage-board-provider`，`order: 2`）上，宿主自己的 `activity` / `usage` 条目保持不变：
+
+```
+模型选择（modelDirectories.current，回退 modelSelection 投影）
+        │  路由显式映射
+        ▼
+ComposerUsageBar ──► GET/POST /usage-board/api/provider?id=<一个服务商>
+        │                  （与面板相同的 requestJson / 可见性闸门 / 降级）
+        ▼
+紧凑条目：SVG 圆环 + 主窗口百分比（+N）
+悬浮窗（portal 到 document.body）：每个窗口一个圆环 + 计数 + 重置 + 手动刷新
+```
+
+设计约束：
+
+- **一次只读一家。** 不使用聚合接口，不把整板取回浏览器后再挑；自动刷新只针对选中行，切换提供商时以组件 key 重挂载，并用 generation 丢弃迟到响应。
+- **模型选择只有一个事实源。** 普通会话优先使用 `ctx.modelDirectories.directoryFor(sessionId).store.current`（其中已合并目录默认模型与持久选择），目录尚未就绪或被寻址子代理没有独立选择权时回退到 `modelSelection.next ?? lastUsed`；两者都没有就不渲染，避免先猜一个提供商。
+- **路由映射是显式表**（`USAGE_PROVIDER_BY_ROUTE`），不做名称模糊匹配；未知路由只显示「未接入」，绝不请求其他服务商。
+- **圆环只描述已用比例。** 几何值 clamp 到 0–100，文本保留真实百分比；`derivedPercent ?? percent` 与面板同规则，颜色阈值也一致（<70 正常、70–89 警告、≥90 危险、未知灰色）。
+- **悬浮层必须 portal。** 停靠的 composer 是 fixed 后代的 containing block，所以浮层用 `react-dom` 的 `createPortal` 到 `document.body`，并以 CSS Anchor Positioning 依附触发条；宿主 `ContextMeter` 采用同一模式。
+- **可选挂载。** 通过 `ctx.inject(['modelDirectories', 'sessions'], …)` 安装；profile 缺少模型选择能力时，只有这条信息条缺席，侧边栏面板、独立页面和工具都照常工作。
+- **不写共享缓存。** 首帧可读取面板已经写入 `sessionStorage` 的对应行来避免闪空，但信息条只读不写，避免单行数据覆盖整板缓存。
 
 ### 给模型的第三个消费者（`usage_query`）
 
@@ -394,6 +423,7 @@ GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须�
 - **每个服务商各自为政，没有「整板同时刷新」的原子性。** 这是逐家加载的代价，也是它的目的：
   各张卡片的更新时间可能相差几秒（各自读取耗时的差异）。卡片底部的耗时和整体更新时间都以
   各自那次读取为准；不接受这一点就只能退回「等最慢的一家」。
+- **composer 信息条是服务商维度的。** DeepSeek 账号与 API Key 两条路由共享看板的同一个 DeepSeek 聚合行，不拆成两套账户视图；未接入的路由只显示「未接入」，不会猜测额度。
 - **未配置的提供商没有卡片。** 这是渲染层的行为：主机仍然为每个 id 返回 `not-configured` 行，
   面板和独立页面把它过滤掉（所以健康检查、旧消费者和「补上密钥后自动出现」都不受影响）。
   代价是：用户看不到「这家支持但没配置」的占位，只能从 README / DSH 设置里知道有哪些服务。

@@ -26,7 +26,9 @@ const read = (relative) => readFileSync(join(ROOT, relative), "utf8");
 const sharedSource = read("src/shared/protocol.js");
 const copySource = read("src/client/protocol-copy.js");
 const panelSource = read("src/client/panel.js");
+const composerSource = read("src/client/composer.js");
 const styleSource = read("src/client/styles.css");
+const composerStyleSource = read("src/client/composer.css");
 const bundleSource = read("lib/client.js");
 const dashboardSource = read("src/host/web/dashboard.html");
 const manifest = JSON.parse(read("package.json"));
@@ -141,6 +143,11 @@ function stubModules() {
       useEffect: neverCalled("useEffect"),
       useRef: neverCalled("useRef"),
       useCallback: neverCalled("useCallback"),
+      useId: neverCalled("useId"),
+      useSyncExternalStore: neverCalled("useSyncExternalStore"),
+    },
+    "react-dom": {
+      createPortal: neverCalled("createPortal"),
     },
     "react/jsx-runtime": {
       jsx: neverCalled("jsx"),
@@ -190,6 +197,22 @@ function loadBundle() {
  */
 function makeContext() {
   const state = { locale: "zh", dictionaries: new Map(), effects: [], injects: [], registrations: [] };
+  // The composer strip reads one directory store; registration tests only need
+  // its shape, while the render harness below supplies a mutable one.
+  const directorySnapshot = {
+    current: { provider: "zai-coding-cn", model: "glm-4.7" },
+    groups: [],
+    failures: [],
+    status: "ready",
+    pending: null,
+    error: null,
+  };
+  const directoryStore = {
+    subscribe() { return () => {}; },
+    getSnapshot() { return directorySnapshot; },
+  };
+  state.directorySnapshot = directorySnapshot;
+  state.directoryStore = directoryStore;
   const interpolate = (text, params) =>
     text.replace(/\{(\w+)\}/g, (match, key) =>
       params !== undefined && Object.prototype.hasOwnProperty.call(params, key) ? String(params[key]) : match);
@@ -228,6 +251,21 @@ function makeContext() {
         state.registrations.push(entry);
         return entry;
       },
+    },
+    // Optional services are resolved the way Cordis resolves an `inject`
+    // compartment: the callback runs with the services available.
+    inject(deps, callback) {
+      state.injects2 = state.injects2 ?? [];
+      state.injects2.push(deps);
+      return callback(ctx);
+    },
+    modelDirectories: {
+      directoryFor() {
+        return { store: directoryStore, load: () => Promise.resolve(directorySnapshot) };
+      },
+    },
+    sessions: {
+      subagentAddress() { return undefined; },
     },
   };
   return ctx;
@@ -681,6 +719,12 @@ function createRenderer(options = {}) {
       return tree;
     },
     /** Fire every fake timer due within `ms`, then settle. */
+    /** Fire every live interval registered with exactly `delay` (ms). */
+    fireInterval(delay) {
+      for (const entry of [...intervals]) {
+        if (entry.delay === delay) entry.callback();
+      }
+    },
     async advance(ms) {
       const until = nowMs + ms;
       let guard = 0;
@@ -766,11 +810,16 @@ function makeFakeDocument() {
 
 test("lib/client.js is assembled from the client sources, byte for byte", () => {
   assert.ok(bundleSource.includes(panelSource), "lib/client.js no longer embeds src/client/panel.js verbatim");
+  assert.ok(bundleSource.includes(composerSource), "lib/client.js no longer embeds src/client/composer.js verbatim");
   assert.ok(
     bundleSource.includes(copySource),
     "lib/client.js no longer embeds src/client/protocol-copy.js verbatim",
   );
   assert.ok(bundleSource.includes(styleSource), "lib/client.js no longer embeds src/client/styles.css verbatim");
+  assert.ok(
+    bundleSource.includes(composerStyleSource),
+    "lib/client.js no longer embeds src/client/composer.css verbatim",
+  );
 });
 
 test("the bundle is a valid DSH client-module combo script", () => {
@@ -791,7 +840,7 @@ test("the bundle requires only aliases the loader can answer", () => {
     assert.ok(allowed.has(specifier), `require("${specifier}") is not in the client allow-list`);
   }
   const called = [...bundleSource.matchAll(/require\(\s*"([^"]+)"\s*\)/g)].map((match) => match[1]);
-  assert.deepEqual([...new Set(called)].sort(), ["react", "react/jsx-runtime"]);
+  assert.deepEqual([...new Set(called)].sort(), ["react", "react-dom", "react/jsx-runtime"]);
 });
 
 test("package.json declares the client half the bundle needs", () => {
@@ -886,6 +935,636 @@ test("the sidebar label follows the active UI language", () => {
   assert.equal(icon.options.label(), "用量看板");
   ctx.state.locale = "en";
   assert.equal(icon.options.label(), "Usage Board");
+});
+
+
+// ------------------------------------------------- composer usage strip ---
+
+test("apply() adds the selected-provider strip beside the shipped dock entries", () => {
+  const { exports } = loadBundle();
+  const ctx = makeContext();
+  exports.apply(ctx);
+  const dock = ctx.state.injects.find((entry) => entry.name === "conversation.composer.dock");
+  assert.ok(dock !== undefined, "no conversation.composer.dock injection");
+  const registration = dock.register();
+  assert.equal(registration.options.name, "conversation.composer.dock");
+  assert.equal(registration.options.id, "usage-board-provider");
+  assert.equal(registration.options.order, 2);
+  assert.equal(registration.options.locale, NS);
+  assert.equal(typeof registration.options.inject, "function");
+  assert.equal(typeof registration.component, "function");
+  const injected = registration.options.inject("session-a");
+  assert.equal(injected.available, true);
+  assert.equal(typeof injected.directory.getSnapshot, "function");
+  assert.equal(typeof injected.load, "function");
+});
+
+test("the selected-provider strip does not block the board when model selection is absent", () => {
+  const { exports } = loadBundle();
+  const ctx = makeContext();
+  delete ctx.modelDirectories;
+  exports.apply(ctx);
+  assert.ok(ctx.state.injects.some((entry) => entry.name === "sidebar.panellist"));
+  assert.ok(ctx.state.injects.some((entry) => entry.name === "main"));
+});
+
+/**
+ * Load the composer fragment in its own VM scope with the panel helpers beside
+ * it, exposing the pure mapping helpers and the ring component.
+ * @returns {object} the composer's internal helpers.
+ */
+function loadComposerUnit() {
+  const createElement = (type, props) => (typeof type === "function" ? type(props ?? {}) : { type: String(type), props: props ?? {} });
+  const context = vm.createContext({
+    react: stubModules().react,
+    reactDom: { createPortal: (element) => element },
+    jsxRuntime: { jsx: createElement, jsxs: createElement, Fragment: "Fragment" },
+    console,
+  });
+  const exposure = [
+    "\n;globalThis.__ubc = {",
+    "  usageProviderForRoute, composerSelection, primaryUsageWindow, composerWindowShortLabel,",
+    "  composerLevel, QuotaRing, ComposerWindow, ComposerProviderUsage, ComposerUsageBar,",
+    "  registerComposerUsage, COMPOSER_SLOT_ID, COMPOSER_SLOT_ORDER, USAGE_PROVIDER_BY_ROUTE,",
+    "  portalToBody, containsElement,",
+    "};",
+  ].join("\n");
+  new vm.Script(copySource + "\n" + panelSource + "\n" + composerSource + exposure, { filename: "composer-body.js" }).runInContext(context);
+  return context.__ubc;
+}
+
+test("composer routes map exact DSH provider ids and never guess by name", () => {
+  const unit = loadComposerUnit();
+  assert.equal(unit.usageProviderForRoute("deepseek-account"), "deepseek");
+  assert.equal(unit.usageProviderForRoute("deepseek-official"), "deepseek");
+  assert.equal(unit.usageProviderForRoute("kimi-coding"), "kimi");
+  assert.equal(unit.usageProviderForRoute("zai"), "glm");
+  assert.equal(unit.usageProviderForRoute("zai-coding-cn"), "glm");
+  assert.equal(unit.usageProviderForRoute("opencode-go"), "opencode-go");
+  for (const route of ["openai", "deepseek", "kimi", "glm", "anthropic", "", null, undefined]) {
+    assert.equal(unit.usageProviderForRoute(route), null, `${String(route)} must stay unsupported`);
+  }
+});
+
+test("the composer follows the model selector's current choice before the projection", () => {
+  const unit = loadComposerUnit();
+  const selected = { provider: "zai-coding-cn", model: "glm-5" };
+  assert.deepEqual(
+    unit.composerSelection({ current: selected }, { next: { provider: "kimi-coding", model: "k3" } }),
+    selected,
+  );
+  assert.deepEqual(
+    unit.composerSelection({ current: null }, { next: { provider: "kimi-coding", model: "k3" } }),
+    { provider: "kimi-coding", model: "k3" },
+  );
+  assert.deepEqual(
+    unit.composerSelection(null, { next: null, lastUsed: { provider: "opencode-go", model: "k3" } }),
+    { provider: "opencode-go", model: "k3" },
+  );
+  assert.equal(unit.composerSelection({ current: null }, { next: null, lastUsed: null }), null);
+  assert.equal(unit.composerSelection(null, null), null);
+});
+
+test("the compact trigger prefers the five-hour window regardless of row order", () => {
+  const unit = loadComposerUnit();
+  const window = (id, percent) => ({ id, percent, derivedPercent: percent, used: 1, limit: 10 });
+  const provider = (windows) => ({ windows });
+  assert.equal(
+    unit.primaryUsageWindow(provider([window("glm.weekly", 20), window("glm.5h", 40)])).id,
+    "glm.5h",
+  );
+  assert.equal(
+    unit.primaryUsageWindow(provider([window("custom.a", 30), window("custom.b", 50)])).id,
+    "custom.a",
+  );
+  assert.equal(unit.primaryUsageWindow(provider([])), null);
+  assert.equal(unit.primaryUsageWindow(null), null);
+});
+
+test("ring severity uses the board's existing thresholds", () => {
+  const unit = loadComposerUnit();
+  assert.equal(unit.composerLevel(0), "ok");
+  assert.equal(unit.composerLevel(69.9), "ok");
+  assert.equal(unit.composerLevel(70), "warn");
+  assert.equal(unit.composerLevel(89.9), "warn");
+  assert.equal(unit.composerLevel(90), "danger");
+  assert.equal(unit.composerLevel(120), "danger");
+  assert.equal(unit.composerLevel(null), "unknown");
+});
+
+test("the quota ring clamps geometry, keeps the reading, and exposes ARIA", () => {
+  const unit = loadComposerUnit();
+  const ring = (percent) => unit.QuotaRing({ percent, label: "GLM 5-hour", size: 14 }).props;
+  const normal = ring(37.5);
+  assert.equal(normal.role, "progressbar");
+  assert.equal(normal["aria-label"], "GLM 5-hour");
+  assert.equal(normal["aria-valuenow"], 37.5);
+  assert.equal(normal["aria-valuetext"], "37.5%");
+  assert.match(normal.children[1].props.strokeDasharray, /^[\d.]+ [\d.]+$/);
+
+  const over = ring(120);
+  assert.equal(over["aria-valuenow"], 100, "the arc stops at a full ring");
+  assert.equal(over["aria-valuetext"], "120.0%", "the printed reading stays truthful");
+
+  const unknown = ring(null);
+  assert.equal(unknown["aria-valuenow"], undefined);
+  assert.equal(unknown["aria-valuetext"], "—");
+  assert.equal(unknown["data-level"], "unknown");
+});
+
+/**
+ * A fake document that passes event payloads through, enough for the popover's
+ * outside-pointer and Escape handling.
+ * @returns {object}
+ */
+function makeComposerDocument() {
+  const listeners = new Map();
+  return {
+    body: {},
+    visibilityState: "visible",
+    addEventListener(type, handler) {
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(handler);
+    },
+    removeEventListener(type, handler) {
+      const list = listeners.get(type);
+      if (list === undefined) return;
+      const index = list.indexOf(handler);
+      if (index !== -1) list.splice(index, 1);
+    },
+    fire(type, event) {
+      for (const handler of [...(listeners.get(type) ?? [])]) handler(event ?? {});
+    },
+  };
+}
+
+/**
+ * Composer-specific render harness: a mutable model directory, provider
+ * fixture, fake browser primitives, and the hook contract ComposerUsageBar
+ * consumes.
+ * @param {object} [options]
+ * @returns {object} mount/settle/advance plus interaction helpers.
+ */
+function createComposerRenderer(options = {}) {
+  const slots = {};
+  const effectState = new Map();
+  const dirtyEffects = new Set();
+  const requests = [];
+  const timers = new Map();
+  const intervals = [];
+  const held = [];
+  const loadCalls = { count: 0 };
+  let hookIndex = 0;
+  let dirty = false;
+  let tree = null;
+  let nowMs = typeof options.now === "number" ? options.now : 0;
+  let timerSeq = 0;
+  let intervalSeq = 0;
+
+  const directorySnapshot = options.directory ?? {
+    current: { provider: options.route ?? "zai-coding-cn", model: "glm-5" },
+    groups: [{ id: "zai-coding-cn", name: "GLM Coding Plan" }],
+    failures: [],
+    status: "ready",
+    pending: null,
+    error: null,
+  };
+  const listeners = new Set();
+  const directory = {
+    subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    getSnapshot() { return directorySnapshot; },
+    patch(next) {
+      Object.assign(directorySnapshot, next);
+      for (const fn of [...listeners]) fn();
+    },
+  };
+  const projection = options.projection ?? { modelSelection: { next: null, lastUsed: null } };
+  const loadDirectory = () => {
+    loadCalls.count += 1;
+    return Promise.resolve(directorySnapshot);
+  };
+
+  let payload = {
+    ok: options.ok ?? true,
+    status: options.status ?? 200,
+    reject: options.reject ?? false,
+    hold: options.hold ?? false,
+    body: options.body ?? { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [] },
+  };
+
+  const providerResponse = (id, sourceBody) => {
+    const source = sourceBody !== null && typeof sourceBody === "object" ? sourceBody : {};
+    const rows = Array.isArray(source.providers) ? source.providers : [];
+    const match = rows.find((row) => row !== null && typeof row === "object" && row.id === id);
+    const row = match ?? {
+      id,
+      label: PROVIDER_LABELS[id] ?? id,
+      status: "ok",
+      messageKey: null,
+      windows: [],
+      balances: [],
+    };
+    const body = {
+      protocolVersion: typeof source.protocolVersion === "number" ? source.protocolVersion : 1,
+      generatedAt: typeof source.generatedAt === "number" ? source.generatedAt : nowMs,
+      ok: row.status === "ok",
+      ttlMs: typeof source.ttlMs === "number" ? source.ttlMs : 60_000,
+      providers: [row],
+    };
+    if (source.stale === true) body.stale = true;
+    if (source.refreshing === true) body.refreshing = true;
+    return body;
+  };
+
+  const react = {
+    useState(initial) {
+      const key = "s" + String(hookIndex++);
+      if (!(key in slots)) slots[key] = typeof initial === "function" ? initial() : initial;
+      return [slots[key], (next) => {
+        slots[key] = typeof next === "function" ? next(slots[key]) : next;
+        dirty = true;
+      }];
+    },
+    useRef(initial) {
+      const key = "r" + String(hookIndex++);
+      if (!(key in slots)) slots[key] = { current: initial };
+      return slots[key];
+    },
+    useCallback(callback) {
+      const key = "c" + String(hookIndex++);
+      if (!(key in slots)) slots[key] = callback;
+      return slots[key];
+    },
+    useEffect(callback, deps) {
+      const key = "e" + String(hookIndex++);
+      const depList = Array.isArray(deps) ? deps.slice() : null;
+      const previous = effectState.get(key);
+      const changed = previous === undefined
+        || depList === null
+        || previous.deps === null
+        || depList.length !== previous.deps.length
+        || depList.some((value, index) => !Object.is(value, previous.deps[index]));
+      if (changed) {
+        if (previous !== undefined && typeof previous.cleanup === "function") previous.cleanup();
+        effectState.set(key, { deps: depList, cleanup: undefined, callback });
+        dirtyEffects.add(key);
+      }
+    },
+    useId() { return ":qa:"; },
+    useSyncExternalStore(_subscribe, getSnapshot) { return getSnapshot(); },
+  };
+  const createElement = (type, props) => {
+    const next = props === undefined || props === null ? {} : props;
+    if (typeof type === "function") return type(next);
+    const element = { type: String(type), props: next, focus() { this.focused = true; } };
+    if (next.ref !== undefined && next.ref !== null && typeof next.ref === "object") next.ref.current = element;
+    return element;
+  };
+  const documentStub = options.document ?? makeComposerDocument();
+  const observers = makeIntersectionObserverSink();
+  const context = vm.createContext({
+    react,
+    reactDom: { createPortal: (element) => element },
+    jsxRuntime: { jsx: createElement, jsxs: createElement, Fragment: "Fragment" },
+    fetch(url, init) {
+      const target = new URL(String(url), "http://usage-board.test");
+      const id = target.searchParams.get(PROVIDER_QUERY_PARAM);
+      if (target.pathname !== PROVIDER_PATH || id === null) {
+        throw new TypeError(`the composer fetched a non-provider URL: ${String(url)}`);
+      }
+      requests.push({ id, method: init !== undefined && init.method ? init.method : "GET" });
+      if (payload.reject === true) return Promise.reject(new TypeError("Failed to fetch"));
+      const response = {
+        ok: payload.ok,
+        status: payload.status,
+        json: () => Promise.resolve(providerResponse(id, payload.body)),
+      };
+      if (payload.hold === true) return new Promise((resolve) => held.push(() => resolve(response)));
+      return Promise.resolve(response);
+    },
+    AbortController: function AbortController() {
+      this.signal = {};
+      this.abort = () => {};
+    },
+    setTimeout: (callback, delay) => {
+      const id = ++timerSeq;
+      timers.set(id, { callback, at: nowMs + (typeof delay === "number" ? delay : 0) });
+      return id;
+    },
+    clearTimeout: (id) => { timers.delete(id); },
+    setInterval: (callback, delay) => {
+      const id = ++intervalSeq;
+      intervals.push({ id, delay, callback });
+      return id;
+    },
+    clearInterval: (id) => {
+      const index = intervals.findIndex((entry) => entry.id === id);
+      if (index !== -1) intervals.splice(index, 1);
+    },
+    sessionStorage: options.storage ?? null,
+    console,
+    document: documentStub,
+    IntersectionObserver: observers.klass,
+  });
+  class HarnessDate extends Date {
+    static now() { return nowMs; }
+  }
+  context.Date = HarnessDate;
+  new vm.Script(
+    copySource + "\n" + panelSource + "\n" + composerSource
+      + "\n;globalThis.__ubc = { ComposerUsageBar, ComposerProviderUsage, QuotaRing, usageProviderForRoute, COMPOSER_SLOT_ID, COMPOSER_SLOT_ORDER, zh, en };",
+    { filename: "composer-render.js" },
+  ).runInContext(context);
+  const translate = translateSeat(context.__ubc.zh);
+
+  const flushEffects = () => {
+    if (dirtyEffects.size === 0) return;
+    for (const key of [...dirtyEffects]) {
+      dirtyEffects.delete(key);
+      const entry = effectState.get(key);
+      if (entry === undefined) continue;
+      entry.cleanup = entry.callback();
+    }
+  };
+
+  const draw = () => {
+    hookIndex = 0;
+    dirty = false;
+    tree = context.__ubc.ComposerUsageBar({
+      t: translate,
+      directory,
+      available: options.available ?? true,
+      load: loadDirectory,
+      useProjection: (key) => projection[key],
+    });
+    flushEffects();
+    return tree;
+  };
+
+  return {
+    requests,
+    directory,
+    document: documentStub,
+    observers: observers.observers,
+    loadCalls,
+    get tree() { return tree; },
+    setPayload(next) { payload = { ...payload, ...next }; },
+    mount() { return draw(); },
+    async settle(passes = 6) {
+      for (let pass = 0; pass < passes; pass += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (dirty) draw();
+      }
+      return tree;
+    },
+    /** Fire every live interval registered with exactly `delay` (ms). */
+    fireInterval(delay) {
+      for (const entry of [...intervals]) {
+        if (entry.delay === delay) entry.callback();
+      }
+    },
+    async advance(ms) {
+      const until = nowMs + ms;
+      let guard = 0;
+      for (;;) {
+        const due = [...timers.entries()]
+          .filter(([, timer]) => timer.at <= until)
+          .sort((a, b) => a[1].at - b[1].at);
+        if (due.length === 0 || guard > 50) break;
+        guard += 1;
+        const [id, timer] = due[0];
+        timers.delete(id);
+        nowMs = timer.at;
+        timer.callback();
+        await this.settle(3);
+      }
+      nowMs = until;
+      return this.settle(3);
+    },
+    async render() {
+      this.mount();
+      return this.settle();
+    },
+    async hover() {
+      const hoverRoot = findByClass(tree, "ub-composer");
+      hoverRoot.props.onMouseEnter();
+      return this.settle(2);
+    },
+    async clickTrigger() {
+      findByClass(tree, "ub-composer-trigger").props.onClick();
+      return this.settle(2);
+    },
+    fireDom(type, event) { documentStub.fire(type, event); },
+  };
+}
+
+/** A one-provider GLM row with two quota windows. */
+const COMPOSER_GLM_ROW = {
+  id: "glm",
+  label: "GLM Coding Plan",
+  status: "ok",
+  messageKey: null,
+  plan: "GLM Coding Lite",
+  windows: [
+    { id: "glm.5h", labelKey: "glm.5h", unit: "3", limit: 2000, used: 656, remaining: 1343, percent: 32, derivedPercent: 32.8, resetAt: 0, note: null },
+    { id: "glm.weekly", labelKey: "glm.weekly", unit: "6", limit: 10000, used: 5831, remaining: 4168, percent: 58, derivedPercent: 58.3, resetAt: 0, note: null },
+  ],
+  balances: [],
+  account: null,
+  meta: { host: "open.bigmodel.cn" },
+  fetchedAt: 0,
+  latencyMs: 120,
+};
+
+test("the composer strip requests only the selected provider and renders its ring", async () => {
+  const renderer = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [COMPOSER_GLM_ROW] },
+  });
+  const tree = await renderer.render();
+  assert.deepEqual(renderer.requests.map((entry) => entry.id), ["glm"]);
+  assert.equal(renderer.loadCalls.count >= 1, true);
+
+  const trigger = findByClass(tree, "ub-composer-trigger");
+  assert.ok(trigger !== null, "the dock must expose one compact trigger");
+  assert.equal(findByClass(tree, "ub-composer-route").props.children, "GLM Coding Plan");
+  assert.equal(findByClass(tree, "ub-composer-percent").props.children, "32.8%");
+  const ring = findByClass(tree, "ub-composer-ring");
+  assert.equal(ring.props["aria-valuetext"], "32.8%");
+  assert.equal(findByClass(tree, "ub-composer-more").props.children, "+1");
+});
+
+test("the popover lists every window as a ring and keeps last-good numbers on failure", async () => {
+  const renderer = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [COMPOSER_GLM_ROW] },
+  });
+  await renderer.render();
+  const opened = await renderer.hover();
+  const rows = findAllByClass(opened, "ub-composer-window");
+  assert.equal(rows.length, 2, "both quota windows belong in the popover");
+  assert.ok(opened !== null);
+
+  renderer.setPayload({ reject: true });
+  renderer.fireInterval(60_000);
+  const degraded = await renderer.settle(4);
+  assert.ok(findByClass(degraded, "ub-composer-error") !== null, "a failed refresh must explain itself");
+  assert.equal(findByClass(degraded, "ub-composer-percent").props.children, "32.8%", "old numbers stay visible");
+  assert.ok(findByClass(degraded, "ub-composer-alert") !== null, "the compact trigger marks degraded data");
+});
+
+test("manual refresh forces only the selected provider", async () => {
+  const renderer = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [COMPOSER_GLM_ROW] },
+  });
+  await renderer.render();
+  await renderer.hover();
+  const button = findByClass(renderer.tree, "ub-composer-refresh");
+  assert.ok(button !== null, "the popover owns the refresh action");
+  button.props.onClick();
+  await renderer.settle(4);
+  const posts = renderer.requests.filter((entry) => entry.method === "POST");
+  assert.deepEqual(posts.map((entry) => entry.id), ["glm"]);
+  assert.ok(renderer.requests.every((entry) => entry.id === "glm"), "no other provider may be read");
+});
+
+test("a stale answer earns exactly one bounded follow-up for the same provider", async () => {
+  const renderer = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, stale: true, providers: [COMPOSER_GLM_ROW] },
+  });
+  await renderer.render();
+  assert.equal(renderer.requests.length, 1);
+  await renderer.advance(1500);
+  assert.deepEqual(renderer.requests.map((entry) => entry.id), ["glm", "glm"]);
+  await renderer.advance(10_000);
+  assert.equal(renderer.requests.length, 2, "the follow-up itself must not schedule another read");
+});
+
+test("a not-configured provider states that fact instead of drawing a quota ring", async () => {
+  const row = {
+    id: "glm",
+    label: "GLM Coding Plan",
+    status: "not-configured",
+    message: "No credential is configured for this service.",
+    messageKey: "notConfigured",
+    code: null,
+    plan: null,
+    windows: [],
+    balances: [],
+    account: null,
+    meta: {},
+    fetchedAt: 0,
+    latencyMs: 0,
+  };
+  const renderer = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [row] },
+  });
+  const tree = await renderer.render();
+  assert.equal(findByClass(tree, "ub-composer-ring"), null);
+  assert.equal(findByClass(tree, "ub-composer-reading").props.children, "未配置");
+  const opened = await renderer.hover();
+  assert.match(treeText(opened), /配置/);
+});
+
+test("the popover opens by hover, pins by click, and closes on Escape or outside pointer", async () => {
+  const renderer = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [COMPOSER_GLM_ROW] },
+  });
+  await renderer.render();
+  assert.equal(findByClass(renderer.tree, "ub-composer-popover"), null);
+
+  let tree = await renderer.hover();
+  assert.ok(findByClass(tree, "ub-composer-popover") !== null, "hover opens the popover");
+
+  tree = await renderer.clickTrigger();
+  assert.ok(findByClass(tree, "ub-composer-popover") !== null, "click pins it open");
+
+  findByClass(tree, "ub-composer-trigger").props.onKeyDown({ key: "ArrowDown", preventDefault() {} });
+  assert.equal(findByClass(tree, "ub-composer-refresh").focused, true, "ArrowDown reaches the portal action");
+
+  renderer.fireDom("keydown", { key: "Escape", preventDefault() {} });
+  tree = await renderer.settle(2);
+  assert.equal(findByClass(tree, "ub-composer-popover"), null, "Escape closes it");
+
+  tree = await renderer.hover();
+  assert.ok(findByClass(tree, "ub-composer-popover") !== null);
+  renderer.fireDom("pointerdown", { target: {} });
+  tree = await renderer.settle(2);
+  assert.equal(findByClass(tree, "ub-composer-popover"), null, "an outside pointer closes it");
+});
+
+test("an unsupported route shows the explicit fallback without any request", async () => {
+  const renderer = createComposerRenderer({
+    route: "openai",
+    directory: {
+      current: { provider: "openai", model: "gpt-5" },
+      groups: [{ id: "openai", name: "OpenAI" }],
+      failures: [],
+      status: "ready",
+      pending: null,
+      error: null,
+    },
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [] },
+  });
+  const tree = await renderer.render();
+  assert.equal(renderer.requests.length, 0, "an unsupported route must not read another provider's data");
+  assert.equal(findByClass(tree, "ub-composer-reading").props.children, "未接入");
+});
+
+test("a projection-only session still resolves its provider", async () => {
+  const renderer = createComposerRenderer({
+    directory: { current: null, groups: [], failures: [], status: "loading", pending: null, error: null },
+    projection: { modelSelection: { next: { provider: "kimi-coding", model: "k3" }, lastUsed: null } },
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [] },
+  });
+  const tree = await renderer.render();
+  assert.deepEqual(renderer.requests.map((entry) => entry.id), ["kimi"]);
+  assert.equal(findByClass(tree, "ub-composer-route").props.children, "Kimi Code");
+});
+
+test("DeepSeek shows a balance instead of inventing a quota ring", async () => {
+  const row = {
+    id: "deepseek",
+    label: "DeepSeek",
+    status: "ok",
+    messageKey: null,
+    plan: null,
+    windows: [],
+    balances: [{ currency: "CNY", available: 29.9, bonus: 0, totalSpent: 126.11 }],
+    account: null,
+    meta: {},
+    fetchedAt: 0,
+    latencyMs: 80,
+  };
+  const renderer = createComposerRenderer({
+    route: "deepseek-account",
+    directory: {
+      current: { provider: "deepseek-account", model: "deepseek-v4-pro" },
+      groups: [{ id: "deepseek-account", name: "DeepSeek" }],
+      failures: [],
+      status: "ready",
+      pending: null,
+      error: null,
+    },
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [row] },
+  });
+  const tree = await renderer.render();
+  assert.equal(findByClass(tree, "ub-composer-ring"), null);
+  assert.equal(findByClass(tree, "ub-composer-reading").props.children, "余额 ¥29.90");
+});
+
+test("the composer stylesheet keeps the compact ring and portal popover contract", () => {
+  assert.ok(!composerStyleSource.includes("`") && !composerStyleSource.includes("${"), "composer.css must stay embeddable");
+  for (const selector of [
+    ".ub-composer-trigger",
+    ".ub-composer-ring",
+    ".ub-composer-popover",
+    ".ub-composer-window",
+    "@position-try --ub-composer-below",
+  ]) {
+    assert.ok(composerStyleSource.includes(selector), `composer.css lost ${selector}`);
+  }
+  assert.ok(composerStyleSource.includes("var(--dsw-alias-bg-overlay"));
+  const bare = [...composerStyleSource.matchAll(/var\(\s*(--d(?:sw|sh)-[a-zA-Z0-9-]+)\s*\)/g)].map((match) => match[1]);
+  assert.deepEqual(bare, [], `these frame tokens are read without a fallback: ${bare.join(", ")}`);
 });
 
 // -------------------------------------------------------------- formatting ---
