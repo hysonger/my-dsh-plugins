@@ -195,7 +195,9 @@ function handleCaughtError(req, res, err, options) {
   if (status >= 500) {
     options.log?.(`git-log route error (${code}): ${message}`);
   }
-  sendError(req, res, status, code, message);
+  if (!res.headersSent) {
+    sendError(req, res, status, code, message);
+  }
 }
 
 /**
@@ -208,6 +210,7 @@ function handleCaughtError(req, res, err, options) {
  *   maxPageSize?: () => number,
  *   maxDiffBytes?: () => number,
  *   commandTimeoutMs?: () => number,
+ *   requestRejection?: (req: import("node:http").IncomingMessage) => 401 | 403 | undefined,
  *   resolveSessionCwd?: (sessionId: string) => Promise<string | undefined> | string | undefined,
  *   log?: (msg: string) => void
  * }} options
@@ -227,120 +230,84 @@ export function registerRoutes(webServer, options) {
     return Number.isFinite(val) && val > 0 ? val : DEFAULT_MAX_DIFF_BYTES;
   };
 
+  /**
+   * Wrap route execution so synchronous or async exceptions before git calls
+   * produce structured JSON errors instead of bubbling to WebServer's HTTP 400 catch-all.
+   */
+  const registerJsonRoute = (path, requireCustomHeader, handler) => webServer.register({
+    kind: "exact",
+    path,
+    handler: async (req, res) => {
+      try {
+        if (!guardRequest(req, res, options, requireCustomHeader)) return;
+        await handler(req, res);
+      } catch (err) {
+        handleCaughtError(req, res, err, options);
+      }
+    },
+  });
+
+  const registerQueryRoute = (path, handler) => registerJsonRoute(path, true, async (req, res) => {
+    const params = parseQuery(req);
+    if (!params) {
+      sendError(req, res, 400, "bad-request", "Malformed request URL.");
+      return;
+    }
+    const data = await handler(params, req, res);
+    if (data !== undefined && !res.headersSent) {
+      sendJson(req, res, 200, data);
+    }
+  });
+
   const disposers = [
-    webServer.register({
-      kind: "exact",
-      path: HEALTH_PATH,
-      handler: (req, res) => {
-        if (!guardRequest(req, res, options, false)) return;
-        sendJson(req, res, 200, {
-          ok: true,
-          protocolVersion: PROTOCOL_VERSION,
-          version: options.version,
-        });
-      },
+    registerJsonRoute(HEALTH_PATH, false, (req, res) => {
+      sendJson(req, res, 200, {
+        ok: true,
+        protocolVersion: PROTOCOL_VERSION,
+        version: options.version,
+      });
     }),
 
-    webServer.register({
-      kind: "exact",
-      path: OVERVIEW_PATH,
-      handler: async (req, res) => {
-        if (!guardRequest(req, res, options, true)) return;
-        const params = parseQuery(req);
-        if (!params) {
-          sendError(req, res, 400, "bad-request", "Malformed request URL.");
-          return;
-        }
-        try {
-          const cwd = await resolveCwd(params, options);
-          const data = await getOverview(cwd, { timeoutMs: getTimeout() });
-          sendJson(req, res, 200, data);
-        } catch (err) {
-          handleCaughtError(req, res, err, options);
-        }
-      },
+    registerQueryRoute(OVERVIEW_PATH, async (params) => {
+      const cwd = await resolveCwd(params, options);
+      return getOverview(cwd, { timeoutMs: getTimeout() });
     }),
 
-    webServer.register({
-      kind: "exact",
-      path: COMMITS_PATH,
-      handler: async (req, res) => {
-        if (!guardRequest(req, res, options, true)) return;
-        const params = parseQuery(req);
-        if (!params) {
-          sendError(req, res, 400, "bad-request", "Malformed request URL.");
-          return;
-        }
-        const skip = parseNonNegInt(params.get("skip"), 0);
-        const limit = parseNonNegInt(params.get("limit"), getMaxPageSize());
-        if (skip === null || limit === null || limit === 0) {
-          sendError(req, res, 400, "bad-request", "skip must be >= 0 and limit must be a positive integer.");
-          return;
-        }
-        try {
-          const cwd = await resolveCwd(params, options);
-          const data = await getCommits(cwd, {
-            ref: params.get("ref") ?? undefined,
-            query: params.get("q") ?? undefined,
-            scope: params.get("scope") ?? undefined,
-            skip,
-            limit,
-            maxPageSize: getMaxPageSize(),
-            timeoutMs: getTimeout(),
-          });
-          sendJson(req, res, 200, data);
-        } catch (err) {
-          handleCaughtError(req, res, err, options);
-        }
-      },
+    registerQueryRoute(COMMITS_PATH, async (params, req, res) => {
+      const skip = parseNonNegInt(params.get("skip"), 0);
+      const limit = parseNonNegInt(params.get("limit"), getMaxPageSize());
+      if (skip === null || limit === null || limit === 0) {
+        sendError(req, res, 400, "bad-request", "skip must be >= 0 and limit must be a positive integer.");
+        return undefined;
+      }
+      const cwd = await resolveCwd(params, options);
+      return getCommits(cwd, {
+        ref: params.get("ref") ?? undefined,
+        query: params.get("q") ?? undefined,
+        scope: params.get("scope") ?? undefined,
+        skip,
+        limit,
+        maxPageSize: getMaxPageSize(),
+        timeoutMs: getTimeout(),
+      });
     }),
 
-    webServer.register({
-      kind: "exact",
-      path: COMMIT_PATH,
-      handler: async (req, res) => {
-        if (!guardRequest(req, res, options, true)) return;
-        const params = parseQuery(req);
-        if (!params) {
-          sendError(req, res, 400, "bad-request", "Malformed request URL.");
-          return;
-        }
-        const hash = params.get("hash") ?? "";
-        try {
-          const cwd = await resolveCwd(params, options);
-          const data = await getCommitDetail(cwd, hash, { timeoutMs: getTimeout() });
-          sendJson(req, res, 200, data);
-        } catch (err) {
-          handleCaughtError(req, res, err, options);
-        }
-      },
+    registerQueryRoute(COMMIT_PATH, async (params) => {
+      const hash = params.get("hash") ?? "";
+      const cwd = await resolveCwd(params, options);
+      return getCommitDetail(cwd, hash, { timeoutMs: getTimeout() });
     }),
 
-    webServer.register({
-      kind: "exact",
-      path: FILE_DIFF_PATH,
-      handler: async (req, res) => {
-        if (!guardRequest(req, res, options, true)) return;
-        const params = parseQuery(req);
-        if (!params) {
-          sendError(req, res, 400, "bad-request", "Malformed request URL.");
-          return;
-        }
-        const hash = params.get("hash") ?? "";
-        const filePath = params.get("path") ?? "";
-        const oldPath = params.get("oldPath") ?? undefined;
-        try {
-          const cwd = await resolveCwd(params, options);
-          const data = await getFileDiff(cwd, hash, filePath, {
-            oldPath,
-            maxDiffBytes: getMaxDiffBytes(),
-            timeoutMs: getTimeout(),
-          });
-          sendJson(req, res, 200, data);
-        } catch (err) {
-          handleCaughtError(req, res, err, options);
-        }
-      },
+    registerQueryRoute(FILE_DIFF_PATH, async (params) => {
+      const hash = params.get("hash") ?? "";
+      const filePath = params.get("path") ?? "";
+      const oldPath = params.get("oldPath") ?? undefined;
+      const cwd = await resolveCwd(params, options);
+      return getFileDiff(cwd, hash, filePath, {
+        oldPath,
+        maxDiffBytes: getMaxDiffBytes(),
+        timeoutMs: getTimeout(),
+      });
     }),
   ];
 

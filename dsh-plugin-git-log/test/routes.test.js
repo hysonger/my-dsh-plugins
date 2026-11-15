@@ -15,6 +15,7 @@ import {
   REQUEST_HEADER_VALUE,
 } from "../src/shared/protocol.js";
 import { registerRoutes } from "../src/host/routes.js";
+import plugin, { apply as applyHostPlugin } from "../lib/index.js";
 
 const cleanupHooks = [];
 after(async () => {
@@ -49,7 +50,7 @@ function createFakeRepo() {
   return { dir, oid };
 }
 
-function createRouteHarness(routeOptions = {}) {
+function createWebServerMock() {
   const exactRoutes = new Map();
   const webServer = {
     register(spec) {
@@ -60,17 +61,12 @@ function createRouteHarness(routeOptions = {}) {
       return () => {};
     },
   };
-  const dispose = registerRoutes(webServer, {
-    version: "0.1.0",
-    ...routeOptions,
-  });
-  cleanupHooks.push(() => dispose());
 
   async function invoke(method, urlPath, headers = {}, remoteAddress = "127.0.0.1") {
     const pathname = new URL(urlPath, "http://127.0.0.1").pathname;
     const handler = exactRoutes.get(pathname);
     assert.ok(handler, `No registered route for ${pathname}`);
-    return await new Promise((resolve) => {
+    return await new Promise((resolve, reject) => {
       let statusCode = 0;
       const resHeaders = {};
       const req = {
@@ -80,7 +76,9 @@ function createRouteHarness(routeOptions = {}) {
         headers: { host: "127.0.0.1:4321", ...headers },
       };
       const res = {
+        headersSent: false,
         writeHead(code, hdrs = {}) {
+          this.headersSent = true;
           statusCode = code;
           for (const [k, v] of Object.entries(hdrs)) {
             resHeaders[k.toLowerCase()] = String(v);
@@ -96,11 +94,21 @@ function createRouteHarness(routeOptions = {}) {
           });
         },
       };
-      void handler(req, res);
+      Promise.resolve().then(() => handler(req, res)).catch(reject);
     });
   }
 
-  return { invoke, handlers: exactRoutes };
+  return { webServer, invoke, handlers: exactRoutes };
+}
+
+function createRouteHarness(routeOptions = {}) {
+  const { webServer, invoke, handlers } = createWebServerMock();
+  const dispose = registerRoutes(webServer, {
+    version: "0.1.0",
+    ...routeOptions,
+  });
+  cleanupHooks.push(() => dispose());
+  return { invoke, handlers };
 }
 
 test("routes serve overview, commits, commit detail, and file diff end-to-end", async () => {
@@ -213,4 +221,115 @@ test("optional DSH connection.requestRejection enforces 401/403 before route han
   });
   assert.equal((await invoke("GET", HEALTH_PATH, { authorization: "bad" })).status, 401);
   assert.equal((await invoke("GET", HEALTH_PATH, {})).status, 200);
+});
+
+function createStrictCordisContext(services, injectList = plugin.inject) {
+  const allowed = new Set(injectList);
+  const base = {
+    get(name) {
+      return Object.hasOwn(services, name) ? services[name] : undefined;
+    },
+    effect(callback) {
+      const dispose = callback();
+      if (typeof dispose === "function") {
+        cleanupHooks.push(dispose);
+      }
+      return dispose ?? (() => {});
+    },
+    logger() {
+      return { info() {}, warn() {}, error() {} };
+    },
+  };
+  return new Proxy(base, {
+    get(target, prop, receiver) {
+      if (typeof prop === "symbol" || prop in target) {
+        return Reflect.get(target, prop, receiver);
+      }
+      if (!allowed.has(prop)) {
+        throw new Error(`cannot get property "${String(prop)}" without inject`);
+      }
+      return services[prop];
+    },
+  });
+}
+
+test("host plugin works under Cordis strict inject Proxy with optional services absent or uninjected", async () => {
+  const { dir } = createFakeRepo();
+  const customHeaders = { [REQUEST_HEADER]: REQUEST_HEADER_VALUE };
+
+  // A. Optional services absent: direct ctx.connection / ctx.sessions access would throw.
+  {
+    const { webServer, invoke } = createWebServerMock();
+    const ctx = createStrictCordisContext({ webServer });
+    applyHostPlugin(ctx, {});
+
+    assert.equal((await invoke("GET", HEALTH_PATH)).status, 200);
+    assert.equal(
+      (await invoke("GET", `${OVERVIEW_PATH}?cwd=${encodeURIComponent(dir)}`, customHeaders)).status,
+      200,
+    );
+    assert.equal(
+      (await invoke("GET", `${COMMITS_PATH}?cwd=${encodeURIComponent(dir)}`, customHeaders)).status,
+      200,
+    );
+  }
+
+  // B. Optional services provided (yet omitted from `inject`): accessed safely via `ctx.get`.
+  {
+    const { webServer, invoke } = createWebServerMock();
+    const services = {
+      webServer,
+      connection: {
+        requestRejection(req) {
+          return req.headers.cookie === "dsh=ok" ? undefined : 401;
+        },
+      },
+      sessions: {
+        get(id) {
+          return id === "sess-live" ? { header: { cwd: dir } } : undefined;
+        },
+      },
+      sessionPersistence: {
+        async header(id) {
+          return id === "sess-persisted" ? { cwd: dir } : undefined;
+        },
+      },
+    };
+    const ctx = createStrictCordisContext(services);
+    applyHostPlugin(ctx, {});
+
+    const unauth = await invoke("GET", HEALTH_PATH);
+    assert.equal(unauth.status, 401);
+    assert.equal(unauth.json.error.code, "unauthorized");
+
+    const liveOverview = await invoke("GET", `${OVERVIEW_PATH}?sessionId=sess-live`, {
+      ...customHeaders,
+      cookie: "dsh=ok",
+    });
+    assert.equal(liveOverview.status, 200);
+    assert.equal(liveOverview.json.repoRoot.endsWith(dir.split("/").pop()), true);
+
+    const persistedCommits = await invoke("GET", `${COMMITS_PATH}?sessionId=sess-persisted`, {
+      ...customHeaders,
+      cookie: "dsh=ok",
+    });
+    assert.equal(persistedCommits.status, 200);
+    assert.equal(persistedCommits.json.commits.length, 1);
+  }
+});
+
+test("route handlers catch synchronous guard errors as JSON 500 rather than rejecting", async () => {
+  const logs = [];
+  const { invoke } = createRouteHarness({
+    requestRejection() {
+      throw new Error("boom in guard");
+    },
+    log: (msg) => logs.push(msg),
+  });
+  const res = await invoke("GET", HEALTH_PATH);
+  assert.equal(res.status, 500);
+  assert.equal(res.json.ok, false);
+  assert.equal(res.json.error.code, "internal-error");
+  assert.match(res.json.error.message, /boom in guard/);
+  assert.equal(logs.some((line) => line.includes("boom in guard")), true);
 });

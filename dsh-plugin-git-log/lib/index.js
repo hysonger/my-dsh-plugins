@@ -86,6 +86,17 @@ Config["~standard"] = {
 };
 
 /**
+ * Read an optional Cordis service without tripping strict inject-Proxy property guards.
+ */
+function readOptionalService(ctx, serviceName) {
+  if (!ctx) return undefined;
+  if (typeof ctx.get === "function") {
+    return ctx.get(serviceName);
+  }
+  return ctx[serviceName];
+}
+
+/**
  * Cordis plugin activation hook.
  *
  * @param {any} ctx
@@ -94,7 +105,13 @@ Config["~standard"] = {
 export function apply(ctx, config) {
   const resolved = Config(config);
   const version = readPackageVersion();
-  const logger = ctx.logger?.("git-log");
+  const logger = (() => {
+    try {
+      return ctx.logger?.("git-log");
+    } catch {
+      return undefined;
+    }
+  })();
   const log = (message) => {
     try {
       logger?.info?.(message);
@@ -106,14 +123,14 @@ export function apply(ctx, config) {
   /** Optional host fallback to resolve a sessionId to cwd when omitted on query. */
   async function resolveSessionCwd(sessionId) {
     try {
-      const liveSession = ctx.sessions?.get?.(sessionId);
+      const liveSession = readOptionalService(ctx, "sessions")?.get?.(sessionId);
       const liveCwd = liveSession?.header?.cwd ?? liveSession?.cwd;
       if (typeof liveCwd === "string" && liveCwd) return liveCwd;
     } catch {
       // Ignore unavailable sessions service.
     }
     try {
-      const persisted = await ctx.sessionPersistence?.header?.(sessionId);
+      const persisted = await readOptionalService(ctx, "sessionPersistence")?.header?.(sessionId);
       if (typeof persisted?.cwd === "string" && persisted.cwd) return persisted.cwd;
     } catch {
       // Ignore unavailable persistence service.
@@ -127,7 +144,7 @@ export function apply(ctx, config) {
     maxPageSize: () => resolved.maxPageSize,
     maxDiffBytes: () => resolved.maxDiffBytes,
     commandTimeoutMs: () => resolved.commandTimeoutMs,
-    requestRejection: (req) => ctx.connection?.requestRejection?.(req),
+    requestRejection: (req) => readOptionalService(ctx, "connection")?.requestRejection?.(req),
     resolveSessionCwd,
     log,
   }), "git-log: routes");
