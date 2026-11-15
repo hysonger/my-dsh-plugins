@@ -1491,7 +1491,7 @@ test("the popover opens by hover, pins by click, and closes on Escape or outside
   assert.equal(findByClass(tree, "ub-composer-popover"), null, "an outside pointer closes it");
 });
 
-test("an unsupported route shows the explicit fallback without any request", async () => {
+test("an unsupported route hides the strip entirely without any request", async () => {
   const renderer = createComposerRenderer({
     route: "openai",
     directory: {
@@ -1506,7 +1506,7 @@ test("an unsupported route shows the explicit fallback without any request", asy
   });
   const tree = await renderer.render();
   assert.equal(renderer.requests.length, 0, "an unsupported route must not read another provider's data");
-  assert.equal(findByClass(tree, "ub-composer-reading").props.children, "未接入");
+  assert.equal(tree, null, "an unsupported route renders no strip at all, not a placeholder");
 });
 
 test("a projection-only session still resolves its provider", async () => {

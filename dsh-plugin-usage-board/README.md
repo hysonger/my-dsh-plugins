@@ -118,7 +118,7 @@ DSH="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 会话输入框下方、宿主「性能与用量」区域右侧会多出一个紧凑条目：它跟随当前会话实际选择的服务商/模型，显示一个 SVG 圆环和主额度窗口的已用百分比；还有更多额度窗口时以 `+N` 标记。鼠标悬停、键盘聚焦或点击会打开悬浮窗，其中的每个额度窗口都改用圆环呈现，并保留「已用 / 总量」、剩余量、重置时刻和手动刷新。
 
 - **只读取当前这一家。** 复用看板同一份单提供商接口与缓存（`GET/POST /usage-board/api/provider?id=…`），不会因为信息条把四家接口都打一遍；自动刷新沿用「页面可见 + 最近有操作」闸门，空闲或隐藏时不请求。
-- **路由显式映射，不按显示名猜。** `deepseek-account` / `deepseek-official` → DeepSeek，`kimi-coding` → Kimi Code，`zai` / `zai-coding-cn` → GLM Coding Plan，`opencode-go` → OpenCode Go。其他路由显示「未接入」，并明确说明不会读取别家的数据。
+- **路由显式映射，不按显示名猜。** `deepseek-account` / `deepseek-official` → DeepSeek，`kimi-coding` → Kimi Code，`zai` / `zai-coding-cn` → GLM Coding Plan，`opencode-go` → OpenCode Go。其他路由**整条隐藏**：不占位、不显示占位文案，也不读取任何服务商的数据。
 - **不编造额度。** DeepSeek 没有额度窗口，信息条显示余额而不是画一个假圆环；OpenCode Go 只上报百分比，仍然只显示百分比，不换算金额或分数。
 - **失败不空屏。** 刷新失败时保留上一次成功数字，并在条目上显示降级标记，悬浮窗给出原因；未配置、未授权、限流等状态与看板使用同一套文案。
 - **与原有卡片并存。** 侧边栏看板与独立页面的横向进度条保持原样；圆环只用于这条新信息条及其悬浮窗。未组合模型选择能力的 profile 只会缺少这条信息条，不影响看板本身。

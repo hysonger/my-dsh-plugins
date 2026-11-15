@@ -1744,8 +1744,6 @@ const zh = {
   "composer.window.5h": "5 小时",
   "composer.window.weekly": "每周",
   "composer.window.monthly": "每月",
-  "composer.unsupported": "未接入",
-  "composer.unsupportedDetail": "该提供商路由未接入用量看板，没有可显示的配额。",
   "composer.balance": "余额 {value}",
   "composer.loading": "读取中…",
   "composer.unavailable": "不可用",
@@ -1855,8 +1853,6 @@ const en = {
   "composer.window.5h": "5h",
   "composer.window.weekly": "Weekly",
   "composer.window.monthly": "Monthly",
-  "composer.unsupported": "Not linked",
-  "composer.unsupportedDetail": "This provider route is not linked to the usage board, so no quota is available.",
   "composer.balance": "Balance {value}",
   "composer.loading": "Reading…",
   "composer.unavailable": "Unavailable",
@@ -4288,10 +4284,26 @@ function ComposerWindow(props) {
   });
 }
 
-/** Selected provider trigger and its hover/focus/click popover. */
+/**
+ * Hide the whole strip for a provider route the board cannot serve.
+ *
+ * This is a hook-free gate in front of {@link ComposerProviderUsageBody}: an
+ * unsupported route renders nothing at all, so the dock keeps its shipped
+ * height and no "not linked" placeholder ever appears. The gate also means the
+ * data component's hooks are never skipped for a route that later becomes
+ * supported (the bar above keys this element by provider/model anyway).
+ */
 function ComposerProviderUsage(props) {
+  if (usageProviderForRoute(props.selection.provider) === null) return null;
+  return jsx(ComposerProviderUsageBody, props);
+}
+
+/** Selected provider trigger and its hover/focus/click popover. */
+function ComposerProviderUsageBody(props) {
   const t = props.t;
   const selection = props.selection;
+  // Never null here: the gate above only mounts this component for a mapped
+  // route. The lookup stays, so the data path cannot silently read another row.
   const usageId = usageProviderForRoute(selection.provider);
   const usage = useComposerProvider(usageId);
   const row = usage.row;
@@ -4373,8 +4385,7 @@ function ComposerProviderUsage(props) {
   const additional = row !== null && primary !== null ? Math.max(0, row.windows.length - 1) : 0;
   const firstBalance = row !== null && row.balances.length > 0 ? row.balances[0] : null;
   let reading;
-  if (usageId === null) reading = t("composer.unsupported");
-  else if (primary !== null) reading = formatPercent(primaryPercent);
+  if (primary !== null) reading = formatPercent(primaryPercent);
   else if (row !== null && row.status !== "ok") reading = t(statusKey(row.status));
   else if (firstBalance !== null) reading = t("composer.balance", { value: formatMoney(firstBalance.available, firstBalance.currency) });
   else if (usage.failure !== null && row === null) reading = t("composer.unavailable");
@@ -4411,49 +4422,45 @@ function ComposerProviderUsage(props) {
   }
 
   const body = [];
-  if (usageId === null) {
-    body.push(jsx("p", { key: "unsupported", className: "ub-composer-note", children: t("composer.unsupportedDetail") }));
+  if (usage.failure !== null) {
+    body.push(jsx("p", {
+      key: "failure",
+      className: "ub-composer-error",
+      role: "status",
+      children: t("state.refreshFailed", { reason: usage.failure.detail ?? t(usage.failure.key, usage.failure.params) }),
+    }));
+  }
+  if (row === null) {
+    body.push(jsx("p", {
+      key: "loading",
+      className: "ub-composer-note",
+      role: "status",
+      children: usage.pending || usage.failure === null ? t("state.loading") : t("composer.noData"),
+    }));
+  } else if (row.status !== "ok") {
+    body.push(jsxs("div", {
+      key: "status",
+      className: "ub-composer-state",
+      children: compact([
+        jsx("p", { key: "message", className: "ub-composer-note", children: providerMessage(t, row) }),
+        row.code === null ? null : jsx("code", { key: "code", className: "ub-code", children: row.code }),
+      ]),
+    }));
   } else {
-    if (usage.failure !== null) {
-      body.push(jsx("p", {
-        key: "failure",
-        className: "ub-composer-error",
-        role: "status",
-        children: t("state.refreshFailed", { reason: usage.failure.detail ?? t(usage.failure.key, usage.failure.params) }),
+    for (const window of row.windows) {
+      body.push(jsx(ComposerWindow, { key: window.id, window: window, t: t, now: now }));
+    }
+    if (row.balances.length > 0) {
+      body.push(jsx("div", {
+        key: "balances",
+        className: "ub-balances",
+        children: row.balances.map(function (balance, index) {
+          return jsx(BalanceRow, { balance: balance, t: t }, balance.currency + "-" + String(index));
+        }),
       }));
     }
-    if (row === null) {
-      body.push(jsx("p", {
-        key: "loading",
-        className: "ub-composer-note",
-        role: "status",
-        children: usage.pending || usage.failure === null ? t("state.loading") : t("composer.noData"),
-      }));
-    } else if (row.status !== "ok") {
-      body.push(jsxs("div", {
-        key: "status",
-        className: "ub-composer-state",
-        children: compact([
-          jsx("p", { key: "message", className: "ub-composer-note", children: providerMessage(t, row) }),
-          row.code === null ? null : jsx("code", { key: "code", className: "ub-code", children: row.code }),
-        ]),
-      }));
-    } else {
-      for (const window of row.windows) {
-        body.push(jsx(ComposerWindow, { key: window.id, window: window, t: t, now: now }));
-      }
-      if (row.balances.length > 0) {
-        body.push(jsx("div", {
-          key: "balances",
-          className: "ub-balances",
-          children: row.balances.map(function (balance, index) {
-            return jsx(BalanceRow, { balance: balance, t: t }, balance.currency + "-" + String(index));
-          }),
-        }));
-      }
-      if (row.windows.length === 0 && row.balances.length === 0) {
-        body.push(jsx("p", { key: "empty", className: "ub-composer-note", children: t("state.noWindows") }));
-      }
+    if (row.windows.length === 0 && row.balances.length === 0) {
+      body.push(jsx("p", { key: "empty", className: "ub-composer-note", children: t("state.noWindows") }));
     }
   }
 
@@ -4462,7 +4469,7 @@ function ComposerProviderUsage(props) {
     ref: usage.rootRef,
     style: { anchorName: anchorName },
     "data-provider": selection.provider,
-    "data-usage-provider": usageId ?? "unsupported",
+    "data-usage-provider": usageId,
     "data-state": usage.failure !== null ? "degraded" : row === null ? "loading" : row.status,
     onMouseEnter: show,
     onMouseLeave: leave,
@@ -4523,7 +4530,7 @@ function ComposerProviderUsage(props) {
                   jsx("span", { className: "ub-composer-model", title: selection.model, children: selection.model }),
                 ],
               }),
-              usageId !== null && row !== null && row.status !== "ok" ? jsx("span", {
+              row !== null && row.status !== "ok" ? jsx("span", {
                 key: "status",
                 className: "ub-pill",
                 "data-tone": statusTone(row.status),
@@ -4532,7 +4539,7 @@ function ComposerProviderUsage(props) {
             ],
           }),
           jsx("div", { key: "body", className: "ub-composer-popover-body", children: body }),
-          usageId === null ? null : jsxs("div", {
+          jsxs("div", {
             key: "foot",
             className: "ub-composer-popover-foot",
             children: [

@@ -172,7 +172,7 @@ ComposerUsageBar ──► GET/POST /usage-board/api/provider?id=<一个服务�
 
 - **一次只读一家。** 不使用聚合接口，不把整板取回浏览器后再挑；自动刷新只针对选中行，切换提供商时以组件 key 重挂载，并用 generation 丢弃迟到响应。
 - **模型选择只有一个事实源。** 普通会话优先使用 `ctx.modelDirectories.directoryFor(sessionId).store.current`（其中已合并目录默认模型与持久选择），目录尚未就绪或被寻址子代理没有独立选择权时回退到 `modelSelection.next ?? lastUsed`；两者都没有就不渲染，避免先猜一个提供商。
-- **路由映射是显式表**（`USAGE_PROVIDER_BY_ROUTE`），不做名称模糊匹配；未知路由只显示「未接入」，绝不请求其他服务商。
+- **路由映射是显式表**（`USAGE_PROVIDER_BY_ROUTE`），不做名称模糊匹配；未知路由由无 Hook 的薄包装层直接返回 `null`，**整条不渲染**（不占位、不发请求），因此也无法读取其他服务商的数据。
 - **圆环只描述已用比例。** 几何值 clamp 到 0–100，文本保留真实百分比；`derivedPercent ?? percent` 与面板同规则，颜色阈值也一致（<70 正常、70–89 警告、≥90 危险、未知灰色）。
 - **悬浮层必须 portal。** 停靠的 composer 是 fixed 后代的 containing block，所以浮层用 `react-dom` 的 `createPortal` 到 `document.body`，并以 CSS Anchor Positioning 依附触发条；宿主 `ContextMeter` 采用同一模式。
 - **可选挂载。** 通过 `ctx.inject(['modelDirectories', 'sessions'], …)` 安装；profile 缺少模型选择能力时，只有这条信息条缺席，侧边栏面板、独立页面和工具都照常工作。
@@ -423,7 +423,7 @@ GLM 和 Kimi 只有额度窗口，DeepSeek 只有余额和历史。界面必须�
 - **每个服务商各自为政，没有「整板同时刷新」的原子性。** 这是逐家加载的代价，也是它的目的：
   各张卡片的更新时间可能相差几秒（各自读取耗时的差异）。卡片底部的耗时和整体更新时间都以
   各自那次读取为准；不接受这一点就只能退回「等最慢的一家」。
-- **composer 信息条是服务商维度的。** DeepSeek 账号与 API Key 两条路由共享看板的同一个 DeepSeek 聚合行，不拆成两套账户视图；未接入的路由只显示「未接入」，不会猜测额度。
+- **composer 信息条是服务商维度的。** DeepSeek 账号与 API Key 两条路由共享看板的同一个 DeepSeek 聚合行，不拆成两套账户视图；未接入的路由整条隐藏，既不占位也不猜测额度。
 - **未配置的提供商没有卡片。** 这是渲染层的行为：主机仍然为每个 id 返回 `not-configured` 行，
   面板和独立页面把它过滤掉（所以健康检查、旧消费者和「补上密钥后自动出现」都不受影响）。
   代价是：用户看不到「这家支持但没配置」的占位，只能从 README / DSH 设置里知道有哪些服务。
