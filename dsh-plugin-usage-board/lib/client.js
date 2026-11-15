@@ -847,8 +847,8 @@ window.__ModuleLoader__.load({
  * by scripts/build-client.mjs. Keep this file free of backticks and of a
  * dollar sign immediately before a brace.
  *
- * The trigger sits in the composer's dock row beside the shipped stats; the
- * popover portals to document.body (the docked composer is the containing
+ * The trigger sits in the composer tool row, just before the model selector;
+ * the popover portals to document.body (the docked composer is the containing
  * block for fixed descendants), so both scopes carry the custom properties
  * they need on their own roots. Colors follow the shared panel rules: below
  * 70% ok, 70-89% warn, 90%+ danger, unknown idle.
@@ -905,7 +905,7 @@ window.__ModuleLoader__.load({
   box-sizing: border-box;
 }
 
-/* ---------- compact trigger (one dock row with the shipped stats) ---------- */
+/* ---------- compact trigger (left of the model selector) ---------- */
 
 .ub-composer {
   display: inline-flex;
@@ -919,14 +919,15 @@ window.__ModuleLoader__.load({
   gap: 6px;
   flex: none;
   max-width: 100%;
+  min-height: 28px;
   padding: 1px 8px;
   border: none;
   border-radius: var(--dsw-radius-sm, 4px);
   background: transparent;
   color: var(--ub-fg-tertiary);
   font-family: inherit;
-  /* Match the shipped usage/performance pills exactly: their anchor is one
-     pixel below the secondary content size (12px at the default 13px). */
+  /* Retain the stats-sized compact text after moving into the tool row:
+     one pixel below the secondary content size (12px by default). */
   font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px);
   font-variant-numeric: tabular-nums;
   line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
@@ -1255,8 +1256,7 @@ window.__ModuleLoader__.load({
   opacity: 0.55;
 }
 
-/* Narrow composers keep the provider name and reading; the window's short
-   label is the first thing to go so the dock row cannot overflow. */
+/* On narrow viewports the window's short label is the first thing to go. */
 @media (max-width: 640px) {
   .ub-composer-window-short {
     display: none;
@@ -1264,6 +1264,17 @@ window.__ModuleLoader__.load({
 
   .ub-composer-route {
     max-width: 96px;
+  }
+}
+
+/* The host tool row is an inline-size container, including in narrow sidebar
+   conversations on a wide screen. Hide redundant labels, not the quota or
+   trigger: the full provider/window names remain in the accessible name and
+   popover. This leaves room for the adjacent model selector and Send. */
+@container (max-width: 560px) {
+  .ub-composer-route,
+  .ub-composer-window-short {
+    display: none;
   }
 }
 `;
@@ -3992,9 +4003,9 @@ function containsElement(root, target) {
   return root !== null && root !== undefined && typeof root.contains === "function" && root.contains(target);
 }
 
-/** New cell beside the shipped activity/order-0 and usage/order-1 entries. */
+/** The right accessory list renders immediately before the model selector. */
 const COMPOSER_SLOT_ID = "usage-board-provider";
-const COMPOSER_SLOT_ORDER = 2;
+const COMPOSER_SLOT_ORDER = 100;
 
 /** DSH provider-route id -> usage-board provider id. No name heuristics. */
 const USAGE_PROVIDER_BY_ROUTE = {
@@ -4288,8 +4299,8 @@ function ComposerWindow(props) {
  * Hide the whole strip for a provider route the board cannot serve.
  *
  * This is a hook-free gate in front of {@link ComposerProviderUsageBody}: an
- * unsupported route renders nothing at all, so the dock keeps its shipped
- * height and no "not linked" placeholder ever appears. The gate also means the
+ * unsupported route renders nothing at all, so the toolbar reserves no space
+ * and no "not linked" placeholder ever appears. The gate also means the
  * data component's hooks are never skipped for a route that later becomes
  * supported (the bar above keys this element by provider/model anyway).
  */
@@ -4599,9 +4610,9 @@ function registerComposerUsage(ctx) {
   ctx.inject(["modelDirectories", "sessions"], function (scope) {
     const models = scope.modelDirectories;
     const sessions = scope.sessions;
-    scope.slots.inject("conversation.composer.dock", function () {
+    scope.slots.inject("conversation.input.right", function () {
       return scope.slots.register({
-        name: "conversation.composer.dock",
+        name: "conversation.input.right",
         id: COMPOSER_SLOT_ID,
         order: COMPOSER_SLOT_ORDER,
         locale: NS,

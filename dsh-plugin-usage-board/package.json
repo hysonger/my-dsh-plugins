@@ -2,7 +2,7 @@
   "name": "dsh-plugin-usage-board",
   "version": "0.7.0",
   "private": true,
-  "description": "DSH usage board: DeepSeek (balance, spend trend, peak/off-peak billing reminder), GLM Coding Plan, Kimi Code and OpenCode Go quota in one sidebar panel, a selected-provider quota strip with ring popover under the composer, plus a usage_query tool the model can call",
+  "description": "DSH usage board: DeepSeek (balance, spend trend, peak/off-peak billing reminder), GLM Coding Plan, Kimi Code and OpenCode Go quota in one sidebar panel, a selected-provider quota strip with ring popover before the model selector, plus a usage_query tool the model can call",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

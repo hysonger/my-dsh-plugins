@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Usage Board",
-    "description": "Besides the sidebar panel, a compact selected-provider usage strip under the composer shows the current model route’s quota ring and percentage, with a hover popover for every window, remaining amount and reset time; DeepSeek shows its balance and unsupported routes are labelled. The panel still shows DeepSeek, GLM Coding Plan, Kimi Code and OpenCode Go usage, quota and balance, plus the usage_query tool."
+    "description": "Besides the sidebar panel, a compact selected-provider usage strip to the left of the model selector shows the current model route’s quota ring and percentage, with a hover popover for every window, remaining amount and reset time; DeepSeek shows its balance and unsupported routes are hidden. The panel still shows DeepSeek, GLM Coding Plan, Kimi Code and OpenCode Go usage, quota and balance, plus the usage_query tool."
   }
 }

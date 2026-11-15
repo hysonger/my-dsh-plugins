@@ -33,7 +33,7 @@ dsh-plugin-usage-board/
     │   └── web/dashboard.html 独立页面（纯 HTML，不依赖面板）
     └── client/               浏览器半边源码（打包进 lib/client.js）
         ├── panel.js          侧边栏面板与独立页面共用数据的渲染层
-        ├── composer.js       输入框下方的当前提供商信息条与悬浮窗
+        ├── composer.js       模型选择器左侧的当前提供商信息条与悬浮窗
         ├── styles.css        面板样式（嵌入 PANEL_CSS）
         └── composer.css      信息条样式（嵌入 COMPOSER_CSS）
 ```
@@ -155,7 +155,7 @@ POST /usage-board/api/refresh      （聚合强制；语义与旧版一致）
 
 ### 第四个消费者：composer 当前提供商条
 
-`src/client/composer.js` 是同一份单提供商数据在输入框下方的消费端，挂到 `conversation.composer.dock` 的一个独立 id（`usage-board-provider`，`order: 2`）上，宿主自己的 `activity` / `usage` 条目保持不变：
+`src/client/composer.js` 是同一份单提供商数据在会话模型选择器左侧的消费端，挂到 `conversation.input.right` 的一个独立 id（`usage-board-provider`，`order: 100`）上。宿主在这份列表之后渲染模型选择器，因此信息条与选择器处于同一工具行；不再注册到 `conversation.composer.dock`，宿主自己的性能、用量和上下文读数保持不变：
 
 ```
 模型选择（modelDirectories.current，回退 modelSelection 投影）
@@ -174,6 +174,7 @@ ComposerUsageBar ──► GET/POST /usage-board/api/provider?id=<一个服务�
 - **模型选择只有一个事实源。** 普通会话优先使用 `ctx.modelDirectories.directoryFor(sessionId).store.current`（其中已合并目录默认模型与持久选择），目录尚未就绪或被寻址子代理没有独立选择权时回退到 `modelSelection.next ?? lastUsed`；两者都没有就不渲染，避免先猜一个提供商。
 - **路由映射是显式表**（`USAGE_PROVIDER_BY_ROUTE`），不做名称模糊匹配；未知路由由无 Hook 的薄包装层直接返回 `null`，**整条不渲染**（不占位、不发请求），因此也无法读取其他服务商的数据。
 - **圆环只描述已用比例。** 几何值 clamp 到 0–100，文本保留真实百分比；`derivedPercent ?? percent` 与面板同规则，颜色阈值也一致（<70 正常、70–89 警告、≥90 危险、未知灰色）。
+- **窄会话栏不依赖视口宽度。** 沿用工具行的 inline-size container，以 `@container (max-width: 560px)` 收起重复的提供商名与窗口短标签，保留读数与圆环；不改模型选择器，也不查询宿主 DOM 来定位。
 - **悬浮层必须 portal。** 停靠的 composer 是 fixed 后代的 containing block，所以浮层用 `react-dom` 的 `createPortal` 到 `document.body`，并以 CSS Anchor Positioning 依附触发条；宿主 `ContextMeter` 采用同一模式。
 - **可选挂载。** 通过 `ctx.inject(['modelDirectories', 'sessions'], …)` 安装；profile 缺少模型选择能力时，只有这条信息条缺席，侧边栏面板、独立页面和工具都照常工作。
 - **不写共享缓存。** 首帧可读取面板已经写入 `sessionStorage` 的对应行来避免闪空，但信息条只读不写，避免单行数据覆盖整板缓存。

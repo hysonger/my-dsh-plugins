@@ -940,16 +940,18 @@ test("the sidebar label follows the active UI language", () => {
 
 // ------------------------------------------------- composer usage strip ---
 
-test("apply() adds the selected-provider strip beside the shipped dock entries", () => {
+test("apply() places the selected-provider strip before the model selector, not in the stats dock", () => {
   const { exports } = loadBundle();
   const ctx = makeContext();
   exports.apply(ctx);
-  const dock = ctx.state.injects.find((entry) => entry.name === "conversation.composer.dock");
-  assert.ok(dock !== undefined, "no conversation.composer.dock injection");
-  const registration = dock.register();
-  assert.equal(registration.options.name, "conversation.composer.dock");
+  assert.equal(ctx.state.injects.some((entry) => entry.name === "conversation.composer.dock"), false,
+    "the strip must not also occupy the shipped stats dock");
+  const right = ctx.state.injects.find((entry) => entry.name === "conversation.input.right");
+  assert.ok(right !== undefined, "no conversation.input.right injection");
+  const registration = right.register();
+  assert.equal(registration.options.name, "conversation.input.right");
   assert.equal(registration.options.id, "usage-board-provider");
-  assert.equal(registration.options.order, 2);
+  assert.equal(registration.options.order, 100);
   assert.equal(registration.options.locale, NS);
   assert.equal(typeof registration.options.inject, "function");
   assert.equal(typeof registration.component, "function");
@@ -1563,6 +1565,10 @@ test("the composer stylesheet keeps the compact ring and portal popover contract
     assert.ok(composerStyleSource.includes(selector), `composer.css lost ${selector}`);
   }
   assert.ok(composerStyleSource.includes("var(--dsw-alias-bg-overlay"));
+  assert.match(composerStyleSource, /\.ub-composer-trigger\s*\{[^}]*min-height:\s*28px;/);
+  assert.match(composerStyleSource, /\.ub-composer-trigger\s*\{[^}]*font-size:\s*calc\(var\(--dsh-content-font-size-secondary, 13px\) - 1px\);/);
+  assert.match(composerStyleSource, /@container\s*\(max-width:\s*560px\)\s*\{\s*\.ub-composer-route,\s*\.ub-composer-window-short\s*\{\s*display:\s*none;/,
+    "compact labels must follow the composer width, not just the browser viewport");
   const bare = [...composerStyleSource.matchAll(/var\(\s*(--d(?:sw|sh)-[a-zA-Z0-9-]+)\s*\)/g)].map((match) => match[1]);
   assert.deepEqual(bare, [], `these frame tokens are read without a fallback: ${bare.join(", ")}`);
 });

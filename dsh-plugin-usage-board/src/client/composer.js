@@ -21,9 +21,9 @@ function containsElement(root, target) {
   return root !== null && root !== undefined && typeof root.contains === "function" && root.contains(target);
 }
 
-/** New cell beside the shipped activity/order-0 and usage/order-1 entries. */
+/** The right accessory list renders immediately before the model selector. */
 const COMPOSER_SLOT_ID = "usage-board-provider";
-const COMPOSER_SLOT_ORDER = 2;
+const COMPOSER_SLOT_ORDER = 100;
 
 /** DSH provider-route id -> usage-board provider id. No name heuristics. */
 const USAGE_PROVIDER_BY_ROUTE = {
@@ -317,8 +317,8 @@ function ComposerWindow(props) {
  * Hide the whole strip for a provider route the board cannot serve.
  *
  * This is a hook-free gate in front of {@link ComposerProviderUsageBody}: an
- * unsupported route renders nothing at all, so the dock keeps its shipped
- * height and no "not linked" placeholder ever appears. The gate also means the
+ * unsupported route renders nothing at all, so the toolbar reserves no space
+ * and no "not linked" placeholder ever appears. The gate also means the
  * data component's hooks are never skipped for a route that later becomes
  * supported (the bar above keys this element by provider/model anyway).
  */
@@ -628,9 +628,9 @@ function registerComposerUsage(ctx) {
   ctx.inject(["modelDirectories", "sessions"], function (scope) {
     const models = scope.modelDirectories;
     const sessions = scope.sessions;
-    scope.slots.inject("conversation.composer.dock", function () {
+    scope.slots.inject("conversation.input.right", function () {
       return scope.slots.register({
-        name: "conversation.composer.dock",
+        name: "conversation.input.right",
         id: COMPOSER_SLOT_ID,
         order: COMPOSER_SLOT_ORDER,
         locale: NS,
