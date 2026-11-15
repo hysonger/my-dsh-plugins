@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "OpenCode Go 会话修复",
+    "description": "为显式协议的 OpenCode Go 路由补上逐会话请求头，并通过 DSH 配置服务执行受限的一次性 Chat Completions 协议修复。不读取 API Key；DSH 升级后请按背景文档检查能否停用。",
+    "detail": "README.md"
+  }
+}

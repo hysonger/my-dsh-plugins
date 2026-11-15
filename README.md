@@ -13,6 +13,7 @@ A collection of personal plugins for [DeepSeek Harness (DSH)](https://github.com
 | [dsh-plugin-open-here](dsh-plugin-open-here/README.md) | 0.1.0 | Open local workspaces in DSH from the terminal or Finder |
 | [dsh-plugin-mermaid](dsh-plugin-mermaid/README.md) | 0.2.0 | Mermaid diagram rendering with zoom, pan, and a large preview |
 | [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.1.0 | Prevent sleep during active sessions and manage macOS sleep settings with administrator authorization |
+| [dsh-plugin-opencode-go-session](dsh-plugin-opencode-go-session/README.md) | 0.1.1 | Repair explicit-protocol OpenCode Go session headers; includes a guarded one-time protocol migration and upstream retirement notes |
 
 ## Local installation
 
@@ -36,6 +37,7 @@ npm --prefix dsh-plugin-kimi-web-search run check
 npm --prefix dsh-plugin-open-here test
 npm --prefix dsh-plugin-mermaid run check
 npm --prefix dsh-plugin-sleep-control run check
+npm --prefix dsh-plugin-opencode-go-session run check
 ```
 
 These commands run each plugin's offline tests. Live upstream API smoke tests use separate `live` scripts and can be run when needed.

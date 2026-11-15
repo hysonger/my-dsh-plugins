@@ -1,0 +1,22 @@
+{
+  "name": "dsh-plugin-opencode-go-session",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Restore per-conversation session headers on explicit-protocol OpenCode Go routes, with a one-time protocol repair through DSH settings",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "src", "scripts", "test", "cordis.patch.yml", "locale", "icon.svg", "README.md", "docs", "LICENSE"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "engines": { "dsh": ">=0.2.2-rc.3 <0.3.0", "node": ">=22" },
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node --check index.js && node --check src/headers.js && node --check src/repair.js && node --test test/"
+  },
+  "license": "MIT"
+}

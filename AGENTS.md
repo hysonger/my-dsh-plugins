@@ -11,6 +11,7 @@
 | `dsh-plugin-open-here/` | 终端直达插件：提供 `dsh-open [dir]` 命令，从终端（及 Finder 右键快速操作、工具栏按钮、打开方式、Dock 拖放等 macOS 入口）在运行中的 DSH App/Web GUI 中打开目录为工作区。宿主路由 + 客户端 SSE 桥，详见其 [README](dsh-plugin-open-here/README.md)；Finder 集成的模板与脚本在其 `macos/` 目录。 |
 | `dsh-plugin-mermaid/` | Mermaid 图表插件：在已完成的助手回复中原位把 `mermaid` / `mmd` fence 渲染为图，支持滚轮/触摸板缩放、拖动平移、独立大图预览、源码/图表切换和复制；本地打包 Mermaid，严格安全配置。详见其 [README](dsh-plugin-mermaid/README.md)。 |
 | `dsh-plugin-sleep-control/` | 防睡眠插件：在 DSH 设置的“防睡眠”分区提供会话运行时 `caffeinate -s` 与“完全关闭睡眠”两种独立方式；后者通过 macOS 原生管理员授权执行固定 `sudo pmset -a disablesleep 1 / 0` 并读回验证，具有全局持久效果和警告提示；不保存凭据、不提供 Agent Tool。详见其 [README](dsh-plugin-sleep-control/README.md)。 |
+| `dsh-plugin-opencode-go-session/` | OpenCode Go 过渡修复：通过公开请求头事件为显式协议路由补逐会话标识；安装时用官方配置服务执行受限、一次性的协议迁移，不读取 API Key。DSH 升级后先按 [背景与停用判据](dsh-plugin-opencode-go-session/docs/BACKGROUND.md) 验证再移除；详见其 [README](dsh-plugin-opencode-go-session/README.md)。 |
 
 ## 约定
 

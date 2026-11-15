@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "OpenCode Go session repair",
+    "description": "Adds the missing per-conversation session header on explicit-protocol OpenCode Go routes. Includes a one-time, guarded Chat Completions protocol repair through DSH settings. Does not read API keys. Review the background and retirement checklist after DSH upgrades.",
+    "detail": "README.md"
+  }
+}

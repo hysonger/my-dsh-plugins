@@ -13,6 +13,7 @@
 | [dsh-plugin-open-here](dsh-plugin-open-here/README.md) | 0.1.0 | 从终端和 Finder 在 DSH 中打开本地工作区 |
 | [dsh-plugin-mermaid](dsh-plugin-mermaid/README.md) | 0.2.0 | Mermaid 图表渲染、缩放、平移和大图预览 |
 | [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.1.0 | 会话运行时防睡眠及经管理员授权的 macOS 睡眠控制 |
+| [dsh-plugin-opencode-go-session](dsh-plugin-opencode-go-session/README.md) | 0.1.1 | 修复显式协议 OpenCode Go 路由的会话头，含受限的一次性协议迁移及升级停用背景 |
 
 ## 本地安装
 
@@ -36,6 +37,7 @@ npm --prefix dsh-plugin-kimi-web-search run check
 npm --prefix dsh-plugin-open-here test
 npm --prefix dsh-plugin-mermaid run check
 npm --prefix dsh-plugin-sleep-control run check
+npm --prefix dsh-plugin-opencode-go-session run check
 ```
 
 这些命令使用各插件现有的离线测试。真实上游 API 冒烟测试使用单独的 `live` 脚本，按需执行。

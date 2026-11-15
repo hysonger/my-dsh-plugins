@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <title>OpenCode Go session repair</title>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5">
+    <path d="M15 22H11a6 6 0 0 1 0-12h6" stroke="#456b96"/>
+    <path d="M21 14h4a6 6 0 0 1 0 12h-6" stroke="#456b96"/>
+    <path d="m13 18 4 4 7-9" stroke="#398776"/>
+  </g>
+</svg>

@@ -1,0 +1,5 @@
+- insert:
+    - id: opencode-go-session
+      name: dsh-plugin-opencode-go-session
+      config:
+        repairProtocolOnLoad: true
