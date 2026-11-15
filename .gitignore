@@ -1,5 +1,5 @@
 # Dependencies and local caches
-node_modules/
+node_modules
 .npm-cache/
 *.log
 .DS_Store

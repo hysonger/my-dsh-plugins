@@ -1,0 +1,94 @@
+{
+  "date": "2026-11-15",
+  "node": "v26.12.0",
+  "history": {
+    "original_commits": 21,
+    "development_snapshots": 2,
+    "verified_imported_commits": 23,
+    "metadata_messages_parents_blobs_and_modes": "passed"
+  },
+  "current_files": {
+    "verified_plugin_files": 232,
+    "contents_and_permissions": "passed"
+  },
+  "git_fsck": "passed",
+  "dsh_profile_files_and_five_local_links": "unchanged",
+  "tests": [
+    {
+      "plugin": "dsh-plugin-kimi-web-search",
+      "command": "npm run check",
+      "exit_code": 0,
+      "seconds": 3.46,
+      "counts": {
+        "tests": 54,
+        "pass": 54,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    {
+      "plugin": "dsh-plugin-mermaid",
+      "command": "npm run check",
+      "exit_code": 0,
+      "seconds": 1.67,
+      "counts": {
+        "tests": 31,
+        "pass": 31,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    {
+      "plugin": "dsh-plugin-open-here",
+      "command": "npm test",
+      "exit_code": 0,
+      "seconds": 0.82,
+      "counts": {
+        "tests": 18,
+        "pass": 18,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    {
+      "plugin": "dsh-plugin-sleep-control",
+      "command": "npm run check",
+      "exit_code": 0,
+      "seconds": 0.73,
+      "counts": {
+        "tests": 58,
+        "pass": 58,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    {
+      "plugin": "dsh-plugin-usage-board",
+      "command": "npm run check",
+      "exit_code": 0,
+      "seconds": 1.43,
+      "counts": {
+        "tests": 286,
+        "pass": 286,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    }
+  ],
+  "test_limitation": "The two suites requiring a loopback listener passed when rerun with permission to bind 127.0.0.1; all 447 tests passed. No live upstream API or real macOS power-setting mutation was run.",
+  "history_token_pattern_scan": {
+    "blob_count": 402,
+    "findings": [],
+    "scope": "all reachable candidate history; pattern-based scan, not an exhaustive secret audit"
+  }
+}
