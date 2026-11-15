@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git Log",
+    "description": "Adds a Git Log tab to the DSH right sidebar bound to the active session workspace, with branch/tag filtering, commit graph visualization, search by message/author/file path, commit details, and inline file diffs."
+  }
+}

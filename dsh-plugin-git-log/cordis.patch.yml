@@ -1,0 +1,20 @@
+# Bundle patch for dsh-plugin-git-log.
+#
+# Installed into a DSH profile through `dsh plugin --profile <name> add <path>`
+# (or the in-app plugin manager), which records this package in the profile's
+# `dsh.profile.bundles`; the loader then applies this file after the shipped
+# bundle layers.
+
+- insert:
+    - id: git-log
+      name: 'dsh-plugin-git-log'
+      config:
+        # Restrict routes to loopback peers by default. Flip only when exposing
+        # the DSH web UI behind a trusted remote origin.
+        allowRemote: false
+        # Maximum commits returned per page of git log.
+        maxPageSize: 50
+        # Maximum bytes returned per file diff preview before truncation.
+        maxDiffBytes: 262144
+        # Per-invocation git subprocess deadline in milliseconds.
+        commandTimeoutMs: 10000

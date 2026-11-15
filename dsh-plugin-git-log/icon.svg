@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Git log: commit graph branches and nodes">
+  <title>Git Log</title>
+  <rect width="64" height="64" rx="14" fill="#0e1b2e"/>
+  <path d="M21 17v30" stroke="#38bdf8" stroke-width="4" stroke-linecap="round"/>
+  <path d="M21 43c0-10 22-8 22-20" fill="none" stroke="#34d399" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="21" cy="17" r="5" fill="#0e1b2e" stroke="#38bdf8" stroke-width="3.6"/>
+  <circle cx="21" cy="47" r="5" fill="#0e1b2e" stroke="#38bdf8" stroke-width="3.6"/>
+  <circle cx="43" cy="21" r="5" fill="#0e1b2e" stroke="#34d399" stroke-width="3.6"/>
+  <rect x="33" y="40" width="17" height="3.6" rx="1.8" fill="#94a3b8"/>
+  <rect x="33" y="47" width="12" height="3.6" rx="1.8" fill="#64748b"/>
+</svg>
