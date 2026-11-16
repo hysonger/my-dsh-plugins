@@ -13,6 +13,7 @@ import {
   parseUnifiedDiff,
 } from "../src/shared/protocol.js";
 import {
+  buildGitEnv,
   getCommitDetail,
   getCommits,
   getFileDiff,
@@ -47,7 +48,7 @@ function gitSync(cwd, args, envExtra = {}) {
       GIT_COMMITTER_EMAIL: envExtra.GIT_COMMITTER_EMAIL ?? "alice@example.com",
       GIT_AUTHOR_DATE: envExtra.GIT_AUTHOR_DATE ?? "2026-10-01T10:00:00Z",
       GIT_COMMITTER_DATE: envExtra.GIT_COMMITTER_DATE ?? "2026-10-01T10:00:00Z",
-      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_COUNT: "0",
       LC_ALL: "C",
@@ -298,4 +299,78 @@ test("real git repo: root commit, unicode paths, rename, merge, branches, tags, 
   const truncDiff = await getFileDiff(repo, cBig, "big.js", { maxDiffBytes: 1200 });
   assert.equal(truncDiff.truncated, true);
   assert.ok(Buffer.byteLength(truncDiff.patch, "utf8") <= 1200);
+});
+
+test("buildGitEnv preserves Windows runtime vars, scrubs secrets/overrides, and isolates git flags", () => {
+  const winEnv = buildGitEnv({
+    Path: "C:\\Program Files\\Git\\cmd;C:\\Windows\\System32",
+    SystemRoot: "C:\\Windows",
+    WINDIR: "C:\\Windows",
+    TEMP: "C:\\Users\\alice\\AppData\\Local\\Temp",
+    TMP: "C:\\Users\\alice\\AppData\\Local\\Temp",
+    USERPROFILE: "C:\\Users\\alice",
+    COMSPEC: "C:\\Windows\\System32\\cmd.exe",
+    PATHEXT: ".COM;.EXE;.BAT;.CMD",
+    DEEPSEEK_API_KEY: "sk-secret",
+    GITHUB_TOKEN: "ghp_secret",
+    DB_PASSWORD: "pw",
+    CLIENT_SECRET: "sec",
+    DSH_AUTH_TOKEN: "dsh-tok",
+    dsh_home: "C:\\Users\\alice\\.dsh",
+    GIT_EXTERNAL_DIFF: "evil.bat",
+    GIT_CONFIG_PARAMETERS: "'core.fsmonitor=evil.bat'",
+    GIT_CONFIG_COUNT: "99",
+    GIT_DIR: "C:\\other\\.git",
+    PAGER: "less",
+    EDITOR: "notepad.exe",
+    NODE_OPTIONS: "--require=evil.js",
+  }, "win32");
+
+  assert.equal(winEnv.Path, "C:\\Program Files\\Git\\cmd;C:\\Windows\\System32");
+  assert.equal(Object.hasOwn(winEnv, "PATH"), false);
+  assert.equal(winEnv.SystemRoot, "C:\\Windows");
+  assert.equal(winEnv.WINDIR, "C:\\Windows");
+  assert.equal(winEnv.TEMP, "C:\\Users\\alice\\AppData\\Local\\Temp");
+  assert.equal(winEnv.TMP, "C:\\Users\\alice\\AppData\\Local\\Temp");
+  assert.equal(winEnv.USERPROFILE, "C:\\Users\\alice");
+  assert.equal(winEnv.COMSPEC, "C:\\Windows\\System32\\cmd.exe");
+  assert.equal(winEnv.PATHEXT, ".COM;.EXE;.BAT;.CMD");
+  assert.equal(winEnv.HOME, undefined);
+  assert.equal(winEnv.TMPDIR, undefined);
+
+  for (const dropped of [
+    "DEEPSEEK_API_KEY",
+    "GITHUB_TOKEN",
+    "DB_PASSWORD",
+    "CLIENT_SECRET",
+    "DSH_AUTH_TOKEN",
+    "dsh_home",
+    "GIT_EXTERNAL_DIFF",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_DIR",
+    "PAGER",
+    "EDITOR",
+    "NODE_OPTIONS",
+  ]) {
+    assert.equal(Object.hasOwn(winEnv, dropped), false, `${dropped} must be scrubbed`);
+  }
+
+  assert.equal(winEnv.GIT_CONFIG_COUNT, "0");
+  assert.equal(winEnv.GIT_TERMINAL_PROMPT, "0");
+  assert.equal(winEnv.GIT_OPTIONAL_LOCKS, "0");
+  assert.equal(winEnv.LC_ALL, "C");
+
+  const posixFallback = buildGitEnv({
+    LD_PRELOAD: "/tmp/hook.so",
+    DYLD_INSERT_LIBRARIES: "/tmp/hook.dylib",
+    SSH_ASKPASS: "/tmp/ask.sh",
+    LANG: "zh_CN.UTF-8",
+  }, "linux");
+  assert.equal(posixFallback.PATH, "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin");
+  assert.equal(posixFallback.HOME, "");
+  assert.equal(posixFallback.TMPDIR, "");
+  assert.equal(posixFallback.LANG, "zh_CN.UTF-8");
+  assert.equal(posixFallback.LD_PRELOAD, undefined);
+  assert.equal(posixFallback.DYLD_INSERT_LIBRARIES, undefined);
+  assert.equal(posixFallback.SSH_ASKPASS, undefined);
 });

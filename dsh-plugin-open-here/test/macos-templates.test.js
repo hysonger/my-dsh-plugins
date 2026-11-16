@@ -16,7 +16,9 @@ function lintPlist(path) {
 
 test('Quick Action Info.plist is a valid plist with the Finder service declared', () => {
   const path = join(workflowDir, 'Info.plist');
-  assert.match(lintPlist(path), /OK/);
+  if (process.platform === 'darwin') {
+    assert.match(lintPlist(path), /OK/);
+  }
   const text = readFileSync(path, 'utf8');
   assert.match(text, /<string>runWorkflowAsService<\/string>/);
   assert.match(text, /<string>com\.apple\.finder<\/string>/);
@@ -28,7 +30,9 @@ test('Quick Action Info.plist is a valid plist with the Finder service declared'
 
 test('Quick Action document.wflow is valid and carries the bin placeholder', () => {
   const path = join(workflowDir, 'document.wflow');
-  assert.match(lintPlist(path), /OK/);
+  if (process.platform === 'darwin') {
+    assert.match(lintPlist(path), /OK/);
+  }
   const text = readFileSync(path, 'utf8');
   assert.match(text, /__DSH_OPEN_BIN__/, 'template must keep the install-time placeholder');
   assert.match(text, /Run Shell Script\.action/);
@@ -36,7 +40,7 @@ test('Quick Action document.wflow is valid and carries the bin placeholder', () 
   assert.match(text, /<key>inputMethod<\/key>\s*<integer>1<\/integer>/);
 });
 
-test('shell scripts pass bash -n', () => {
+test('shell scripts pass bash -n', { skip: process.platform === 'win32' || !existsSync('/bin/bash') }, () => {
   for (const script of ['install-quick-action.sh', 'uninstall.sh', 'app/build-app.sh']) {
     execFileSync('/bin/bash', ['-n', join(macos, script)]);
   }
