@@ -1104,6 +1104,15 @@ window.__ModuleLoader__.load({
   justify-self: safe end;
 }
 
+@supports not ((position-anchor: --ub-anchor) and (top: anchor(top)) and (position-try-fallbacks: none)) {
+  .ub-composer-popover {
+    top: auto;
+    right: auto;
+    bottom: 72px;
+    left: 12px;
+  }
+}
+
 .ub-composer-popover-head {
   display: flex;
   align-items: flex-start;
@@ -4003,6 +4012,106 @@ function containsElement(root, target) {
   return root !== null && root !== undefined && typeof root.contains === "function" && root.contains(target);
 }
 
+const POPOVER_VIEWPORT_MARGIN = 12;
+const POPOVER_ANCHOR_GAP = 8;
+const POPOVER_DEFAULT_WIDTH = 320;
+const POPOVER_MIN_FLIP_HEIGHT = 120;
+
+/** Detect browser support for all CSS Anchor Positioning features used by composer.css. */
+function supportsCssAnchorPositioning() {
+  if (typeof CSS === "undefined" || CSS === null || typeof CSS.supports !== "function") {
+    return false;
+  }
+  try {
+    return CSS.supports("position-anchor", "--ub-anchor")
+      && CSS.supports("top", "anchor(top)")
+      && CSS.supports("position-try-fallbacks", "none");
+  } catch {
+    return false;
+  }
+}
+
+/** Read `--dsh-frame-overlay-top` from computed styles when available, defaulting to 12 px. */
+function readOverlayTopPx(element) {
+  if (typeof window === "undefined" || window === null || typeof window.getComputedStyle !== "function") {
+    return POPOVER_VIEWPORT_MARGIN;
+  }
+  try {
+    const raw = window.getComputedStyle(element).getPropertyValue("--dsh-frame-overlay-top");
+    const parsed = parseFloat(raw);
+    return Number.isFinite(parsed) ? Math.max(POPOVER_VIEWPORT_MARGIN, parsed) : POPOVER_VIEWPORT_MARGIN;
+  } catch {
+    return POPOVER_VIEWPORT_MARGIN;
+  }
+}
+
+/**
+ * Compute fixed viewport coordinates mirroring composer.css's three-tier anchor rules
+ * (above anchor -> below anchor -> clamped viewport fallback) for browsers without
+ * complete CSS Anchor Positioning support.
+ */
+function computePopoverFallbackStyle(input) {
+  const anchorRect = input.anchorRect;
+  const popoverRect = input.popoverRect;
+  const viewportWidth = input.viewportWidth;
+  const viewportHeight = input.viewportHeight;
+  const safeTop = Math.max(POPOVER_VIEWPORT_MARGIN, isNum(input.overlayTop) ? input.overlayTop : POPOVER_VIEWPORT_MARGIN);
+  const maxWidth = Math.max(0, viewportWidth - POPOVER_VIEWPORT_MARGIN * 2);
+  const measuredW = popoverRect && isNum(popoverRect.width) && popoverRect.width > 0
+    ? popoverRect.width
+    : Math.min(POPOVER_DEFAULT_WIDTH, maxWidth);
+  const popoverW = Math.min(measuredW, maxWidth);
+  const maxLeft = Math.max(POPOVER_VIEWPORT_MARGIN, viewportWidth - POPOVER_VIEWPORT_MARGIN - popoverW);
+  const left = Math.round(Math.min(maxLeft, Math.max(POPOVER_VIEWPORT_MARGIN, anchorRect.left)));
+
+  const spaceAbove = Math.max(0, anchorRect.top - POPOVER_ANCHOR_GAP - safeTop);
+  const spaceBelow = Math.max(0, viewportHeight - POPOVER_VIEWPORT_MARGIN - (anchorRect.bottom + POPOVER_ANCHOR_GAP));
+  const measuredH = popoverRect && isNum(popoverRect.height) && popoverRect.height > 0 ? popoverRect.height : 0;
+  const effectiveH = measuredH > 0 ? measuredH : POPOVER_MIN_FLIP_HEIGHT;
+
+  const placeAbove = function (maxH) {
+    return {
+      top: "auto",
+      right: "auto",
+      bottom: String(Math.round(viewportHeight - (anchorRect.top - POPOVER_ANCHOR_GAP))) + "px",
+      left: String(left) + "px",
+      maxHeight: String(Math.round(Math.max(0, maxH))) + "px",
+    };
+  };
+  const placeBelow = function (maxH) {
+    return {
+      top: String(Math.round(Math.max(safeTop, anchorRect.bottom + POPOVER_ANCHOR_GAP))) + "px",
+      right: "auto",
+      bottom: "auto",
+      left: String(left) + "px",
+      maxHeight: String(Math.round(Math.max(0, maxH))) + "px",
+    };
+  };
+
+  if (spaceAbove >= effectiveH) return placeAbove(spaceAbove);
+  if (spaceBelow >= effectiveH) return placeBelow(spaceBelow);
+  if (Math.max(spaceAbove, spaceBelow) >= POPOVER_MIN_FLIP_HEIGHT) {
+    return spaceAbove >= spaceBelow ? placeAbove(spaceAbove) : placeBelow(spaceBelow);
+  }
+  return {
+    top: String(Math.round(safeTop)) + "px",
+    right: "auto",
+    bottom: "auto",
+    left: String(left) + "px",
+    maxHeight: String(Math.round(Math.max(0, viewportHeight - safeTop - POPOVER_VIEWPORT_MARGIN))) + "px",
+  };
+}
+
+function samePopoverFallbackStyle(left, right) {
+  if (left === right) return true;
+  if (left === null || left === undefined || right === null || right === undefined) return false;
+  return left.top === right.top
+    && left.right === right.right
+    && left.bottom === right.bottom
+    && left.left === right.left
+    && left.maxHeight === right.maxHeight;
+}
+
 /** The right accessory list renders immediately before the model selector. */
 const COMPOSER_SLOT_ID = "usage-board-provider";
 const COMPOSER_SLOT_ORDER = 100;
@@ -4321,6 +4430,7 @@ function ComposerProviderUsageBody(props) {
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [now, setNow] = useState(function () { return Date.now(); });
+  const [fallbackStyle, setFallbackStyle] = useState(null);
   const closeTimerRef = useRef(null);
   const triggerRef = useRef(null);
   const popoverRef = useRef(null);
@@ -4389,6 +4499,84 @@ function ComposerProviderUsageBody(props) {
       document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [open, pinned]);
+
+  useEffect(function () {
+    if (!open || supportsCssAnchorPositioning()) {
+      setFallbackStyle(function (previous) {
+        return previous === null ? previous : null;
+      });
+      return undefined;
+    }
+    const anchorEl = usage.rootRef.current ?? triggerRef.current;
+    const popoverEl = popoverRef.current;
+    if (
+      typeof window === "undefined"
+      || window === null
+      || anchorEl === null
+      || anchorEl === undefined
+      || popoverEl === null
+      || popoverEl === undefined
+      || typeof anchorEl.getBoundingClientRect !== "function"
+    ) {
+      return undefined;
+    }
+    const updatePosition = function () {
+      const currentAnchor = usage.rootRef.current ?? triggerRef.current;
+      const currentPopover = popoverRef.current;
+      if (
+        currentAnchor === null
+        || currentAnchor === undefined
+        || currentPopover === null
+        || currentPopover === undefined
+        || typeof currentAnchor.getBoundingClientRect !== "function"
+      ) {
+        return;
+      }
+      const anchorRect = currentAnchor.getBoundingClientRect();
+      if (!anchorRect || (anchorRect.width <= 0 && anchorRect.height <= 0)) return;
+      const popoverRect = typeof currentPopover.getBoundingClientRect === "function"
+        ? currentPopover.getBoundingClientRect()
+        : { width: currentPopover.offsetWidth || 0, height: currentPopover.offsetHeight || 0 };
+      const docEl = typeof document !== "undefined" && document !== null ? document.documentElement : null;
+      const viewportWidth = isNum(window.innerWidth) && window.innerWidth > 0
+        ? window.innerWidth
+        : docEl && isNum(docEl.clientWidth) ? docEl.clientWidth : 0;
+      const viewportHeight = isNum(window.innerHeight) && window.innerHeight > 0
+        ? window.innerHeight
+        : docEl && isNum(docEl.clientHeight) ? docEl.clientHeight : 0;
+      if (viewportWidth <= 0 || viewportHeight <= 0) return;
+      const next = computePopoverFallbackStyle({
+        anchorRect: anchorRect,
+        popoverRect: popoverRect,
+        viewportWidth: viewportWidth,
+        viewportHeight: viewportHeight,
+        overlayTop: readOverlayTopPx(currentPopover),
+      });
+      setFallbackStyle(function (previous) {
+        return samePopoverFallbackStyle(previous, next) ? previous : next;
+      });
+    };
+    updatePosition();
+    if (typeof window.addEventListener === "function") {
+      window.addEventListener("resize", updatePosition);
+      window.addEventListener("scroll", updatePosition, true);
+    }
+    let observer = null;
+    if (typeof ResizeObserver === "function") {
+      observer = new ResizeObserver(updatePosition);
+      observer.observe(anchorEl);
+      observer.observe(popoverEl);
+    }
+    return function () {
+      if (typeof window.removeEventListener === "function") {
+        window.removeEventListener("resize", updatePosition);
+        window.removeEventListener("scroll", updatePosition, true);
+      }
+      if (observer !== null && typeof observer.disconnect === "function") {
+        observer.disconnect();
+      }
+    };
+  }, [open, row, usage.failure, usage.pending]);
 
   const providerLabel = row === null ? composerRouteLabel(selection, props.directoryState) : row.label;
   const primary = row !== null && row.status === "ok" ? primaryUsageWindow(row) : null;
@@ -4475,6 +4663,10 @@ function ComposerProviderUsageBody(props) {
     }
   }
 
+  const popoverStyle = open && fallbackStyle !== null
+    ? Object.assign({ positionAnchor: anchorName }, fallbackStyle)
+    : { positionAnchor: anchorName };
+
   return jsxs("span", {
     className: "ub-composer",
     ref: usage.rootRef,
@@ -4522,7 +4714,7 @@ function ComposerProviderUsageBody(props) {
         id: popoverId,
         ref: popoverRef,
         className: "ub-composer-popover",
-        style: { positionAnchor: anchorName },
+        style: popoverStyle,
         role: "dialog",
         "aria-label": t("composer.popup", { provider: providerLabel }),
         onMouseEnter: show,
