@@ -44,7 +44,8 @@
     "dsh-plugin-opencode-go-session": "file:./dsh-plugin-opencode-go-session",
     "dsh-plugin-sleep-control": "file:./dsh-plugin-sleep-control",
     "dsh-plugin-subagent-model": "file:./dsh-plugin-subagent-model",
-    "dsh-plugin-usage-board": "file:./dsh-plugin-usage-board"
+    "dsh-plugin-usage-board": "file:./dsh-plugin-usage-board",
+    "dsh-quorfloat": "0.1.10"
   },
   "scripts": {
     "test": "node --test test/",

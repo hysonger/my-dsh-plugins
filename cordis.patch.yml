@@ -17,3 +17,9 @@
         enableImageTool: false
         enableImageGeneration: false
         enableAutoReview: false
+    # Pinned to audited npm release dsh-quorfloat@0.1.10 (prebuilt Tauri sidecar for
+    # macOS/Windows; audit record: docs/audits/dsh-quorfloat-0.1.10.md). No config block:
+    # the plugin's own schema defaults (enabled, Alt+Space, panel geometry) apply, so a
+    # profile patch layer can still override row `quorfloat` wholesale.
+    - id: quorfloat
+      name: dsh-quorfloat

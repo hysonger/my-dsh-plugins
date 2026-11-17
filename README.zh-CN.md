@@ -25,6 +25,7 @@
 |---|---|---|---|
 | `@dingyi222666/dsh-session-notification` | `0.2.6` | `dsh-session-notification` | `BSD-3-Clause`；`gitHead` `6e2fabf7cf27fcfd74d2f4f1aab6bd3df4764c64`；npm `sha512`: `sha512-cyepeRFg376HRHaxaeUEFe/PVUxjb56oPVciE29LnXXk2+Yf1K+ha+9U5MFiPp88l1oaDXDabKv4MrdFbihF1g==`（`sha256`: `6bdfa423d157efac1512ce244e447376d197f48af3e8692ab1ef54ef9df94e79`） |
 | `dsh-codex-connect` | `0.2.0-alpha.15` | `llm-openai-codex` | `Apache-2.0`；标签 `v0.2.0-alpha.15` 提交 `16c7b3e99acd194c2ec0b5d5431930d6f7314b94`（与 npm 压缩包逐文件一致；已验 ECDSA 签名及 SLSA v1 构建溯源）；npm `sha512`: `sha512-fUKi1NiEBjiA9BTDtbHtSthYFeXRyUnUy+9yv5uKKbWFzhuGcBvzaoq7Nnl9nCJnKIpZmQ8yg3jAoo/y6abjoA==`（`sha256`: `87ea5a79461922fdf989246c5554b329a4fd37157bec83a81f3792f011039e20`） |
+| `dsh-quorfloat` | `0.1.10` | `quorfloat` | `MIT`；标签 `v0.1.10` 提交 `11045069794fc09d361fe428db0835389547f4a3`（npm 压缩包与 CI run `42235226929` 产物逐字节一致；已验 SLSA v1 构建溯源）；npm `sha512`: `sha512-IujK+2If6rwEmL7GloarVj7Lft+d6tIGSHTCUflNZNgwYCYnP375LakLkcTpgWYvENI2IGPtI2NZ2nECh+Tfqw==`（`sha256`: `49a589f34b3d4cc97cf67ad7ea2c5cd6720d571bbd3d147d9bf19eb50dd2140a`）；平台侧车：`@azetus/dsh-quorfloat-darwin@0.1.10` `sha256`: `8ff482f87c8e98ae89516a1f337df13b0881167955df226f6a0584d77ccc357f`，`@azetus/dsh-quorfloat-win32-x64@0.1.10` `sha256`: `99496cd4a49aa20e493795e8bcba483021f5036f6b797e3938f55fa506a4210a` |
 
 ### 锁定意图与哈希可行性说明（保障供应链安全）
 
@@ -32,7 +33,8 @@
 - **为什么使用精确 npm 版本 + profile 锁文件哈希，而非在 `package.json` 中写 Git 提交哈希或 `#sha512` 链接**：
   1. DSH 运行环境所用的 `pnpm v11` 默认开启 `blockExoticSubdeps: true` 安全策略，会拒绝子依赖中的 `github:...#<commit>` 与 `https://...tgz` 外部源（报错 `ERR_PNPM_EXOTIC_SUBDEP`），除非目标 profile 主动放宽全局 `blockExoticSubdeps` 策略（会削弱其余依赖防护）。
   2. 此外，`@dingyi222666/dsh-session-notification` 的 Git 仓库不含编译产物 `lib/` 且带有 `"prepare": "yarn run build"` 脚本，pnpm 会触发 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`；而 pnpm 的 tarball URL 解析器也会忽略 URL 后的 `#sha512-...` 片段。
-  3. 相比之下，精确 npm 版本号（`0.2.6` 和 `0.2.0-alpha.15`）满足 `blockExoticSubdeps: true`，对应 npm 不可原地篡改的已发布版本，并在安装端 profile 的 `<profile>/pnpm-lock.yaml` 中落地精确的 **SHA-512 SRI 哈希（`integrity`）校验**，同样可防镜像站或传输篡改。（注：`dsh-codex-connect@0.2.0-alpha.15` 对 `undici` 声明的 `^8.12.3` 也会在安装端 `pnpm-lock.yaml` 中被锁定到具体 SHA-512。）
+  3. 相比之下，精确 npm 版本号（`0.2.6`、`0.2.0-alpha.15` 和 `0.1.10`）满足 `blockExoticSubdeps: true`，对应 npm 不可原地篡改的已发布版本，并在安装端 profile 的 `<profile>/pnpm-lock.yaml` 中落地精确的 **SHA-512 SRI 哈希（`integrity`）校验**，同样可防镜像站或传输篡改。（注：`dsh-codex-connect@0.2.0-alpha.15` 对 `undici` 声明的 `^8.12.3` 也会在安装端 `pnpm-lock.yaml` 中被锁定到具体 SHA-512。）
+- **`dsh-quorfloat` 自带预编译原生侧车（已审计，接受其局限）**：源码在锁定标签/提交上完整公开，npm 压缩包与 CI 产物逐字节一致，但 macOS 侧车无法在本地逐字节复现（SDK/链接器/绝对路径/签名差异）。审计做到同 rustc 重建的指令级等价（仅 2 条指令差异，归因于 CI 的 SDK/clang 版本）与内嵌 WebView 资源逐字节一致；**依赖/工具链层与运行时行为未审计**。应把它当作另一个本地 DSH 客户端：可创建/读取会话、切换权限预设（含 `danger-full-access`）、代答工具审批；不要在多人共享主机上安装。详见 [docs/audits/dsh-quorfloat-0.1.10.md](docs/audits/dsh-quorfloat-0.1.10.md)。
 - **整包顶层提交哈希锁定**：在向 profile 安装本组合包本身时，可直接按 40 位 Git 提交哈希唯一锁定整套组合包：
   `dsh plugin --profile desktop add github:hysonger/my-dsh-plugins#<40-char-commit-sha>`
 
