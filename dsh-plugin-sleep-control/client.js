@@ -11,23 +11,26 @@ window.__ModuleLoader__.load({
     const zh = {
       nav: '防睡眠',
       title: '防睡眠',
-      intro: '管理 macOS 系统睡眠。以下两种方式彼此独立，可同时使用。',
+      intro: '管理 macOS 与 Windows 系统睡眠。以下两种方式彼此独立；“完全关闭睡眠”仅支持 macOS。',
       caffeinateLabel: '会话运行时防睡眠',
       caffeinateHelp: '使用 caffeinate -s，仅在有会话运行时生效。开盖时可阻止睡眠；合盖时只有接入电源才有效，电池供电且合盖时不生效。',
-      caffeinateEnabled: '已开启：有会话运行时将自动启动 caffeinate。',
+      windowsSessionHelp: '通过 Windows 执行状态请求（SetThreadExecutionState）在会话运行期间阻止系统空闲睡眠；辅助进程结束即自动恢复。屏幕仍可能关闭，合盖或手动睡眠等显式操作不会被阻止。',
+      caffeinateEnabled: '已开启：有会话运行时将自动保持系统唤醒。',
       caffeinateDisabled: '开启后，将在会话运行期间自动阻止系统睡眠。',
       label: '完全关闭睡眠',
       description: '通过 pmset 完全关闭 macOS 系统睡眠；切换时需要管理员授权',
       fullSleepHelp: '效果最强，但 pmset 修改的是全局持久电源设置。退出 DSH 后仍然有效；忘记改回可能导致系统异常耗电。',
+      persistentUnsupported: '“完全关闭睡眠”仅支持 macOS，当前平台不可用。',
+      persistentUnsupportedHelp: '此方式依赖 macOS 的 pmset；Windows 不提供等效的持久化禁用睡眠。',
       warning: '警告',
       persistent: '全局持久生效',
-      loading: '正在读取系统睡眠设置…',
+      loading: '正在读取系统电源设置…',
       waiting: '正在等待 macOS 管理员授权…',
       enabled: '已完全关闭系统睡眠',
       disabled: '允许系统睡眠',
       cancelled: '已取消授权，系统设置未更改。',
       retry: '重试',
-      unsupported: '此功能仅支持 macOS。',
+      unsupported: '此功能在当前平台不受支持。',
       statusUnavailable: '无法读取 SleepDisabled 状态，请重试。',
       busy: '另一次切换正在等待授权。',
       commandFailed: '管理员命令执行失败，请重试。',
@@ -43,23 +46,26 @@ window.__ModuleLoader__.load({
     const en = {
       nav: 'Sleep Control',
       title: 'Sleep Control',
-      intro: 'Manage macOS system sleep. The two methods below are independent and can be used together.',
+      intro: 'Manage system sleep on macOS and Windows. The two methods below are independent; "Disable sleep completely" is available only on macOS.',
       caffeinateLabel: 'Prevent sleep while sessions run',
       caffeinateHelp: 'Uses caffeinate -s only while a session is running. It works with the lid open; with the lid closed, it works only while connected to power, not on battery.',
-      caffeinateEnabled: 'Enabled: caffeinate starts automatically whenever a session is running.',
+      windowsSessionHelp: 'Uses a Windows execution-state request (SetThreadExecutionState) to block idle system sleep while sessions run; the request ends with the helper process. The display may still turn off, and explicit actions such as closing the lid or choosing Sleep are not blocked.',
+      caffeinateEnabled: 'Enabled: system sleep is prevented automatically whenever a session is running.',
       caffeinateDisabled: 'When enabled, system sleep is prevented automatically while sessions run.',
       label: 'Disable sleep completely',
       description: 'Disable macOS system sleep with pmset; administrator authorization is required',
       fullSleepHelp: 'This is the strongest method, but pmset changes a global, persistent power setting. It remains active after DSH exits; forgetting to restore it may cause abnormal battery drain.',
+      persistentUnsupported: '"Disable sleep completely" is available only on macOS and is not supported on this platform.',
+      persistentUnsupportedHelp: 'This method relies on the macOS pmset utility; Windows has no equivalent persistent sleep disable.',
       warning: 'Warning',
       persistent: 'Global and persistent',
-      loading: 'Reading the macOS sleep setting…',
+      loading: 'Reading the system power settings…',
       waiting: 'Waiting for macOS administrator authorization…',
       enabled: 'System sleep is completely disabled',
       disabled: 'System sleep is allowed',
       cancelled: 'Authorization cancelled. The system setting was not changed.',
       retry: 'Retry',
-      unsupported: 'This feature is available only on macOS.',
+      unsupported: 'This feature is not supported on the current platform.',
       statusUnavailable: 'Unable to read SleepDisabled. Try again.',
       busy: 'Another change is already waiting for authorization.',
       commandFailed: 'The privileged command failed. Try again.',
@@ -178,10 +184,45 @@ window.__ModuleLoader__.load({
       return error;
     }
 
+    /** Host capabilities reported with every status read. */
+    function capabilitiesOf(result) {
+      return {
+        platform: typeof result.platform === 'string' ? result.platform : null,
+        persistentSleep: result.persistentSleep === true,
+      };
+    }
+
+    /**
+     * Presentation keys for the two cards. An unknown capability (first load or
+     * a failed first read) must not be presented as "unsupported": only a
+     * Host-verified `persistentSleep: false` may claim the card is unavailable,
+     * and help text is withheld until the Host has answered once.
+     */
+    function sleepPresentation(state) {
+      const persistentUnsupported = state.persistentSleep === false;
+      return {
+        persistentUnsupported,
+        persistentSupported: state.persistentSleep === true,
+        sessionHelpKey:
+          state.platform === 'win32'
+            ? 'windowsSessionHelp'
+            : state.platform === 'darwin'
+              ? 'caffeinateHelp'
+              : null,
+        persistentHelpKey: persistentUnsupported
+          ? 'persistentUnsupportedHelp'
+          : state.persistentSleep === true
+            ? 'fullSleepHelp'
+            : null,
+      };
+    }
+
     /** Page-local pmset state, shared by every mount of the settings section. */
     function createSleepController(request) {
       let state = {
         phase: 'loading',
+        platform: null,
+        persistentSleep: null,
         sleepDisabled: null,
         notice: null,
       };
@@ -202,10 +243,17 @@ window.__ModuleLoader__.load({
         try {
           const result = await request('status');
           if (disposed || id !== operation) return;
-          publish({ phase: 'ready', sleepDisabled: result.sleepDisabled, notice: null });
+          publish({
+            phase: 'ready',
+            ...capabilitiesOf(result),
+            sleepDisabled: typeof result.sleepDisabled === 'boolean' ? result.sleepDisabled : null,
+            notice: null,
+          });
         } catch (error) {
           if (disposed || id !== operation) return;
           const code = error.clientCode || 'network-error';
+          // Keep the last Host-verified capability: a failed read does not mean
+          // the platform changed. The initial nulls already mean "unknown".
           publish({
             phase: code === 'unsupported' ? 'unsupported' : 'error',
             sleepDisabled: null,
@@ -220,6 +268,7 @@ window.__ModuleLoader__.load({
           state.phase === 'busy' ||
           state.phase === 'loading' ||
           state.phase === 'unsupported' ||
+          state.persistentSleep !== true ||
           state.sleepDisabled === null ||
           typeof sleepDisabled !== 'boolean'
         ) return;
@@ -249,8 +298,9 @@ window.__ModuleLoader__.load({
         const cancelled = code === 'cancelled';
         publish({
           phase: cancelled ? 'cancelled' : code === 'unsupported' ? 'unsupported' : 'error',
+          ...verified ? capabilitiesOf(verified) : {},
           sleepDisabled: verified
-            ? verified.sleepDisabled
+            ? (typeof verified.sleepDisabled === 'boolean' ? verified.sleepDisabled : null)
             : cancelled
               ? previous
               : null,
@@ -347,6 +397,7 @@ window.__ModuleLoader__.load({
       const keys = {
         cancelled: 'cancelled',
         unsupported: 'unsupported',
+        'persistent-unsupported': 'persistentUnsupported',
         'status-unavailable': 'statusUnavailable',
         busy: 'busy',
         'command-failed': 'commandFailed',
@@ -359,7 +410,10 @@ window.__ModuleLoader__.load({
     function sleepStatusText(state, t) {
       if (state.phase === 'busy') return t('waiting');
       if (state.phase === 'loading') return t('loading');
-      if (state.phase === 'ready') return t(state.sleepDisabled === true ? 'enabled' : 'disabled');
+      if (state.phase === 'ready') {
+        if (state.persistentSleep === false) return t('persistentUnsupported');
+        return t(state.sleepDisabled === true ? 'enabled' : 'disabled');
+      }
       return t(messageKey(state.notice));
     }
 
@@ -435,15 +489,29 @@ window.__ModuleLoader__.load({
               body && body.error && body.error.message,
             );
           }
-          if (typeof body.sleepDisabled !== 'boolean') {
-            throw clientError('request-failed', 'The Host returned an invalid sleep state.');
-          }
-          if (kind === 'status') {
-            if (typeof body.mutationToken !== 'string' || body.mutationToken.length === 0) {
-              throw clientError('request-failed', 'The Host returned no mutation token.');
+          if (kind === 'set') {
+            if (typeof body.sleepDisabled !== 'boolean') {
+              throw clientError('request-failed', 'The Host returned an invalid sleep state.');
             }
-            mutationToken = body.mutationToken;
+            return body;
           }
+          if (body.platform !== 'darwin' && body.platform !== 'win32') {
+            throw clientError('request-failed', 'The Host returned an unsupported platform.');
+          }
+          if (typeof body.persistentSleep !== 'boolean') {
+            throw clientError('request-failed', 'The Host returned an invalid sleep capability.');
+          }
+          if (body.persistentSleep) {
+            if (typeof body.sleepDisabled !== 'boolean') {
+              throw clientError('request-failed', 'The Host returned an invalid sleep state.');
+            }
+          } else if (body.sleepDisabled !== null) {
+            throw clientError('request-failed', 'The Host returned an inconsistent sleep state.');
+          }
+          if (typeof body.mutationToken !== 'string' || body.mutationToken.length === 0) {
+            throw clientError('request-failed', 'The Host returned no mutation token.');
+          }
+          mutationToken = body.mutationToken;
           return body;
         } catch (error) {
           if (error && error.clientCode) throw error;
@@ -481,9 +549,18 @@ window.__ModuleLoader__.load({
         }, []);
 
         const unsupported = sleep.phase === 'unsupported';
+        const {
+          persistentUnsupported,
+          persistentSupported,
+          sessionHelpKey,
+          persistentHelpKey,
+        } = sleepPresentation(sleep);
+        const sessionHelp = sessionHelpKey === null ? null : t(sessionHelpKey);
+        const persistentHelp = persistentHelpKey === null ? null : t(persistentHelpKey);
         const fullChecked = sleep.sleepDisabled === true;
         const fullBusy = sleep.phase === 'busy';
         const fullDisabled =
+          !persistentSupported ||
           sleep.sleepDisabled === null ||
           fullBusy ||
           sleep.phase === 'loading' ||
@@ -532,13 +609,15 @@ window.__ModuleLoader__.load({
                 disabled: configDisabled,
                 busy: configBusy,
                 label: t('caffeinateLabel'),
-                describedBy: 'sc-caffeinate-help',
+                describedBy: sessionHelp === null ? undefined : 'sc-caffeinate-help',
                 onChange: (enabled) => {
                   void preference.setEnabled(enabled);
                 },
               }),
             ),
-            h('p', { className: 'sc-help', id: 'sc-caffeinate-help' }, t('caffeinateHelp')),
+            sessionHelp === null
+              ? null
+              : h('p', { className: 'sc-help', id: 'sc-caffeinate-help' }, sessionHelp),
             h(
               'div',
               {
@@ -552,8 +631,8 @@ window.__ModuleLoader__.load({
           h(
             'section',
             {
-              className: 'sc-card sc-card--warning',
-              'data-active': String(fullChecked),
+              className: persistentUnsupported ? 'sc-card' : 'sc-card sc-card--warning',
+              'data-active': String(persistentSupported && fullChecked),
               'aria-labelledby': 'sc-full-sleep-title',
             },
             h(
@@ -562,23 +641,27 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'sc-title-wrap' },
-                h(WarningIcon),
+                persistentUnsupported ? null : h(WarningIcon),
                 h('h3', { className: 'sc-title', id: 'sc-full-sleep-title' }, t('label')),
-                h('span', { className: 'sc-badge' }, t('warning')),
-                fullChecked ? h('span', { className: 'sc-badge' }, t('persistent')) : null,
+                persistentUnsupported ? null : h('span', { className: 'sc-badge' }, t('warning')),
+                persistentSupported && fullChecked
+                  ? h('span', { className: 'sc-badge' }, t('persistent'))
+                  : null,
               ),
               h(Toggle, {
                 checked: fullChecked,
                 disabled: fullDisabled,
                 busy: fullBusy,
                 label: t('description'),
-                describedBy: 'sc-full-sleep-help',
+                describedBy: persistentHelp === null ? undefined : 'sc-full-sleep-help',
                 onChange: (disabled) => {
                   void controller.setSleepDisabled(disabled);
                 },
               }),
             ),
-            h('p', { className: 'sc-help', id: 'sc-full-sleep-help' }, t('fullSleepHelp')),
+            persistentHelp === null
+              ? null
+              : h('p', { className: 'sc-help', id: 'sc-full-sleep-help' }, persistentHelp),
             h(
               'div',
               {
@@ -626,6 +709,7 @@ window.__ModuleLoader__.load({
       createSleepController,
       createCaffeinatePreference,
       createSleepRequest,
+      sleepPresentation,
       sleepStatusText,
     };
   },

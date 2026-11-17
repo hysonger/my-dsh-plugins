@@ -85,7 +85,7 @@ test('GET and HEAD status return the service value without caching', async () =>
     {
       async getStatus() {
         calls += 1;
-        return { sleepDisabled: false };
+        return { platform: 'darwin', persistentSleep: true, sleepDisabled: false };
       },
     },
     async (origin) => {
@@ -96,6 +96,8 @@ test('GET and HEAD status return the service value without caching', async () =>
       assert.equal(response.headers.get('access-control-allow-origin'), null);
       assert.deepEqual(await response.json(), {
         ok: true,
+        platform: 'darwin',
+        persistentSleep: true,
         sleepDisabled: false,
         mutationToken: TEST_TOKEN,
       });
@@ -104,6 +106,38 @@ test('GET and HEAD status return the service value without caching', async () =>
       assert.equal(head.status, 200);
       assert.equal(await head.text(), '');
       assert.equal(calls, 2);
+    },
+  );
+});
+
+test('Windows capability and persistent denial use stable codes', async () => {
+  await withRouteServer(
+    {
+      async getStatus() {
+        return { platform: 'win32', persistentSleep: false, sleepDisabled: null };
+      },
+      async setSleepDisabled() {
+        const error = new Error('not macOS');
+        error.code = 'persistent-unsupported';
+        throw error;
+      },
+    },
+    async (origin) => {
+      const status = await fetch(`${origin}${STATUS_PATH}`);
+      assert.equal(status.status, 200);
+      assert.deepEqual(await status.json(), {
+        ok: true,
+        platform: 'win32',
+        persistentSleep: false,
+        sleepDisabled: null,
+        mutationToken: TEST_TOKEN,
+      });
+
+      const set = await post(origin, { sleepDisabled: true });
+      assert.equal(set.status, 501);
+      const body = await set.json();
+      assert.equal(body.error.code, 'persistent-unsupported');
+      assert.match(body.error.message, /macOS/);
     },
   );
 });

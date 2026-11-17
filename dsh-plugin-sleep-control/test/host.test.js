@@ -3,18 +3,18 @@ import test from 'node:test';
 
 import { apply, hasRunningSession, isCaffeinateEnabled } from '../index.js';
 
-function hostHarness({ enabled = false, agents = [] } = {}) {
+function hostHarness({ enabled = false, agents = [], platform = 'darwin' } = {}) {
   let currentEnabled = enabled;
   let currentAgents = agents;
   const events = new Map();
   const effects = [];
   const decisions = [];
   const routes = new Set();
-  let caffeinateDisposed = false;
+  let sessionGuardDisposed = false;
   let sleepDisposed = false;
-  const caffeinate = {
+  const sessionGuard = {
     reconcile(value) { decisions.push(value); },
-    dispose() { caffeinateDisposed = true; },
+    dispose() { sessionGuardDisposed = true; },
   };
   const sleepService = { dispose() { sleepDisposed = true; } };
   const ctx = {
@@ -43,7 +43,7 @@ function hostHarness({ enabled = false, agents = [] } = {}) {
   const config = {
     caffeinateDuringSessions: { get: () => currentEnabled },
   };
-  apply(ctx, config, { caffeinate, sleepService });
+  apply(ctx, config, { sessionGuard, sleepService, platform });
   return {
     decisions,
     events,
@@ -54,7 +54,7 @@ function hostHarness({ enabled = false, agents = [] } = {}) {
       for (const effect of effects.reverse()) effect();
     },
     get routes() { return routes; },
-    get caffeinateDisposed() { return caffeinateDisposed; },
+    get sessionGuardDisposed() { return sessionGuardDisposed; },
     get sleepDisposed() { return sleepDisposed; },
   };
 }
@@ -73,6 +73,51 @@ test('host reconciles an already-running session at startup', () => {
   const host = hostHarness({ enabled: true, agents: [running('existing')] });
   assert.deepEqual(host.decisions, [true]);
   host.dispose();
+});
+
+test('Windows mounts the same session guard and settings routes', () => {
+  const host = hostHarness({ enabled: true, agents: [running('a')], platform: 'win32' });
+  assert.deepEqual(host.decisions, [true]);
+  assert.deepEqual([...host.routes].sort(), [
+    '/sleep-control/api/set',
+    '/sleep-control/api/status',
+  ]);
+  host.dispose();
+});
+
+test('unsupported platforms mount nothing and never reconcile', () => {
+  const routes = [];
+  const infos = [];
+  const events = [];
+  const effects = [];
+  const ctx = {
+    agents: { list: () => [running('a')] },
+    webServer: {
+      getOrigin: () => 'http://127.0.0.1:1',
+      register(route) {
+        routes.push(route.path);
+        return () => undefined;
+      },
+    },
+    logger: { info: (message) => infos.push(message), warn() {} },
+    fiber: {},
+    on(name) { events.push(name); return () => undefined; },
+    effect(callback) { effects.push(callback); },
+    inject() { throw new Error('unsupported platforms must not inject settings'); },
+  };
+  apply(
+    ctx,
+    { caffeinateDuringSessions: { get: () => true } },
+    {
+      platform: 'linux',
+      sessionGuard: { reconcile() { throw new Error('must not reconcile'); }, dispose() {} },
+      sleepService: { dispose() {} },
+    },
+  );
+  assert.deepEqual(routes, []);
+  assert.deepEqual(events, []);
+  assert.deepEqual(effects, []);
+  assert.match(infos.at(-1), /linux/);
 });
 
 test('multiple sessions stay protected until the last one becomes idle', () => {
@@ -117,6 +162,6 @@ test('disposal releases routes and both host services', () => {
   ]);
   host.dispose();
   assert.equal(host.routes.size, 0);
-  assert.equal(host.caffeinateDisposed, true);
+  assert.equal(host.sessionGuardDisposed, true);
   assert.equal(host.sleepDisposed, true);
 });

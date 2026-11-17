@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const rootDir = resolve(new URL('..', import.meta.url).pathname);
+const rootDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const rootPkg = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8'));
 
 function pluginDirectories() {
