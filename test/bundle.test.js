@@ -114,7 +114,7 @@ test('every local plugin directory and pinned third-party plugin is wired withou
 
   // Third-party plugins included for supply-chain safety must pin exact immutable npm versions
   // (never floating ranges or git/tarball subdeps blocked by pnpm's blockExoticSubdeps policy).
-  assert.deepEqual(externalNames.sort(), ['@dingyi222666/dsh-session-notification', 'dsh-codex-connect', 'dsh-quorfloat']);
+  assert.deepEqual(externalNames.sort(), ['@dingyi222666/dsh-session-notification', 'dsh-codex-connect']);
   for (const pkgName of externalNames) {
     assert.ok(
       isExactNpmVersion(rootDeps[pkgName]),
@@ -124,7 +124,6 @@ test('every local plugin directory and pinned third-party plugin is wired withou
   }
   assert.equal(rootDeps['dsh-codex-connect'], '0.2.0-alpha.15');
   assert.equal(rootDeps['@dingyi222666/dsh-session-notification'], '0.2.6');
-  assert.equal(rootDeps['dsh-quorfloat'], '0.1.10');
   assert.equal(rootDeps['dsh-pet'], undefined, 'dsh-pet must remain outside this bundle');
   assert.deepEqual(
     Object.keys(rootDeps).sort(),
