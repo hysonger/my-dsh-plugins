@@ -19,7 +19,7 @@
 
 ## 第三方插件（锁定版本以保障供应链安全）
 
-来自 `desktop` profile、且已发布不可变 npm 版本的上游第三方插件已通过系统安全性审计，并写入根目录 [cordis.patch.yml](cordis.patch.yml)（沿用各自上游非侵入式默认配置；`dsh-pet` 由其独立安全加固仓维护并单独安装，因 pnpm v11 默认启用 `blockExoticSubdeps: true` 会拦截 GitHub 子依赖，且 npm 公开版 `dsh-pet@0.4.9` 不含加固补丁）：
+来自 `desktop` profile、且已发布不可变 npm 版本的上游第三方插件已通过系统安全性审计，并写入根目录 [cordis.patch.yml](<cordis.patch.yml>)，沿用各自上游非侵入式默认配置。需要专门 fork 加固的插件另列于下方记录，**不纳入本组合包**：
 
 | npm 包名 | 锁定版本 | 插件行 ID | 已审计摘要与溯源信息 |
 |---|---|---|---|
@@ -38,7 +38,25 @@
 - **整包顶层提交哈希锁定**：在向 profile 安装本组合包本身时，可直接按 40 位 Git 提交哈希唯一锁定整套组合包：
   `dsh plugin --profile desktop add github:hysonger/my-dsh-plugins#<40-char-commit-sha>`
 
-## 组合包一键安装（通过仓库名安装全部插件）
+## 独立维护的安全加固 fork（不纳入本组合包）
+
+这些插件属于个人 DSH 配置的一部分，但需要独立仓库、专门的安全补丁、构建审查记录和安装生命周期。上游公开 npm 包不包含这些加固，直接替换会丢失保护；因此它们均不写入本组合包的 dependencies 或补丁层。单独安装也避免了为容纳 GitHub 子依赖而放宽 pnpm 的 `blockExoticSubdeps` 防护。
+
+| 项目／上游基线 | 个人 fork 与安全边界 | 本机安装／版本 |
+|---|---|---|
+| `dsh-pet`／`0.4.9` | [hysonger/dsh-pet](https://github.com/hysonger/dsh-pet)，[加固说明](https://github.com/hysonger/dsh-pet/blob/harden-plugin-http/HARDENING.md)：Host HTTP 仅限已认证 owner、Electron 下载独立校验、Helper 环境收敛与依赖加固 | 独立检出目录 `/Users/songer/Projects/dsh-pet`，插件包位于 `dsh-pet/`；清单版本 `0.4.9`，本地加固修订 `f0bf01a0fea9f7d40a69cc53c295897b5bc8b099`，不是未修改的 npm 公开版 |
+| `@michengai/dsh-btw`／release `v1.3.11`（`6db748c8c021101eb4878f5b32edd0469e240843`） | [hysonger/dsh-btw](https://github.com/hysonger/dsh-btw)，[加固说明](https://github.com/hysonger/dsh-btw/blob/hardening/v1.3.11/HARDENING.md)：禁止模型主动回传主会话、渲染层禁图／HTML、选区动作及草稿写入隔离 | 独立检出目录 `/Users/songer/Projects/dsh-btw`；加固版本 `1.3.11-hardened.1`，维护分支 `hardening/v1.3.11` |
+
+BTW 加固版记录：[v1.3.11-hardened.1](https://github.com/hysonger/dsh-btw/releases/tag/v1.3.11-hardened.1)，[已审查提交 `279739d`](https://github.com/hysonger/dsh-btw/commit/279739d5c38bcb43f7d6c0dd697c6cadc6f59b35)；安装包 SHA-256 `dacb9509618738485c23762dc47a4d6352a17e898d67301b625df373ff7333df`。该 release 附摘要清单与验证记录，仅适用于这个个人 fork，不是上游 npm 包的摘要。
+
+安装 `my-dsh-plugins` **不会**自动安装上述 fork；应单独安装经过审查的本地检出。BTW fork 有意保留上游包名与插件身份，不要同时启用上游版和加固版。每次更新都需审查与上游的加固差异、重新构建并核对制品摘要；不要用 `@latest` 覆盖本地检出，也不要为此放宽组合包依赖策略。
+
+```sh
+dsh plugin --profile desktop add /Users/songer/Projects/dsh-pet/dsh-pet
+dsh plugin --profile desktop add /Users/songer/Projects/dsh-btw
+```
+
+## 组合包一键安装（通过仓库名安装组合包内插件）
 
 通过 CLI 或 DSH 插件管理页（**添加插件**）输入 GitHub 仓库标识，即可一次性安装全部插件：
 

@@ -19,7 +19,7 @@ A collection of plugins for [DeepSeek Harness (DSH)](https://github.com/deepseek
 
 ## Third-party plugins (pinned for supply-chain security)
 
-Audited third-party npm plugins from the `desktop` profile are pinned to exact immutable versions and wired into the root bundle via [cordis.patch.yml](cordis.patch.yml) with non-intrusive upstream defaults (`dsh-pet` is maintained in its own standalone hardened fork repository and installed independently, because pnpm v11's default `blockExoticSubdeps: true` blocks GitHub subdependencies and upstream npm `dsh-pet@0.4.9` lacks our security hardening):
+Audited third-party npm plugins from the `desktop` profile are pinned to exact immutable versions and wired into the root bundle via [cordis.patch.yml](<cordis.patch.yml>) with non-intrusive upstream defaults. Plugins requiring dedicated fork-specific hardening are tracked separately below and are **not** included in this bundle:
 
 | Package | Pinned Version | Plugin Row ID | Audited Digests / Provenance |
 |---|---|---|---|
@@ -37,7 +37,25 @@ Audited third-party npm plugins from the `desktop` profile are pinned to exact i
 - **`dsh-quorfloat` ships a prebuilt native sidecar (audited, limitations accepted)**: its full source is public at the pinned tag/commit, and the npm tarballs are byte-identical to the CI artifacts, but the macOS sidecar cannot be reproduced byte-for-byte locally (SDK/linker/absolute-path/signature differences). The audit reached instruction-level equivalence with a same-rustc rebuild (2 instructions differ, attributable to the CI SDK/clang version) and byte-identical embedded webview assets; the dependency/toolchain layer and runtime behavior were **not** audited. Treat it as another local DSH client: it can create/read sessions, switch permission presets (including `danger-full-access`), and answer tool approvals. Do not install it on multi-user shared hosts. Details and the upgrade policy are in [docs/audits/dsh-quorfloat-0.1.10.md](docs/audits/dsh-quorfloat-0.1.10.md).
 - **Optional top-level commit-hash pinning**: When installing this bundle itself, you may pin the root bundle by its 40-character Git commit SHA: `dsh plugin --profile desktop add github:hysonger/my-dsh-plugins#<commit-sha>`.
 
-## Bundle installation (all plugins at once)
+## Independently maintained hardened forks (outside this bundle)
+
+These plugins are tracked alongside this collection, but have their own repositories, security patches, build/review history, and installation lifecycle. The public upstream npm packages do not contain our dedicated hardening, so substituting an upstream release would silently discard it. Neither fork is listed in this bundle's dependencies or patch layers. Keeping them separate also avoids weakening pnpm's `blockExoticSubdeps` policy to accommodate GitHub subdependencies.
+
+| Project / upstream baseline | Personal fork and security notes | Local installation / version |
+|---|---|---|
+| `dsh-pet` / `0.4.9` | [hysonger/dsh-pet](https://github.com/hysonger/dsh-pet), [hardening notes](https://github.com/hysonger/dsh-pet/blob/harden-plugin-http/HARDENING.md): owner-only Host HTTP admission, verified Electron downloads, restricted Helper environment, and dependency hardening | Independent checkout `/Users/songer/Projects/dsh-pet`, plugin package `dsh-pet/`; package version `0.4.9`, local hardened revision `f0bf01a0fea9f7d40a69cc53c295897b5bc8b099` (not the unmodified npm release) |
+| `@michengai/dsh-btw` / release `v1.3.11` (`6db748c8c021101eb4878f5b32edd0469e240843`) | [hysonger/dsh-btw](https://github.com/hysonger/dsh-btw), [hardening notes](https://github.com/hysonger/dsh-btw/blob/hardening/v1.3.11/HARDENING.md): prohibit model-initiated parent messages, block rendered images/HTML, isolate selection actions and draft writes | Independent checkout `/Users/songer/Projects/dsh-btw`; hardened version `1.3.11-hardened.1`, maintained on `hardening/v1.3.11` |
+
+BTW release record: [v1.3.11-hardened.1](https://github.com/hysonger/dsh-btw/releases/tag/v1.3.11-hardened.1), [reviewed commit `279739d`](https://github.com/hysonger/dsh-btw/commit/279739d5c38bcb43f7d6c0dd697c6cadc6f59b35); archive SHA-256 `dacb9509618738485c23762dc47a4d6352a17e898d67301b625df373ff7333df`. Checksums and the verification manifest are attached to that release; they apply to this fork, not the upstream npm package.
+
+Install the reviewed local checkouts separately; installing `my-dsh-plugins` alone does **not** install these forks. Do not install an upstream and hardened BTW bundle together: the fork intentionally retains the upstream package/plugin identities. Review the hardening delta and rebuild/hash the artifacts before every update; do not replace either checkout with `@latest` or relax the bundle's dependency policy.
+
+```sh
+dsh plugin --profile desktop add /Users/songer/Projects/dsh-pet/dsh-pet
+dsh plugin --profile desktop add /Users/songer/Projects/dsh-btw
+```
+
+## Bundle installation (all bundled plugins at once)
 
 Install all plugins at once from the GitHub repository via CLI or the DSH Plugin Manager UI (**Add plugin**):
 
