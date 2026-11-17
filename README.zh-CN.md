@@ -15,6 +15,7 @@
 | [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.1.0 | 会话运行时防睡眠及经管理员授权的 macOS 睡眠控制 |
 | [dsh-plugin-opencode-go-session](dsh-plugin-opencode-go-session/README.md) | 0.1.1 | 修复显式协议 OpenCode Go 路由的会话头，含受限的一次性协议迁移及升级停用背景 |
 | [dsh-plugin-git-log](dsh-plugin-git-log/README.md) | 0.1.0 | 绑定当前会话工作区的右侧边栏 Git 日志标签页，支持分支/引用筛选、提交图谱、搜索与按文件 Diff 预览 |
+| [dsh-plugin-subagent-model](dsh-plugin-subagent-model/README.md) | 0.1.0 | 在可继续子智能体会话的输入栏中只读显示当前模型、思考强度与详情卡片 |
 
 ## 第三方插件（锁定版本以保障供应链安全）
 
@@ -83,6 +84,7 @@ npm --prefix dsh-plugin-mermaid run check
 npm --prefix dsh-plugin-sleep-control run check
 npm --prefix dsh-plugin-opencode-go-session run check
 npm --prefix dsh-plugin-git-log run check
+npm --prefix dsh-plugin-subagent-model run check
 ```
 
 这些命令使用各插件现有的离线测试。真实上游 API 冒烟测试使用单独的 `live` 脚本，按需执行。

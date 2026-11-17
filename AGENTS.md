@@ -13,6 +13,7 @@
 | `dsh-plugin-sleep-control/` | 防睡眠插件：在 DSH 设置的“防睡眠”分区提供会话运行时 `caffeinate -s` 与“完全关闭睡眠”两种独立方式；后者通过 macOS 原生管理员授权执行固定 `sudo pmset -a disablesleep 1 / 0` 并读回验证，具有全局持久效果和警告提示；不保存凭据、不提供 Agent Tool。详见其 [README](dsh-plugin-sleep-control/README.md)。 |
 | `dsh-plugin-opencode-go-session/` | OpenCode Go 过渡修复：通过公开请求头事件为显式协议路由补逐会话标识；安装时用官方配置服务执行受限、一次性的协议迁移，不读取 API Key。DSH 升级后先按 [背景与停用判据](dsh-plugin-opencode-go-session/docs/BACKGROUND.md) 验证再移除；详见其 [README](dsh-plugin-opencode-go-session/README.md)。 |
 | `dsh-plugin-git-log/` | Git 日志视图：在 DSH 右侧边栏提供随当前工作区切换的 Git 日志标签页，支持分支/标签筛选、搜索、SVG 提交拓扑图谱与按文件 Diff 预览；详见其 [README](dsh-plugin-git-log/README.md)。 |
+| `dsh-plugin-subagent-model/` | 子智能体模型显示：在可继续子智能体会话输入栏的 `conversation.input.right` 插槽中只读显示当前模型、徽标、思考强度及详情卡片；复用 `modelSelection` 投影与目录元数据，不触发受限选择调用；详见其 [README](dsh-plugin-subagent-model/README.md)。 |
 | 根 `cordis.patch.yml` | 纳入已通过安全审计并锁定精确版本的第三方插件（`@dingyi222666/dsh-session-notification@0.2.6`、`dsh-codex-connect@0.2.0-alpha.15`），锁定意图为保障供应链安全（`dsh-pet` 由独立仓库维护并单独安装，不纳入本组合包；详见 [README.zh-CN.md](README.zh-CN.md)）。 |
 
 ## 约定
