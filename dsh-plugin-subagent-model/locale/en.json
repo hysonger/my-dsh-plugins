@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Subagent Model Indicator",
+    "description": "Display a read-only model badge in the composer bar for continuable subagent sessions."
+  }
+}

@@ -15,6 +15,7 @@ A collection of plugins for [DeepSeek Harness (DSH)](https://github.com/deepseek
 | [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.1.0 | Prevent sleep during active sessions and manage macOS sleep settings with administrator authorization |
 | [dsh-plugin-opencode-go-session](dsh-plugin-opencode-go-session/README.md) | 0.1.1 | Repair explicit-protocol OpenCode Go session headers; includes a guarded one-time protocol migration and upstream retirement notes |
 | [dsh-plugin-git-log](dsh-plugin-git-log/README.md) | 0.1.0 | Right-sidebar Git commit log tab bound to the active workspace, with commit graph, branch/ref/search filters, and file diff preview |
+| [dsh-plugin-subagent-model](dsh-plugin-subagent-model/README.md) | 0.1.0 | Read-only model indicator and details popover inside the composer bar for continuable subagent sessions |
 
 ## Third-party plugins (pinned for supply-chain security)
 
@@ -82,6 +83,7 @@ npm --prefix dsh-plugin-mermaid run check
 npm --prefix dsh-plugin-sleep-control run check
 npm --prefix dsh-plugin-opencode-go-session run check
 npm --prefix dsh-plugin-git-log run check
+npm --prefix dsh-plugin-subagent-model run check
 ```
 
 These commands run each plugin's offline tests. Live upstream API smoke tests use separate `live` scripts and can be run when needed.

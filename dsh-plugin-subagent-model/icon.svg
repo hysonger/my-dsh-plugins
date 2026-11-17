@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Subagent model indicator">
+  <rect width="64" height="64" rx="14" fill="#1e293b"/>
+  <rect x="16" y="18" width="32" height="22" rx="6" fill="none" stroke="#93c5fd" stroke-width="3"/>
+  <path d="M23 29h10M23 34h18" fill="none" stroke="#e2e8f0" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="44" cy="43" r="9" fill="#0f172a" stroke="#60a5fa" stroke-width="2.5"/>
+  <path d="M41.5 43v-2.2a2.5 2.5 0 0 1 5 0V43" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round"/>
+  <rect x="40" y="43" width="8" height="6" rx="1.5" fill="#93c5fd"/>
+</svg>

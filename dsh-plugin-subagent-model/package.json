@@ -1,0 +1,50 @@
+{
+  "name": "dsh-plugin-subagent-model",
+  "version": "0.1.0",
+  "description": "Display read-only model information in the input bar for continuable subagent sessions in DeepSeek Harness",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "icon.svg",
+    "cordis.patch.yml",
+    "lib",
+    "locale",
+    "README.md"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "icon": "./icon.svg",
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-model-selection"
+      ]
+    }
+  },
+  "scripts": {
+    "build:client": "node scripts/build-client.mjs",
+    "test": "node --test test/",
+    "check": "node scripts/build-client.mjs --check && node --test test/"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "subagent",
+    "model",
+    "ui"
+  ],
+  "license": "MIT"
+}
