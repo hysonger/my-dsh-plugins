@@ -12,7 +12,7 @@ A collection of plugins for [DeepSeek Harness (DSH)](https://github.com/deepseek
 | [dsh-plugin-kimi-web-search](dsh-plugin-kimi-web-search/README.md) | 0.2.1 | Independent `kimi_web_search` and `kimi_web_fetch` tools with result cards |
 | [dsh-plugin-open-here](dsh-plugin-open-here/README.md) | 0.1.0 | Open local workspaces in DSH from the terminal or Finder |
 | [dsh-plugin-mermaid](dsh-plugin-mermaid/README.md) | 0.2.0 | Mermaid diagram rendering with zoom, pan, and a large preview |
-| [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.1.0 | Prevent sleep during active sessions and manage macOS sleep settings with administrator authorization |
+| [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.2.0 | Prevent sleep during active sessions on macOS and Windows; macOS-only persistent sleep disable with administrator authorization |
 | [dsh-plugin-opencode-go-session](dsh-plugin-opencode-go-session/README.md) | 0.1.1 | Repair explicit-protocol OpenCode Go session headers; includes a guarded one-time protocol migration and upstream retirement notes |
 | [dsh-plugin-git-log](dsh-plugin-git-log/README.md) | 0.1.0 | Right-sidebar Git commit log tab bound to the active workspace, with commit graph, branch/ref/search filters, and file diff preview |
 

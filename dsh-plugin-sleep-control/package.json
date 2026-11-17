@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-sleep-control",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Prevent macOS sleep during running DSH sessions with caffeinate, or disable sleep persistently with authorized pmset controls",
+  "description": "Prevent sleep during running DSH sessions on macOS and Windows, and disable sleep persistently with authorized pmset controls on macOS",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -23,7 +23,11 @@
   ],
   "dsh": {
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": "./cordis.patch.yml",
+      "platforms": [
+        "darwin",
+        "win32"
+      ]
     },
     "client": {
       "platform": "web",
@@ -36,7 +40,7 @@
   },
   "scripts": {
     "test": "node --test test/",
-    "check": "node --check index.js && node --check client.js && node --check src/host/caffeinate.js && node --check src/host/service.js && node --check src/host/routes.js && node --test test/"
+    "check": "node --check index.js && node --check client.js && node --check src/host/platform.js && node --check src/host/session-guard.js && node --check src/host/service.js && node --check src/host/routes.js && node --test test/"
   },
   "license": "MIT",
   "dependencies": {

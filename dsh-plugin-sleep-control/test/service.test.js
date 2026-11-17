@@ -9,6 +9,7 @@ import {
   OSASCRIPT_PATH,
   SleepControlService,
 } from '../src/host/service.js';
+import { isSupportedPlatform, supportsPersistentSleep } from '../src/host/platform.js';
 
 const PMSET_OFF = `System-wide power settings:\n SleepDisabled\t\t0\nCurrently in use:\n sleep 10\n`;
 const PMSET_ON = PMSET_OFF.replace('SleepDisabled\t\t0', 'SleepDisabled\t\t1');
@@ -22,6 +23,15 @@ function deferred() {
   });
   return { promise, resolve, reject };
 }
+
+test('platform capabilities admit macOS and Windows only', () => {
+  assert.equal(isSupportedPlatform('darwin'), true);
+  assert.equal(isSupportedPlatform('win32'), true);
+  assert.equal(isSupportedPlatform('linux'), false);
+  assert.equal(isSupportedPlatform(undefined), false);
+  assert.equal(supportsPersistentSleep('darwin'), true);
+  assert.equal(supportsPersistentSleep('win32'), false);
+});
 
 test('parseSleepDisabled accepts only the global 0/1 field', () => {
   assert.equal(parseSleepDisabled(PMSET_OFF), false);
@@ -58,7 +68,11 @@ test('getStatus runs unprivileged pmset and parses its output', async () => {
       return { stdout: PMSET_OFF, stderr: '' };
     },
   });
-  assert.deepEqual(await service.getStatus(), { sleepDisabled: false });
+  assert.deepEqual(await service.getStatus(), {
+    platform: 'darwin',
+    persistentSleep: true,
+    sleepDisabled: false,
+  });
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], PMSET_PATH);
   assert.deepEqual(calls[0][1], ['-g']);
@@ -81,7 +95,7 @@ test('getStatus rejects missing values and process failures without guessing', a
   await assert.rejects(failed.getStatus(), { code: 'status-unavailable' });
 });
 
-test('non-macOS platforms never spawn a process', async () => {
+test('unsupported platforms never spawn a process', async () => {
   let calls = 0;
   const service = new SleepControlService({
     platform: 'linux',
@@ -95,6 +109,26 @@ test('non-macOS platforms never spawn a process', async () => {
   assert.equal(calls, 0);
 });
 
+test('Windows reports only the session capability without spawning a process', async () => {
+  let calls = 0;
+  const service = new SleepControlService({
+    platform: 'win32',
+    exec: async () => {
+      calls += 1;
+      return { stdout: PMSET_OFF, stderr: '' };
+    },
+  });
+  assert.deepEqual(await service.getStatus(), {
+    platform: 'win32',
+    persistentSleep: false,
+    sleepDisabled: null,
+  });
+  await assert.rejects(service.setSleepDisabled(true), { code: 'persistent-unsupported' });
+  await assert.rejects(service.setSleepDisabled(false), { code: 'persistent-unsupported' });
+  await assert.rejects(service.setSleepDisabled('1'), { code: 'bad-request' });
+  assert.equal(calls, 0);
+});
+
 test('setSleepDisabled authorizes and then verifies the requested value', async () => {
   const calls = [];
   const service = new SleepControlService({
@@ -105,7 +139,11 @@ test('setSleepDisabled authorizes and then verifies the requested value', async 
       return { stdout: PMSET_ON, stderr: '' };
     },
   });
-  assert.deepEqual(await service.setSleepDisabled(true), { sleepDisabled: true });
+  assert.deepEqual(await service.setSleepDisabled(true), {
+    platform: 'darwin',
+    persistentSleep: true,
+    sleepDisabled: true,
+  });
   assert.equal(calls.length, 2);
   assert.equal(calls[0][0], OSASCRIPT_PATH);
   assert.deepEqual(calls[0][1], ['-e', buildAdministratorScript(true)]);
@@ -176,7 +214,11 @@ test('concurrent changes cannot open a second authorization flow', async () => {
   await assert.rejects(service.setSleepDisabled(false), { code: 'busy' });
   assert.equal(adminCalls, 1);
   pending.resolve({ stdout: '', stderr: '' });
-  assert.deepEqual(await first, { sleepDisabled: true });
+  assert.deepEqual(await first, {
+    platform: 'darwin',
+    persistentSleep: true,
+    sleepDisabled: true,
+  });
   assert.equal(service.inFlight, null);
 });
 
@@ -223,7 +265,7 @@ test('dispose aborts a pending authorization and prevents readback', async () =>
 test('real exec wrapper aborts a bounded child process', async () => {
   const { execFileAsync } = await import('../src/host/service.js');
   const controller = new AbortController();
-  const pending = execFileAsync('/bin/sh', ['-c', 'sleep 5'], {
+  const pending = execFileAsync(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], {
     timeout: 5000,
     signal: controller.signal,
   });

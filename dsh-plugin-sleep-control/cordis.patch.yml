@@ -1,6 +1,12 @@
+# Only platforms with an implemented session sleep guard ship this plugin. The
+# bundle also declares the same list in package.json, so direct installation is
+# rejected on unsupported Hosts; this row gate covers composition through the
+# root aggregate bundle, which reuses this patch in one shared bundle.
 - insert:
     - id: sleep-control
       name: 'dsh-plugin-sleep-control'
+      disabled: !!js "!['darwin', 'win32'].includes(process.platform)"
       config:
         # Persisted user preference; the Host reads it as a live volatile ref.
+        # The historical key name is kept for stored profile configs.
         caffeinateDuringSessions: false

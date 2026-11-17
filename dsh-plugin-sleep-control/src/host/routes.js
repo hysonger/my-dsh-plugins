@@ -144,7 +144,7 @@ function statusForError(code) {
   if (code === 'bad-request') return 400;
   if (code === 'forbidden') return 403;
   if (code === 'busy' || code === 'cancelled') return 409;
-  if (code === 'unsupported') return 501;
+  if (code === 'unsupported' || code === 'persistent-unsupported') return 501;
   if (code === 'status-unavailable') return 503;
   return 500;
 }
@@ -154,7 +154,8 @@ const SAFE_ERROR_MESSAGES = {
   forbidden: 'The request is not authorized.',
   busy: 'Another sleep-setting change is already in progress.',
   cancelled: 'Administrator authorization was cancelled.',
-  unsupported: 'Sleep control is available only on macOS.',
+  unsupported: 'Sleep control is available only on macOS and Windows.',
+  'persistent-unsupported': 'Persistent sleep control is available only on macOS.',
   'command-failed': 'The privileged pmset command failed.',
   'verification-failed': 'The resulting SleepDisabled value could not be verified.',
   'status-unavailable': 'Unable to read macOS power settings.',

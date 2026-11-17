@@ -1,13 +1,16 @@
 import z from '@deepseek-ai/schemastery';
 
-import { CaffeinateService } from './src/host/caffeinate.js';
+import { isSupportedPlatform } from './src/host/platform.js';
 import { registerRoutes } from './src/host/routes.js';
+import { SessionSleepGuard } from './src/host/session-guard.js';
 import { SleepControlService } from './src/host/service.js';
 
 export const inject = ['webServer', 'agents'];
 
-/** Live, user-editable session-scoped sleep prevention. */
+/** Live, user-editable session-scoped sleep prevention for every supported OS. */
 export const Config = z.object({
+  // Historical key name: it stays stable so profile configs written on macOS
+  // remain valid after the same session guard started supporting Windows.
   caffeinateDuringSessions: z.boolean().default(false).volatile(),
 });
 
@@ -20,12 +23,24 @@ export function hasRunningSession(agents) {
   return agents.list().some((agent) => agent.status === 'running');
 }
 
-/** Host composition: private pmset routes plus one session-driven caffeinate. */
+/**
+ * Host composition: private sleep routes plus one session-driven OS sleep
+ * assertion. Unsupported platforms mount nothing at all; the bundle manifest
+ * and patch row already keep them from being selected.
+ */
 export function apply(ctx, config, internals = {}) {
-  const service = internals.sleepService ?? new SleepControlService();
-  const caffeinate = internals.caffeinate ?? new CaffeinateService({ logger: ctx.logger });
+  const platform = internals.platform ?? process.platform;
+  if (!isSupportedPlatform(platform)) {
+    ctx.logger?.info?.(
+      `[sleep-control] skipped on unsupported platform "${platform}" (supported: darwin, win32)`,
+    );
+    return;
+  }
+
+  const service = internals.sleepService ?? new SleepControlService({ platform });
+  const sessionGuard = internals.sessionGuard ?? new SessionSleepGuard({ platform, logger: ctx.logger });
   const reconcile = () => {
-    caffeinate.reconcile(isCaffeinateEnabled(config) && hasRunningSession(ctx.agents));
+    sessionGuard.reconcile(isCaffeinateEnabled(config) && hasRunningSession(ctx.agents));
   };
 
   // Re-read the registry on every edge instead of maintaining a second count
@@ -38,11 +53,11 @@ export function apply(ctx, config, internals = {}) {
   ctx.effect(() => {
     const dispose = registerRoutes(ctx.webServer, service);
     reconcile();
-    ctx.logger?.info?.('[sleep-control] local pmset routes and session sleep guard ready');
+    ctx.logger?.info?.(`[sleep-control] local sleep routes and session sleep guard ready on ${platform}`);
     return () => {
       dispose();
       service.dispose();
-      caffeinate.dispose();
+      sessionGuard.dispose();
       ctx.logger?.info?.('[sleep-control] routes released and managed processes aborted');
     };
   }, 'sleep-control: host services');
@@ -57,6 +72,6 @@ export function apply(ctx, config, internals = {}) {
   });
 }
 
-export { CaffeinateService } from './src/host/caffeinate.js';
+export { SessionSleepGuard } from './src/host/session-guard.js';
 export { SleepControlService } from './src/host/service.js';
 export { registerRoutes } from './src/host/routes.js';

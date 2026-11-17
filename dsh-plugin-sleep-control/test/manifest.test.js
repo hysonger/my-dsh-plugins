@@ -8,7 +8,9 @@ const readJson = async (path) => JSON.parse(await readFile(new URL(path, root), 
 test('manifest exposes the Host, Client, locales and original icon', async () => {
   const manifest = await readJson('package.json');
   assert.equal(manifest.name, 'dsh-plugin-sleep-control');
+  assert.equal(manifest.version, '0.2.0');
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml');
+  assert.deepEqual(manifest.dsh.bundle.platforms, ['darwin', 'win32']);
   assert.equal(manifest.dsh.client.platform, 'web');
   assert.ok(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-settings'));
   assert.ok(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-locale'));
@@ -19,6 +21,9 @@ test('manifest exposes the Host, Client, locales and original icon', async () =>
     assert.ok((await stat(new URL(path, root))).isFile(), `${path} exists`);
   }
   assert.ok(manifest.files.includes('src/'));
+  for (const path of ['src/host/platform.js', 'src/host/session-guard.js', 'src/host/service.js', 'src/host/routes.js']) {
+    assert.ok((await stat(new URL(path, root))).isFile(), `${path} exists`);
+  }
   const icon = await readFile(new URL('icon.svg', root));
   assert.ok(icon.length < 256 * 1024);
   assert.match(icon.toString('utf8'), /^<svg[\s>]/);
@@ -30,12 +35,16 @@ test('English and Chinese metadata describe the delivered capability', async () 
     assert.equal(typeof dict.meta.title, 'string');
     assert.ok(dict.meta.title.length > 0);
     assert.match(dict.meta.description, /macOS/);
+    assert.match(dict.meta.description, /Windows/);
     assert.equal(dict.sleepControl.nav, locale === 'zh' ? '防睡眠' : 'Sleep Control');
     assert.equal(typeof dict.sleepControl.label, 'string');
     assert.equal(typeof dict.sleepControl.waiting, 'string');
     assert.equal(typeof dict.sleepControl.cancelled, 'string');
     assert.match(dict.sleepControl.caffeinateHelp, /caffeinate -s/);
+    assert.match(dict.sleepControl.windowsSessionHelp, /SetThreadExecutionState/);
     assert.match(dict.sleepControl.fullSleepHelp, /pmset/);
+    assert.match(dict.sleepControl.persistentUnsupported, /macOS/);
+    assert.match(dict.sleepControl.persistentUnsupportedHelp, /pmset/);
     assert.equal(typeof dict.sleepControl.warning, 'string');
   }
 });
@@ -53,4 +62,16 @@ test('session caffeinate preference is volatile and defaults to off', async () =
   assert.equal(Config.dict.caffeinateDuringSessions.meta.volatile, true);
   const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8');
   assert.match(patch, /caffeinateDuringSessions: false/);
+});
+
+test('the bundle patch disables the row on unsupported Host platforms', async () => {
+  const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8');
+  const match = /^\s*disabled:\s*!!js\s+"([^"]+)"\s*$/m.exec(patch);
+  assert.ok(match, 'the row must declare a !!js platform expression');
+  // eslint-disable-next-line no-new-func
+  const evaluate = new Function('process', `return (${match[1]})`);
+  assert.equal(evaluate({ platform: 'darwin' }), false);
+  assert.equal(evaluate({ platform: 'win32' }), false);
+  assert.equal(evaluate({ platform: 'linux' }), true);
+  assert.equal(evaluate({ platform: 'freebsd' }), true);
 });

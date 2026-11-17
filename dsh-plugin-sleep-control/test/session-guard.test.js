@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { EventEmitter } from 'node:events';
+import { win32 } from 'node:path';
 import test from 'node:test';
 
 import {
-  CAFFEINATE_ARGS,
-  CAFFEINATE_PATH,
-  CaffeinateService,
-} from '../src/host/caffeinate.js';
+  MACOS_CAFFEINATE_ARGS,
+  MACOS_CAFFEINATE_PATH,
+  SessionSleepGuard,
+  WINDOWS_SLEEP_GUARD_ARGS,
+  WINDOWS_SLEEP_GUARD_SCRIPT,
+  sessionGuardCommand,
+  windowsPowerShellPath,
+} from '../src/host/session-guard.js';
 
 class FakeChild extends EventEmitter {
   constructor() {
@@ -26,7 +32,7 @@ function harness(options = {}) {
   const calls = [];
   const children = [];
   const warnings = [];
-  const service = new CaffeinateService({
+  const service = new SessionSleepGuard({
     platform: 'darwin',
     killGraceMs: 5,
     retryDelaysMs: [5, 10],
@@ -44,14 +50,14 @@ function harness(options = {}) {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test('caffeinate uses one fixed process and stops on loss of demand', () => {
+test('macOS uses one fixed caffeinate process and stops on loss of demand', () => {
   const { service, calls, children } = harness();
   service.reconcile(true);
   service.reconcile(true);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].file, CAFFEINATE_PATH);
+  assert.equal(calls[0].file, MACOS_CAFFEINATE_PATH);
   assert.deepEqual(calls[0].args, ['-s']);
-  assert.deepEqual(CAFFEINATE_ARGS, ['-s']);
+  assert.deepEqual(MACOS_CAFFEINATE_ARGS, ['-s']);
   assert.equal(calls[0].options.stdio, 'ignore');
 
   service.reconcile(false);
@@ -63,7 +69,48 @@ test('caffeinate uses one fixed process and stops on loss of demand', () => {
   service.dispose();
 });
 
-test('non-macOS never spawns even when requested', () => {
+test('Windows holds one execution-state helper instead of caffeinate', () => {
+  const { service, calls } = harness({ platform: 'win32', systemRoot: 'C:\\Windows' });
+  service.reconcile(true);
+  assert.equal(calls.length, 1);
+  assert.equal(
+    calls[0].file,
+    win32.join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+  );
+  assert.deepEqual(calls[0].args, [...WINDOWS_SLEEP_GUARD_ARGS]);
+  assert.equal(calls[0].options.windowsHide, true);
+  assert.equal(calls[0].options.stdio, 'ignore');
+  service.reconcile(false);
+  service.dispose();
+});
+
+test('the Windows command encodes the fixed execution-state script', () => {
+  const index = WINDOWS_SLEEP_GUARD_ARGS.indexOf('-EncodedCommand');
+  assert.notEqual(index, -1);
+  const encoded = WINDOWS_SLEEP_GUARD_ARGS[index + 1];
+  assert.equal(Buffer.from(encoded, 'base64').toString('utf16le'), WINDOWS_SLEEP_GUARD_SCRIPT);
+  assert.match(WINDOWS_SLEEP_GUARD_SCRIPT, /SetThreadExecutionState/);
+  // ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001).
+  assert.match(WINDOWS_SLEEP_GUARD_SCRIPT, /\[uint32\]2147483649/);
+  assert.match(WINDOWS_SLEEP_GUARD_SCRIPT, /Start-Sleep/);
+  assert.ok(WINDOWS_SLEEP_GUARD_ARGS.includes('-NoProfile'));
+  assert.ok(WINDOWS_SLEEP_GUARD_ARGS.includes('-NonInteractive'));
+  assert.ok(WINDOWS_SLEEP_GUARD_ARGS.includes('-NoLogo'));
+});
+
+test('sessionGuardCommand resolves per platform and rejects others', () => {
+  assert.deepEqual(sessionGuardCommand('darwin'), {
+    file: MACOS_CAFFEINATE_PATH,
+    args: MACOS_CAFFEINATE_ARGS,
+  });
+  const windows = sessionGuardCommand('win32', { systemRoot: 'D:\\Windows' });
+  assert.equal(windows.file, windowsPowerShellPath('D:\\Windows'));
+  assert.deepEqual(windows.args, [...WINDOWS_SLEEP_GUARD_ARGS]);
+  assert.equal(sessionGuardCommand('linux'), null);
+  assert.equal(sessionGuardCommand('freebsd'), null);
+});
+
+test('unsupported platforms never spawn even when requested', () => {
   const { service, calls } = harness({ platform: 'linux' });
   service.reconcile(true);
   assert.equal(calls.length, 0);
@@ -127,7 +174,7 @@ test('termination escalates to SIGKILL only after the grace period', async () =>
 test('synchronous spawn failures are logged and retried without throwing', async () => {
   const warnings = [];
   let calls = 0;
-  const service = new CaffeinateService({
+  const service = new SessionSleepGuard({
     platform: 'darwin',
     retryDelaysMs: [5],
     spawn() {

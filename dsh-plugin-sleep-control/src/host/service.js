@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 
+import { isSupportedPlatform, supportsPersistentSleep } from './platform.js';
+
 export const PMSET_PATH = '/usr/bin/pmset';
 export const OSASCRIPT_PATH = '/usr/bin/osascript';
 export const SUDO_PATH = '/usr/bin/sudo';
@@ -145,8 +147,11 @@ export class SleepControlService {
     if (this.disposed) {
       throw new SleepControlError('disposed', 'Sleep control has been unloaded.');
     }
-    if (this.platform !== 'darwin') {
-      throw new SleepControlError('unsupported', 'Sleep control is available only on macOS.');
+    if (!isSupportedPlatform(this.platform)) {
+      throw new SleepControlError(
+        'unsupported',
+        'Sleep control is available only on macOS and Windows.',
+      );
     }
   }
 
@@ -163,6 +168,12 @@ export class SleepControlService {
 
   async getStatus() {
     this.assertSupported();
+    const platform = this.platform;
+    // Windows has no global persistent sleep setting this plugin may read or
+    // set; report the capability instead of running an unrelated command.
+    if (!supportsPersistentSleep(platform)) {
+      return { platform, persistentSleep: false, sleepDisabled: null };
+    }
     let result;
     try {
       result = await this.execute(PMSET_PATH, ['-g'], { timeout: this.statusTimeoutMs });
@@ -183,7 +194,7 @@ export class SleepControlService {
         'pmset output did not contain a recognizable SleepDisabled value.',
       );
     }
-    return { sleepDisabled };
+    return { platform, persistentSleep: true, sleepDisabled };
   }
 
   async setSleepDisabled(sleepDisabled) {
@@ -191,6 +202,12 @@ export class SleepControlService {
       throw new SleepControlError('bad-request', 'sleepDisabled must be a boolean.');
     }
     this.assertSupported();
+    if (!supportsPersistentSleep(this.platform)) {
+      throw new SleepControlError(
+        'persistent-unsupported',
+        'Persistent sleep control is available only on macOS.',
+      );
+    }
     if (this.inFlight) {
       throw new SleepControlError(
         'busy',

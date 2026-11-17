@@ -12,7 +12,7 @@
 | [dsh-plugin-kimi-web-search](dsh-plugin-kimi-web-search/README.md) | 0.2.1 | 独立的 `kimi_web_search` / `kimi_web_fetch` 工具及结果卡片 |
 | [dsh-plugin-open-here](dsh-plugin-open-here/README.md) | 0.1.0 | 从终端和 Finder 在 DSH 中打开本地工作区 |
 | [dsh-plugin-mermaid](dsh-plugin-mermaid/README.md) | 0.2.0 | Mermaid 图表渲染、缩放、平移和大图预览 |
-| [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.1.0 | 会话运行时防睡眠及经管理员授权的 macOS 睡眠控制 |
+| [dsh-plugin-sleep-control](dsh-plugin-sleep-control/README.md) | 0.2.0 | 会话运行时防睡眠（macOS/Windows）及仅 macOS 的经管理员授权睡眠控制 |
 | [dsh-plugin-opencode-go-session](dsh-plugin-opencode-go-session/README.md) | 0.1.1 | 修复显式协议 OpenCode Go 路由的会话头，含受限的一次性协议迁移及升级停用背景 |
 | [dsh-plugin-git-log](dsh-plugin-git-log/README.md) | 0.1.0 | 绑定当前会话工作区的右侧边栏 Git 日志标签页，支持分支/引用筛选、提交图谱、搜索与按文件 Diff 预览 |
 
