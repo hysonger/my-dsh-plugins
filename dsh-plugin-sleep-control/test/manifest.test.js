@@ -64,14 +64,22 @@ test('session caffeinate preference is volatile and defaults to off', async () =
   assert.match(patch, /caffeinateDuringSessions: false/);
 });
 
-test('the bundle patch disables the row on unsupported Host platforms', async () => {
+test('platform admissions stay consistent across manifest, patch, and Host guard', async () => {
+  const manifest = await readJson('package.json');
+  const { SUPPORTED_PLATFORMS } = await import('../src/host/platform.js');
+  assert.deepEqual([...SUPPORTED_PLATFORMS].sort(), ['darwin', 'win32']);
+  assert.deepEqual([...manifest.dsh.bundle.platforms].sort(), [...SUPPORTED_PLATFORMS].sort());
+
   const patch = await readFile(new URL('cordis.patch.yml', root), 'utf8');
   const match = /^\s*disabled:\s*!!js\s+"([^"]+)"\s*$/m.exec(patch);
   assert.ok(match, 'the row must declare a !!js platform expression');
   // eslint-disable-next-line no-new-func
   const evaluate = new Function('process', `return (${match[1]})`);
-  assert.equal(evaluate({ platform: 'darwin' }), false);
-  assert.equal(evaluate({ platform: 'win32' }), false);
-  assert.equal(evaluate({ platform: 'linux' }), true);
-  assert.equal(evaluate({ platform: 'freebsd' }), true);
+  for (const platform of ['darwin', 'win32', 'linux', 'freebsd', 'openbsd', 'android', 'aix']) {
+    assert.equal(
+      evaluate({ platform }),
+      !SUPPORTED_PLATFORMS.includes(platform),
+      `the patch gate must agree with SUPPORTED_PLATFORMS for ${platform}`,
+    );
+  }
 });
