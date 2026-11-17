@@ -988,7 +988,7 @@ function loadComposerUnit() {
     "  usageProviderForRoute, composerSelection, primaryUsageWindow, composerWindowShortLabel,",
     "  composerLevel, QuotaRing, ComposerWindow, ComposerProviderUsage, ComposerUsageBar,",
     "  registerComposerUsage, COMPOSER_SLOT_ID, COMPOSER_SLOT_ORDER, USAGE_PROVIDER_BY_ROUTE,",
-    "  portalToBody, containsElement,",
+    "  portalToBody, containsElement, supportsCssAnchorPositioning, computePopoverFallbackStyle, readOverlayTopPx,",
     "};",
   ].join("\n");
   new vm.Script(copySource + "\n" + panelSource + "\n" + composerSource + exposure, { filename: "composer-body.js" }).runInContext(context);
@@ -1219,6 +1219,7 @@ function createComposerRenderer(options = {}) {
     const next = props === undefined || props === null ? {} : props;
     if (typeof type === "function") return type(next);
     const element = { type: String(type), props: next, focus() { this.focused = true; } };
+    if (typeof options.decorateElement === "function") options.decorateElement(element);
     if (next.ref !== undefined && next.ref !== null && typeof next.ref === "object") next.ref.current = element;
     return element;
   };
@@ -1228,6 +1229,9 @@ function createComposerRenderer(options = {}) {
     react,
     reactDom: { createPortal: (element) => element },
     jsxRuntime: { jsx: createElement, jsxs: createElement, Fragment: "Fragment" },
+    ...(options.window !== undefined ? { window: options.window } : {}),
+    ...(options.CSS !== undefined ? { CSS: options.CSS } : {}),
+    ...(options.ResizeObserver !== undefined ? { ResizeObserver: options.ResizeObserver } : {}),
     fetch(url, init) {
       const target = new URL(String(url), "http://usage-board.test");
       const id = target.searchParams.get(PROVIDER_QUERY_PARAM);
@@ -1561,6 +1565,7 @@ test("the composer stylesheet keeps the compact ring and portal popover contract
     ".ub-composer-popover",
     ".ub-composer-window",
     "@position-try --ub-composer-below",
+    "@supports not ((position-anchor: --ub-anchor) and (top: anchor(top)) and (position-try-fallbacks: none))",
   ]) {
     assert.ok(composerStyleSource.includes(selector), `composer.css lost ${selector}`);
   }
@@ -1571,6 +1576,153 @@ test("the composer stylesheet keeps the compact ring and portal popover contract
     "compact labels must follow the composer width, not just the browser viewport");
   const bare = [...composerStyleSource.matchAll(/var\(\s*(--d(?:sw|sh)-[a-zA-Z0-9-]+)\s*\)/g)].map((match) => match[1]);
   assert.deepEqual(bare, [], `these frame tokens are read without a fallback: ${bare.join(", ")}`);
+});
+
+test("computePopoverFallbackStyle mirrors above, below, clamped horizontal, and cramped viewport positioning", () => {
+  const unit = loadComposerUnit();
+  assert.equal(unit.supportsCssAnchorPositioning(), false);
+
+  const above = unit.computePopoverFallbackStyle({
+    anchorRect: { left: 900, top: 740, right: 1020, bottom: 768, width: 120, height: 28 },
+    popoverRect: { width: 320, height: 210 },
+    viewportWidth: 1280,
+    viewportHeight: 800,
+    overlayTop: 12,
+  });
+  assert.deepEqual({ ...above }, {
+    top: "auto",
+    right: "auto",
+    bottom: "68px",
+    left: "900px",
+    maxHeight: "720px",
+  });
+
+  // Near right edge: clamps left so the 320 px card preserves the 12 px margin.
+  const clampedRight = unit.computePopoverFallbackStyle({
+    anchorRect: { left: 1120, top: 740, right: 1240, bottom: 768, width: 120, height: 28 },
+    popoverRect: { width: 320, height: 210 },
+    viewportWidth: 1280,
+    viewportHeight: 800,
+    overlayTop: 32,
+  });
+  assert.equal(clampedRight.left, "948px");
+  assert.equal(clampedRight.maxHeight, "700px");
+
+  // Near top with overlay frame clearance: flips below trigger instead of overlapping.
+  const below = unit.computePopoverFallbackStyle({
+    anchorRect: { left: 40, top: 40, right: 160, bottom: 68, width: 120, height: 28 },
+    popoverRect: { width: 320, height: 200 },
+    viewportWidth: 1280,
+    viewportHeight: 800,
+    overlayTop: 36,
+  });
+  assert.deepEqual({ ...below }, {
+    top: "76px",
+    right: "auto",
+    bottom: "auto",
+    left: "40px",
+    maxHeight: "712px",
+  });
+
+  // Cramped viewport (<120 px on both sides) + left overflow: clamps to 12 px safe margin.
+  const cramped = unit.computePopoverFallbackStyle({
+    anchorRect: { left: 4, top: 90, right: 120, bottom: 118, width: 116, height: 28 },
+    popoverRect: { width: 320, height: 240 },
+    viewportWidth: 360,
+    viewportHeight: 200,
+    overlayTop: 20,
+  });
+  assert.deepEqual({ ...cramped }, {
+    top: "20px",
+    right: "auto",
+    bottom: "auto",
+    left: "12px",
+    maxHeight: "168px",
+  });
+});
+
+test("composer applies JS coordinate fallback only when CSS Anchor Positioning is unsupported and cleans listeners on close", async () => {
+  const createStubWindow = () => {
+    const listeners = new Map();
+    return {
+      innerWidth: 1280,
+      innerHeight: 800,
+      listeners,
+      addEventListener(type, fn, capture) {
+        if (!listeners.has(type)) listeners.set(type, new Set());
+        listeners.get(type).add(`${Boolean(capture)}:${fn.name || "fn"}`);
+        this[`on_${type}`] = fn;
+      },
+      removeEventListener(type, fn, capture) {
+        listeners.get(type)?.delete(`${Boolean(capture)}:${fn.name || "fn"}`);
+      },
+      getComputedStyle() {
+        return { getPropertyValue: () => "24px" };
+      },
+    };
+  };
+
+  // 1. Unsupported engine (e.g. older Firefox / intermediate Chromium): applies coordinates and tracks resize.
+  const winUnsupported = createStubWindow();
+  let anchorTop = 740;
+  let anchorBottom = 768;
+  const rendererFallback = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [COMPOSER_GLM_ROW] },
+    window: winUnsupported,
+    CSS: { supports: (prop) => prop === "position-anchor" }, // Missing anchor(top) & position-try-fallbacks
+    decorateElement(el) {
+      if (el.props?.className === "ub-composer") {
+        el.getBoundingClientRect = () => ({ left: 860, top: anchorTop, right: 980, bottom: anchorBottom, width: 120, height: 28 });
+      } else if (el.props?.className === "ub-composer-popover") {
+        el.getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 210, width: 320, height: 210 });
+      }
+    },
+  });
+  await rendererFallback.render();
+  let tree = await rendererFallback.hover();
+  let popover = findByClass(tree, "ub-composer-popover");
+  assert.equal(popover.props.style.top, "auto");
+  assert.equal(popover.props.style.right, "auto");
+  assert.equal(popover.props.style.bottom, "68px");
+  assert.equal(popover.props.style.left, "860px");
+  assert.equal(popover.props.style.maxHeight, "708px");
+  assert.equal(winUnsupported.listeners.get("resize")?.size, 1);
+  assert.equal(winUnsupported.listeners.get("scroll")?.size, 1);
+
+  // Trigger moves near top on resize -> flips below trigger.
+  anchorTop = 44;
+  anchorBottom = 72;
+  winUnsupported.innerHeight = 600;
+  winUnsupported.on_resize();
+  tree = await rendererFallback.settle(2);
+  popover = findByClass(tree, "ub-composer-popover");
+  assert.equal(popover.props.style.top, "80px");
+  assert.equal(popover.props.style.bottom, "auto");
+
+  // Closing clears listeners and fallback style.
+  rendererFallback.fireDom("keydown", { key: "Escape", preventDefault() {} });
+  tree = await rendererFallback.settle(2);
+  assert.equal(findByClass(tree, "ub-composer-popover"), null);
+  assert.equal(winUnsupported.listeners.get("resize")?.size, 0);
+  assert.equal(winUnsupported.listeners.get("scroll")?.size, 0);
+
+  // 2. Native CSS Anchor Positioning engine: keeps only positionAnchor without inline coordinate overrides.
+  const winNative = createStubWindow();
+  const rendererNative = createComposerRenderer({
+    body: { protocolVersion: 1, generatedAt: 0, ttlMs: 60_000, providers: [COMPOSER_GLM_ROW] },
+    window: winNative,
+    CSS: { supports: () => true },
+    decorateElement(el) {
+      if (el.props?.className === "ub-composer") {
+        el.getBoundingClientRect = () => ({ left: 860, top: 740, right: 980, bottom: 768, width: 120, height: 28 });
+      }
+    },
+  });
+  await rendererNative.render();
+  tree = await rendererNative.hover();
+  popover = findByClass(tree, "ub-composer-popover");
+  assert.deepEqual(Object.keys(popover.props.style), ["positionAnchor"]);
+  assert.equal(winNative.listeners.get("resize")?.size ?? 0, 0);
 });
 
 // -------------------------------------------------------------- formatting ---

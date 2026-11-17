@@ -132,8 +132,10 @@ test('loadOrCreateToken generates once, persists 0600, then reuses', async () =>
 
   const first = await loadOrCreateToken(stateDir);
   assert.equal(first.length, 64);
-  const fileMode = (await stat(join(stateDir, 'token'))).mode & 0o777;
-  assert.equal(fileMode, 0o600);
+  if (process.platform !== 'win32') {
+    const fileMode = (await stat(join(stateDir, 'token'))).mode & 0o777;
+    assert.equal(fileMode, 0o600);
+  }
 
   const second = await loadOrCreateToken(stateDir);
   assert.equal(second, first, 'token is stable across activations');
@@ -153,6 +155,8 @@ test('writeRuntimeFile emits flat one-key-per-line JSON with 0600', async () => 
   assert.equal(parsed.pid, 4242);
   // One key per line so the dependency-free shell reader can extract values.
   assert.match(text, /^ {2}"origin": "http:\/\/127\.0\.0\.1:58003"$/m);
-  const fileMode = (await stat(filePath)).mode & 0o777;
-  assert.equal(fileMode, 0o600);
+  if (process.platform !== 'win32') {
+    const fileMode = (await stat(filePath)).mode & 0o777;
+    assert.equal(fileMode, 0o600);
+  }
 });

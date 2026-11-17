@@ -31,6 +31,61 @@ const GIT_ENV_BASE = {
   LC_ALL: "C",
 };
 
+const SENSITIVE_ENV_RE = /KEY|PASSWORD|SECRET|TOKEN/i;
+const BLOCKED_EXACT_ENV = new Set([
+  "SSH_ASKPASS",
+  "PAGER",
+  "EDITOR",
+  "VISUAL",
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "NODE_OPTIONS",
+]);
+
+/**
+ * Build a hardened subprocess environment for `git` while preserving OS runtime
+ * variables required on Windows (`SystemRoot`, `WINDIR`, `TEMP`, `TMP`, `Path`, etc.).
+ *
+ * @param {Record<string, string | undefined>} [baseEnv]
+ * @param {string} [platform]
+ * @returns {Record<string, string>}
+ */
+export function buildGitEnv(baseEnv = process.env, platform = process.platform) {
+  const env = {};
+  let hasPath = false;
+  let hasHome = false;
+  let hasTmpdir = false;
+
+  for (const [key, value] of Object.entries(baseEnv ?? {})) {
+    if (typeof value !== "string") continue;
+    const upper = key.toUpperCase();
+    if (
+      SENSITIVE_ENV_RE.test(key)
+      || upper.startsWith("DSH_")
+      || upper.startsWith("GIT_")
+      || upper.startsWith("DYLD_")
+      || BLOCKED_EXACT_ENV.has(upper)
+    ) {
+      continue;
+    }
+    env[key] = value;
+    if (key === "PATH") hasPath = true;
+    else if (key === "HOME") hasHome = true;
+    else if (key === "TMPDIR") hasTmpdir = true;
+  }
+
+  if (platform !== "win32") {
+    if (!hasPath) env.PATH = "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin";
+    if (!hasHome) env.HOME = "";
+    if (!hasTmpdir) env.TMPDIR = "";
+  }
+
+  return {
+    ...env,
+    ...GIT_ENV_BASE,
+  };
+}
+
 const MAX_METADATA_BYTES = 16 * 1024 * 1024;
 const MAX_BRANCHES = 500;
 const MAX_TAGS = 200;
@@ -114,12 +169,7 @@ export function runGit(cwd, args, options = {}) {
       cwd,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        PATH: process.env.PATH ?? "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
-        HOME: process.env.HOME ?? "",
-        TMPDIR: process.env.TMPDIR ?? "",
-        ...GIT_ENV_BASE,
-      },
+      env: buildGitEnv(process.env, process.platform),
     });
 
     const killChild = () => {

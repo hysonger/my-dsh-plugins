@@ -36,7 +36,7 @@ function createFakeRepo() {
       GIT_AUTHOR_EMAIL: "tester@example.com",
       GIT_COMMITTER_NAME: "Tester",
       GIT_COMMITTER_EMAIL: "tester@example.com",
-      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_COUNT: "0",
       LC_ALL: "C",

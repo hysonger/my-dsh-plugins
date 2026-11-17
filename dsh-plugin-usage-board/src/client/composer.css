@@ -261,6 +261,15 @@
   justify-self: safe end;
 }
 
+@supports not ((position-anchor: --ub-anchor) and (top: anchor(top)) and (position-try-fallbacks: none)) {
+  .ub-composer-popover {
+    top: auto;
+    right: auto;
+    bottom: 72px;
+    left: 12px;
+  }
+}
+
 .ub-composer-popover-head {
   display: flex;
   align-items: flex-start;

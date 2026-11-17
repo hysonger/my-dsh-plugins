@@ -11,7 +11,7 @@
   - 注册右侧边栏标签页类型 `git-log`，出现在右侧边栏引导页与 `+` 新建标签页菜单中（位于「工作区文件」旁）；
   - 在会话标题栏右侧、侧边栏展开/收起按钮左侧提供快捷图标按钮（与「变更请求」按钮同一区域）：点击打开或聚焦 Git 日志标签页，标签页已显示时再次点击收起侧边栏；
   - 在「工作区文件」标签页右上角提供一键直达 Git 日志的图标按钮；
-  - 注册快捷键 `Ctrl+Shift+G`（可在 DSH 快捷键设置中自定义），并绑定 DSH 标签页刷新快捷键（`Cmd+R` / `Ctrl+R`）；
+  - 注册快捷键 `Ctrl+Shift+G`（可在 DSH 快捷键设置中自定义；Linux Web 端受浏览器热键保留限制默认不预占绑定，仍可点击标题栏按钮或在快捷键设置中自行绑定 `Ctrl+Shift+,`），并绑定 DSH 标签页刷新快捷键（`Cmd+R` / `Ctrl+R`）；
   - 标签页标题实时显示当前分支徽章与工作区未提交变更状态点。
 - **分支与搜索筛选**：
   - 支持筛选当前分支 `HEAD`、全部分支与标签（`--all`）、单个本地分支、远程分支或标签；
@@ -52,7 +52,7 @@ dsh plugin --profile desktop remove dsh-plugin-git-log
    - 点击会话标题栏右侧、侧边栏展开/收起按钮左侧的 Git 分支快捷按钮（与「变更请求」按钮同一区域）；
    - 点击右侧边栏 `+` 新建标签页 / 引导卡片中的 **Git 日志**；
    - 在右侧边栏 **工作区文件** 顶部工具栏点击 Git 分支图标；
-   - 按快捷键 `Ctrl+Shift+G`。
+   - 按快捷键 `Ctrl+Shift+G`（Linux Web 默认留空，可在快捷键设置中自行绑定 `Ctrl+Shift+,`）。
 3. 在列表中选择任意提交查看详情，点击变更文件名即可展开/折叠该文件的 Diff。
 
 ## 配置项
@@ -85,6 +85,6 @@ npm run check
 
 ## 排障
 
-- **提示「宿主环境未检测到 git 命令」**：确认 `git` 已安装且在 DSH 宿主进程的 `PATH` 中可见（如 Homebrew `/opt/homebrew/bin/git` 或 Xcode Command Line Tools `/usr/bin/git`）。
+- **提示「宿主环境未检测到 git 命令」**：确认 `git` 已安装且在 DSH 宿主进程的 `PATH` 中可见（如 macOS Homebrew `/opt/homebrew/bin/git`、Xcode Command Line Tools `/usr/bin/git`，或 Windows Git for Windows 的 `cmd\git.exe`）。
 - **右侧边栏未出现「Git 日志」**：确认插件已在目标 profile 启用，且修改 `package.json` 后已完整重启 DSH App；可在设置或终端执行 `dsh plugin --profile desktop list` 排查。
 - **切换分支或外部提交后未立即更新**：点击右上角刷新图标、按刷新快捷键 `Cmd+R` / `Ctrl+R`，或将窗口重新切回前台触发自动刷新。
