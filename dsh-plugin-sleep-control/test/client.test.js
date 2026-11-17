@@ -190,6 +190,34 @@ test('status text preserves cancellation and failure notices with a known value'
   );
 });
 
+test('presentation keeps an unknown capability away from unsupported wording', async () => {
+  const { sleepPresentation } = await loadClient();
+  assert.deepEqual(plain(sleepPresentation({ phase: 'loading', platform: null, persistentSleep: null })), {
+    persistentUnsupported: false,
+    persistentSupported: false,
+    sessionHelpKey: null,
+    persistentHelpKey: null,
+  });
+  assert.deepEqual(plain(sleepPresentation({ phase: 'loading', platform: 'darwin', persistentSleep: null })), {
+    persistentUnsupported: false,
+    persistentSupported: false,
+    sessionHelpKey: 'caffeinateHelp',
+    persistentHelpKey: null,
+  });
+  assert.deepEqual(plain(sleepPresentation({ phase: 'ready', platform: 'darwin', persistentSleep: true })), {
+    persistentUnsupported: false,
+    persistentSupported: true,
+    sessionHelpKey: 'caffeinateHelp',
+    persistentHelpKey: 'fullSleepHelp',
+  });
+  assert.deepEqual(plain(sleepPresentation({ phase: 'ready', platform: 'win32', persistentSleep: false })), {
+    persistentUnsupported: true,
+    persistentSupported: false,
+    sessionHelpKey: 'windowsSessionHelp',
+    persistentHelpKey: 'persistentUnsupportedHelp',
+  });
+});
+
 test('an ambiguous failure with no readback becomes unknown, not optimistic', async () => {
   const { createSleepController } = await loadClient();
   let initial = true;
@@ -247,6 +275,30 @@ test('Windows capability is ready but never allows a persistent toggle', async (
   await controller.setSleepDisabled(true);
   assert.deepEqual(calls, ['status']);
   controller.dispose();
+});
+
+test('a transient status failure keeps the last verified platform capability', async () => {
+  const { createSleepController } = await loadClient();
+  for (const [status, platform, persistentSleep] of [
+    [DARWIN_STATUS, 'darwin', true],
+    [WINDOWS_STATUS, 'win32', false],
+  ]) {
+    let fail = false;
+    const controller = createSleepController(async () => {
+      if (fail) throw failure('network-error');
+      return status;
+    });
+    await controller.refresh();
+    fail = true;
+    await controller.refresh();
+    const state = controller.getState();
+    assert.equal(state.phase, 'error');
+    assert.equal(state.notice, 'network-error');
+    assert.equal(state.platform, platform);
+    assert.equal(state.persistentSleep, persistentSleep);
+    assert.equal(state.sleepDisabled, null);
+    controller.dispose();
+  }
 });
 
 test('caffeinate preference writes the exact volatile field after Host acceptance', async () => {

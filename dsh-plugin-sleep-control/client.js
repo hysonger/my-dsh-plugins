@@ -192,6 +192,31 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /**
+     * Presentation keys for the two cards. An unknown capability (first load or
+     * a failed first read) must not be presented as "unsupported": only a
+     * Host-verified `persistentSleep: false` may claim the card is unavailable,
+     * and help text is withheld until the Host has answered once.
+     */
+    function sleepPresentation(state) {
+      const persistentUnsupported = state.persistentSleep === false;
+      return {
+        persistentUnsupported,
+        persistentSupported: state.persistentSleep === true,
+        sessionHelpKey:
+          state.platform === 'win32'
+            ? 'windowsSessionHelp'
+            : state.platform === 'darwin'
+              ? 'caffeinateHelp'
+              : null,
+        persistentHelpKey: persistentUnsupported
+          ? 'persistentUnsupportedHelp'
+          : state.persistentSleep === true
+            ? 'fullSleepHelp'
+            : null,
+      };
+    }
+
     /** Page-local pmset state, shared by every mount of the settings section. */
     function createSleepController(request) {
       let state = {
@@ -227,10 +252,10 @@ window.__ModuleLoader__.load({
         } catch (error) {
           if (disposed || id !== operation) return;
           const code = error.clientCode || 'network-error';
+          // Keep the last Host-verified capability: a failed read does not mean
+          // the platform changed. The initial nulls already mean "unknown".
           publish({
             phase: code === 'unsupported' ? 'unsupported' : 'error',
-            platform: null,
-            persistentSleep: null,
             sleepDisabled: null,
             notice: code,
           });
@@ -524,7 +549,14 @@ window.__ModuleLoader__.load({
         }, []);
 
         const unsupported = sleep.phase === 'unsupported';
-        const persistentSupported = sleep.persistentSleep === true;
+        const {
+          persistentUnsupported,
+          persistentSupported,
+          sessionHelpKey,
+          persistentHelpKey,
+        } = sleepPresentation(sleep);
+        const sessionHelp = sessionHelpKey === null ? null : t(sessionHelpKey);
+        const persistentHelp = persistentHelpKey === null ? null : t(persistentHelpKey);
         const fullChecked = sleep.sleepDisabled === true;
         const fullBusy = sleep.phase === 'busy';
         const fullDisabled =
@@ -535,7 +567,6 @@ window.__ModuleLoader__.load({
           unsupported;
         const fullText = sleepStatusText(sleep, t);
         const fullTone = sleep.phase === 'error' || unsupported ? 'error' : sleep.phase;
-        const sessionHelp = sleep.platform === 'win32' ? t('windowsSessionHelp') : t('caffeinateHelp');
 
         const caffeinateChecked = config.value?.caffeinateDuringSessions === true;
         const configBusy = config.saving;
@@ -578,13 +609,15 @@ window.__ModuleLoader__.load({
                 disabled: configDisabled,
                 busy: configBusy,
                 label: t('caffeinateLabel'),
-                describedBy: 'sc-caffeinate-help',
+                describedBy: sessionHelp === null ? undefined : 'sc-caffeinate-help',
                 onChange: (enabled) => {
                   void preference.setEnabled(enabled);
                 },
               }),
             ),
-            h('p', { className: 'sc-help', id: 'sc-caffeinate-help' }, sessionHelp),
+            sessionHelp === null
+              ? null
+              : h('p', { className: 'sc-help', id: 'sc-caffeinate-help' }, sessionHelp),
             h(
               'div',
               {
@@ -598,7 +631,7 @@ window.__ModuleLoader__.load({
           h(
             'section',
             {
-              className: persistentSupported ? 'sc-card sc-card--warning' : 'sc-card',
+              className: persistentUnsupported ? 'sc-card' : 'sc-card sc-card--warning',
               'data-active': String(persistentSupported && fullChecked),
               'aria-labelledby': 'sc-full-sleep-title',
             },
@@ -608,9 +641,9 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'sc-title-wrap' },
-                persistentSupported ? h(WarningIcon) : null,
+                persistentUnsupported ? null : h(WarningIcon),
                 h('h3', { className: 'sc-title', id: 'sc-full-sleep-title' }, t('label')),
-                persistentSupported ? h('span', { className: 'sc-badge' }, t('warning')) : null,
+                persistentUnsupported ? null : h('span', { className: 'sc-badge' }, t('warning')),
                 persistentSupported && fullChecked
                   ? h('span', { className: 'sc-badge' }, t('persistent'))
                   : null,
@@ -620,17 +653,15 @@ window.__ModuleLoader__.load({
                 disabled: fullDisabled,
                 busy: fullBusy,
                 label: t('description'),
-                describedBy: 'sc-full-sleep-help',
+                describedBy: persistentHelp === null ? undefined : 'sc-full-sleep-help',
                 onChange: (disabled) => {
                   void controller.setSleepDisabled(disabled);
                 },
               }),
             ),
-            h(
-              'p',
-              { className: 'sc-help', id: 'sc-full-sleep-help' },
-              persistentSupported ? t('fullSleepHelp') : t('persistentUnsupportedHelp'),
-            ),
+            persistentHelp === null
+              ? null
+              : h('p', { className: 'sc-help', id: 'sc-full-sleep-help' }, persistentHelp),
             h(
               'div',
               {
@@ -678,6 +709,7 @@ window.__ModuleLoader__.load({
       createSleepController,
       createCaffeinatePreference,
       createSleepRequest,
+      sleepPresentation,
       sleepStatusText,
     };
   },
