@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A collection of plugins for [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness). The repository root is declared as a DSH bundle (`my-dsh-plugins`) so all self-authored plugins and the audited, version-pinned third-party npm plugins can be installed together in one command, while each local plugin directory also remains an independent DSH bundle with its own dependencies, version, tests, and documentation.
+A collection of self-authored plugins for [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness). The repository root is declared as a DSH bundle (`my-dsh-plugins`) so all self-authored plugins can be installed together in one command, while each local plugin directory also remains an independent DSH bundle with its own dependencies, version, tests, and documentation. Third-party plugins are outside this bundle; their audit records are retained under [docs/audits/](docs/audits/README.md).
 
 ## Self-authored plugins
 
@@ -17,23 +17,27 @@ A collection of plugins for [DeepSeek Harness (DSH)](https://github.com/deepseek
 | [dsh-plugin-git-log](dsh-plugin-git-log/README.md) | 0.1.0 | Right-sidebar Git commit log tab bound to the active workspace, with commit graph, branch/ref/search filters, and file diff preview |
 | [dsh-plugin-subagent-model](dsh-plugin-subagent-model/README.md) | 0.1.0 | Read-only model indicator and details popover inside the composer bar for continuable subagent sessions |
 
-## Third-party plugins (pinned for supply-chain security)
+## Third-party plugins (audited, not bundled)
 
-Audited third-party npm plugins from the `desktop` profile are pinned to exact immutable versions and wired into the root bundle via [cordis.patch.yml](<cordis.patch.yml>) with non-intrusive upstream defaults. Plugins requiring dedicated fork-specific hardening are tracked separately below and are **not** included in this bundle:
+This repository maintains only self-authored plugins. Its bundle installs no third-party plugin: the former root patch layer (`cordis.patch.yml`) and the two exact npm dependencies have been removed, so no installation form of `my-dsh-plugins` pulls an upstream plugin.
 
-| Package | Pinned Version | Plugin Row ID | Audited Digests / Provenance |
-|---|---|---|---|
-| `@dingyi222666/dsh-session-notification` | `0.2.6` | `dsh-session-notification` | `BSD-3-Clause`; `gitHead` `6e2fabf7cf27fcfd74d2f4f1aab6bd3df4764c64`; npm `sha512`: `sha512-cyepeRFg376HRHaxaeUEFe/PVUxjb56oPVciE29LnXXk2+Yf1K+ha+9U5MFiPp88l1oaDXDabKv4MrdFbihF1g==` (`sha256`: `6bdfa423d157efac1512ce244e447376d197f48af3e8692ab1ef54ef9df94e79`) |
-| `dsh-codex-connect` | `0.2.0-alpha.15` | `llm-openai-codex` | `Apache-2.0`; tag `v0.2.0-alpha.15` commit `16c7b3e99acd194c2ec0b5d5431930d6f7314b94` (byte-identical to npm tarball; ECDSA signed + SLSA v1 provenance); npm `sha512`: `sha512-fUKi1NiEBjiA9BTDtbHtSthYFeXRyUnUy+9yv5uKKbWFzhuGcBvzaoq7Nnl9nCJnKIpZmQ8yg3jAoo/y6abjoA==` (`sha256`: `87ea5a79461922fdf989246c5554b329a4fd37157bec83a81f3792f011039e20`) |
+Audit records are retained under [docs/audits/](docs/audits/README.md). They cover the two plugins the bundle previously pinned and `dsh-quorfloat`, whose bundle inclusion was reverted before this policy change. A retained record is audit evidence, not an endorsement or an instruction to install:
 
-### Why versions are pinned (supply-chain security rationale)
+| Package | Audited version | Record |
+|---|---|---|
+| `@dingyi222666/dsh-session-notification` | `0.2.6` | [record](docs/audits/dsh-session-notification-0.2.6.md) |
+| `dsh-codex-connect` | `0.2.0-alpha.15` | [record](docs/audits/dsh-codex-connect-0.2.0-alpha.15.md) |
+| `dsh-quorfloat` | `0.1.10` | [record](docs/audits/dsh-quorfloat-0.1.10.md) |
 
-- **Intent — safeguard supply-chain security**: Third-party plugins run directly inside the DSH Node.js host and Web GUI with filesystem/network/UI reach. Pinning exact immutable versions prevents floating semver ranges (`^`, `~`, `latest`) from silently pulling a hijacked upstream publish, malicious post-install/runtime payload, or breaking dependency bump. Before any version bump in [package.json](package.json), the target release must undergo a fresh security audit.
-- **Why exact npm versions instead of Git commit hashes or `#sha512` URLs in `package.json`**:
-  1. DSH invokes `pnpm` v11 with `blockExoticSubdeps: true` by default, which rejects `github:...#<commit>` and `https://...tgz` URLs inside a bundle's subdependencies (`ERR_PNPM_EXOTIC_SUBDEP`) unless the consumer weakens the profile's global `blockExoticSubdeps` policy.
-  2. `@dingyi222666/dsh-session-notification`'s Git tree also omits compiled `lib/` and defines a `prepare` build script, which pnpm blocks (`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`), and pnpm's tarball resolver does not verify `#sha512-...` URL fragments.
-  3. Pinning exact npm versions (`0.2.6` and `0.2.0-alpha.15`) works under `blockExoticSubdeps: true`, resolves immutable published npm releases, and instructs pnpm in each installing profile to record and enforce exact **SHA-512 SRI integrity hashes** in `<profile>/pnpm-lock.yaml` against registry/mirror tampering. (Note: `dsh-codex-connect@0.2.0-alpha.15` retains its own upstream `^8.12.3` range on `undici`, which the installing profile's `pnpm-lock.yaml` still locks by SHA-512 after resolution.)
-- **Optional top-level commit-hash pinning**: When installing this bundle itself, you may pin the root bundle by its 40-character Git commit SHA: `dsh plugin --profile desktop add github:hysonger/my-dsh-plugins#<commit-sha>`.
+Install one separately only at its exact audited version, after re-checking the recorded digests and provenance. Do not add it back to this bundle:
+
+```sh
+dsh plugin --profile desktop add @dingyi222666/dsh-session-notification@0.2.6
+dsh plugin --profile desktop add dsh-codex-connect@0.2.0-alpha.15
+```
+
+> [!NOTE]
+> A profile that previously installed an older revision of this bundle acquired these two plugins through the bundle dependency tree. Updating or reinstalling the bundle no longer provides them; install them separately at the exact versions above if they are still wanted. The audit records and installation boundary are documented in [docs/audits/](docs/audits/README.md).
 
 ## Independently maintained hardened forks (outside this bundle)
 
@@ -53,9 +57,9 @@ dsh plugin --profile desktop add /Users/songer/Projects/dsh-pet/dsh-pet
 dsh plugin --profile desktop add /Users/songer/Projects/dsh-btw
 ```
 
-## Bundle installation (all bundled plugins at once)
+## Bundle installation (all self-authored plugins at once)
 
-Install all plugins at once from the GitHub repository via CLI or the DSH Plugin Manager UI (**Add plugin**):
+Install all self-authored plugins at once from the GitHub repository via CLI or the DSH Plugin Manager UI (**Add plugin**). The 40-character commit form locks the bundle itself to a verified revision:
 
 ```sh
 dsh plugin --profile desktop add github:hysonger/my-dsh-plugins
@@ -65,16 +69,13 @@ dsh plugin --profile desktop add github:hysonger/my-dsh-plugins#<40-char-commit-
 
 Equivalent URL forms accepted by DSH include `https://github.com/hysonger/my-dsh-plugins` and `git+ssh://git@github.com/hysonger/my-dsh-plugins.git` (note: a bare `owner/repo` without `github:` is rejected by DSH).
 
-To install the whole bundle from a local checkout so pnpm resolves all sub-plugins, pinned external plugins, and runtime dependencies, use the `file:` prefix:
+To install the whole bundle from a local checkout so pnpm resolves all sub-plugins and runtime dependencies, use the `file:` prefix:
 
 ```sh
 dsh plugin --profile desktop add "file:$PWD"
 ```
 
-> [!NOTE]
-> `dsh-codex-connect` transitively pulls `@google/genai@1.52.0` and `protobufjs@7.6.6` (via `@earendil-works/pi-ai@0.85.1`), whose install scripts pnpm skips/blocks on a fresh profile (`ERR_PNPM_IGNORED_BUILDS`). Setting them to `false` in `<profile>/pnpm-workspace.yaml` under `allowBuilds` is recommended (audit confirmed neither needs build scripts here). If a CLI `dsh plugin add` run stops on `ERR_PNPM_IGNORED_BUILDS` after editing `package.json`, set both keys to `false` in `<profile>/pnpm-workspace.yaml`, run `dsh plugin --profile <name> remove my-dsh-plugins`, and re-run `dsh plugin --profile <name> add ...` so `my-dsh-plugins` is activated in `dsh.profile.bundles`.
-
-Avoid keeping both the root bundle `my-dsh-plugins` and duplicate individual `dsh-plugin-*` or standalone `dsh-session-notification` / `dsh-codex-connect` bundles enabled in the same profile simultaneously.
+Avoid keeping both the root bundle `my-dsh-plugins` and duplicate individual `dsh-plugin-*` bundles enabled in the same profile simultaneously.
 
 ## Per-plugin local installation
 
@@ -86,7 +87,7 @@ dsh plugin --profile desktop add "$PWD/dsh-plugin-mermaid"
 
 Replace the directory name to install another plugin. On a new machine, install the plugin's dependencies first, following its README. Existing local links and dependencies in this workspace continue to work without reinstallation after repository consolidation.
 
-Each local plugin directory is self-contained and does not depend on a root npm workspace. Its `lib/`, icons, and other runtime assets are kept alongside the source; the root [package.json](package.json) declares `"dsh": { "bundle": { "patch": [...] } }` reusing each local plugin's `cordis.patch.yml` plus the root [cordis.patch.yml](cordis.patch.yml) (for the pinned third-party plugins, since DSH resolves bundle patches relative to the bundle root rather than hoisted `node_modules`), and mirrors local plugins' runtime dependencies so GitHub/file bundle installs resolve everything cleanly without build scripts. See each plugin's README for development and build instructions.
+Each local plugin directory is self-contained and does not depend on a root npm workspace. Its `lib/`, icons, and other runtime assets are kept alongside the source; the root [package.json](package.json) declares `"dsh": { "bundle": { "patch": [...] } }` reusing each local plugin's `cordis.patch.yml`, and mirrors local plugins' runtime dependencies so GitHub/file bundle installs resolve everything cleanly without build scripts. The root bundle has no patch layer of its own and no third-party plugin dependencies. See each plugin's README for development and build instructions.
 
 ## Checks
 
@@ -113,6 +114,8 @@ Commits and branches are managed in this repository; plugin directories no longe
 The five local plugin repositories were consolidated on November 15, 2026. All 21 existing commits were preserved with plugin directory prefixes added to their paths. Previously uncommitted work in the Kimi and sleep-control plugins was saved in separate snapshot commits. See the [migration notes](docs/migration/README.md) and [commit map](docs/migration/commit-map.tsv) for the correspondence between original and rewritten commits.
 
 `_upstream/`, `research/`, `.dsh-feasibility-*/`, dependencies, and caches are local materials excluded by the root `.gitignore`.
+
+Third-party plugin audit records are kept under [docs/audits/](docs/audits/README.md). Removing a plugin from the bundle, or reverting its inclusion, does not remove its record.
 
 ## License
 
