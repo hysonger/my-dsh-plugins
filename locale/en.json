@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "My DSH Plugins Bundle",
-    "description": "Personal plugin bundle for DeepSeek Harness: usage board, Kimi web search/fetch, terminal & Finder open-here, Mermaid diagram renderer, sleep control, OpenCode Go session header fix, Git log sidebar, plus supply-chain-pinned third-party plugins (session notification and Codex Connect).",
+    "description": "Personal self-authored plugin bundle for DeepSeek Harness: usage board, Kimi web search/fetch, terminal & Finder open-here, Mermaid diagram renderer, sleep control, OpenCode Go session header fix, Git log sidebar, and subagent model indicator.",
     "detail": "README.md"
   }
 }

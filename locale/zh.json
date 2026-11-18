@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "个人 DSH 插件组合包",
-    "description": "个人定制的 DeepSeek Harness（DSH）组合包，一次安装全部自研插件与锁定版本的第三方插件：用量看板、Kimi 网页搜索/抓取、终端直达工作区、Mermaid 图表渲染、防睡眠控制、OpenCode Go 会话头修复、Git 日志视图，以及会话通知和 Codex Connect。",
+    "description": "个人定制的 DeepSeek Harness（DSH）自研插件组合包：用量看板、Kimi 网页搜索/抓取、终端直达工作区、Mermaid 图表渲染、防睡眠控制、OpenCode Go 会话头修复、Git 日志视图与子智能体模型显示。",
     "detail": "README.zh-CN.md"
   }
 }

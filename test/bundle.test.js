@@ -33,18 +33,11 @@ function parseInsertedEntries(patchContent) {
   return entries;
 }
 
-const EXACT_NPM_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-
-function isExactNpmVersion(spec) {
-  return typeof spec === 'string' && EXACT_NPM_VERSION.test(spec);
-}
-
 test('root package.json declares a valid DSH bundle without build scripts', () => {
   assert.equal(rootPkg.name, 'my-dsh-plugins');
   assert.equal(rootPkg.type, 'module');
   assert.equal(rootPkg.dsh?.manifestVersion, 1);
   assert.ok(Array.isArray(rootPkg.dsh?.bundle?.patch));
-  assert.equal(rootPkg.exports?.['./cordis.patch.yml'], './cordis.patch.yml');
   assert.equal(rootPkg.exports?.['./locale/*.json'], './locale/*.json');
   assert.equal(rootPkg.exports?.['./icon'], './icon.svg');
   assert.equal(rootPkg.exports?.['./package.json'], './package.json');
@@ -55,7 +48,7 @@ test('root package.json declares a valid DSH bundle without build scripts', () =
   }
 });
 
-test('every local plugin directory and pinned third-party plugin is wired without duplicate IDs', () => {
+test('every self-authored plugin directory is wired without duplicate IDs', () => {
   const plugins = pluginDirectories();
   assert.ok(plugins.length >= 7);
 
@@ -93,9 +86,13 @@ test('every local plugin directory and pinned third-party plugin is wired withou
     }
   }
 
-  assert.ok(patchList.includes('./cordis.patch.yml'), 'dsh.bundle.patch must include ./cordis.patch.yml');
+  // This repository maintains self-authored plugins only: the bundle must not
+  // carry a root third-party patch layer, export one, or reference a third-party
+  // package from any of its per-plugin patch files.
+  assert.equal(patchList.includes('./cordis.patch.yml'), false, 'dsh.bundle.patch must not include a root patch layer');
+  assert.equal(existsSync(join(rootDir, 'cordis.patch.yml')), false, 'root cordis.patch.yml must not exist');
+  assert.equal(rootPkg.exports?.['./cordis.patch.yml'], undefined, 'root package.json must not export a root patch layer');
 
-  const externalNames = [];
   for (const patchRel of patchList) {
     const patchAbs = join(rootDir, patchRel);
     assert.ok(existsSync(patchAbs), `${patchRel} must exist`);
@@ -105,31 +102,41 @@ test('every local plugin directory and pinned third-party plugin is wired withou
       assert.ok(row.id && row.name, `${patchRel} entry must declare id and name`);
       assert.equal(seenRowIds.has(row.id), false, `duplicate plugin row id "${row.id}" across bundle patches`);
       seenRowIds.add(row.id);
-      if (patchRel === './cordis.patch.yml') {
-        assert.equal(seenPluginNames.has(row.name), false, `third-party row ${row.name} overlaps local plugin`);
-        externalNames.push(row.name);
-      }
+      assert.ok(seenPluginNames.has(row.name), `${patchRel} row ${row.name} must reference a self-authored plugin`);
     }
   }
 
-  // Third-party plugins included for supply-chain safety must pin exact immutable npm versions
-  // (never floating ranges or git/tarball subdeps blocked by pnpm's blockExoticSubdeps policy).
-  assert.deepEqual(externalNames.sort(), ['@dingyi222666/dsh-session-notification', 'dsh-codex-connect']);
-  for (const pkgName of externalNames) {
-    assert.ok(
-      isExactNpmVersion(rootDeps[pkgName]),
-      `${pkgName} dependency spec "${rootDeps[pkgName]}" must be an exact npm version`,
-    );
-    expectedRootDeps.add(pkgName);
+  // Audited third-party plugins stay outside the bundle; only their audit
+  // records remain in this repository.
+  const thirdPartyAuditRecords = {
+    '@dingyi222666/dsh-session-notification': 'dsh-session-notification-0.2.6.md',
+    'dsh-codex-connect': 'dsh-codex-connect-0.2.0-alpha.15.md',
+    'dsh-quorfloat': 'dsh-quorfloat-0.1.10.md',
+  };
+  for (const [pkgName, record] of Object.entries(thirdPartyAuditRecords)) {
+    assert.equal(rootDeps[pkgName], undefined, `third-party plugin ${pkgName} must stay outside the bundle`);
+    assert.equal(seenPluginNames.has(pkgName), false, `third-party plugin ${pkgName} must not be patched into the bundle`);
+    assert.ok(existsSync(join(rootDir, 'docs', 'audits', record)), `audit record ${record} must be retained`);
   }
-  assert.equal(rootDeps['dsh-codex-connect'], '0.2.0-alpha.15');
-  assert.equal(rootDeps['@dingyi222666/dsh-session-notification'], '0.2.6');
   assert.equal(rootDeps['dsh-pet'], undefined, 'dsh-pet must remain outside this bundle');
   assert.deepEqual(
     Object.keys(rootDeps).sort(),
     [...expectedRootDeps].sort(),
-    'root dependencies must contain only wired plugins, hoisted runtime deps, and pinned third-party plugins',
+    'root dependencies must contain only self-authored plugins and their hoisted runtime dependencies',
   );
+});
+
+test('third-party plugin audit records are indexed and retained', () => {
+  const auditDir = join(rootDir, 'docs', 'audits');
+  const index = readFileSync(join(auditDir, 'README.md'), 'utf8');
+  for (const record of [
+    'dsh-session-notification-0.2.6.md',
+    'dsh-codex-connect-0.2.0-alpha.15.md',
+    'dsh-quorfloat-0.1.10.md',
+  ]) {
+    assert.ok(index.includes(record), `docs/audits/README.md must link ${record}`);
+    assert.ok(existsSync(join(auditDir, record)), `docs/audits/${record} must exist`);
+  }
 });
 
 test('bundle display metadata resources (icon and locales) exist and validate', () => {

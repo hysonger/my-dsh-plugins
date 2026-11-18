@@ -1,6 +1,6 @@
 # my-dsh-plugins
 
-个人定制的 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness)插件集中存放目录。本目录是统一的 Git 仓库，每个插件子目录仍是一个独立的 DSH 插件包。所有提交和分支在根仓库维护，不要在插件子目录创建嵌套 Git 仓库。
+个人定制的 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness)插件集中存放目录。本目录是统一的 Git 仓库，每个插件子目录仍是一个独立的 DSH 插件包。所有提交和分支在根仓库维护，不要在插件子目录创建嵌套 Git 仓库。本仓库只维护自有插件；第三方插件不纳入组合包，其审计记录保留在 `docs/audits/`。
 
 ## 目录内容
 
@@ -14,11 +14,11 @@
 | `dsh-plugin-opencode-go-session/` | OpenCode Go 过渡修复：通过公开请求头事件为显式协议路由补逐会话标识；安装时用官方配置服务执行受限、一次性的协议迁移，不读取 API Key。DSH 升级后先按 [背景与停用判据](dsh-plugin-opencode-go-session/docs/BACKGROUND.md) 验证再移除；详见其 [README](dsh-plugin-opencode-go-session/README.md)。 |
 | `dsh-plugin-git-log/` | Git 日志视图：在 DSH 右侧边栏提供随当前工作区切换的 Git 日志标签页，支持分支/标签筛选、搜索、SVG 提交拓扑图谱与按文件 Diff 预览；详见其 [README](dsh-plugin-git-log/README.md)。 |
 | `dsh-plugin-subagent-model/` | 子智能体模型显示：在可继续子智能体会话输入栏的 `conversation.input.right` 插槽中只读显示当前模型、徽标、思考强度及详情卡片；复用 `modelSelection` 投影与目录元数据，不触发受限选择调用；详见其 [README](dsh-plugin-subagent-model/README.md)。 |
-| 根 `cordis.patch.yml` | 纳入已通过安全审计并锁定精确版本的第三方插件（`@dingyi222666/dsh-session-notification@0.2.6`、`dsh-codex-connect@0.2.0-alpha.15`），锁定意图为保障供应链安全（`dsh-pet` 由独立仓库维护并单独安装，不纳入本组合包；详见 [README.zh-CN.md](README.zh-CN.md)）。 |
+| `docs/audits/` | 第三方插件审计档案：保留 `@dingyi222666/dsh-session-notification@0.2.6`、`dsh-codex-connect@0.2.0-alpha.15`、`dsh-quorfloat@0.1.10` 的审计记录（摘要、溯源、限制与复核步骤）；这些插件**不纳入组合包**。`dsh-pet` 与 `@michengai/dsh-btw` 由独立仓库维护并单独安装，见 [README.zh-CN.md](README.zh-CN.md)。 |
 
 ## 约定
 
-- **根组合包**：根目录 `package.json` 将本仓库声明为 DSH 组合包（`my-dsh-plugins`），通过 `dsh.bundle.patch` 列表复用各子插件的 `cordis.patch.yml` 与根目录 `cordis.patch.yml`（因 DSH 按组合包目录而非提升后的 `node_modules` 解析 `dsh.bundle.patch`），并在 `dependencies` 中列出各本地子插件及其运行时 npm 依赖（因 git 安装时 pnpm 不会递归安装 `file:./` 子包的依赖），以及锁定精确版本的已审计第三方插件（满足 pnpm `blockExoticSubdeps: true`，并由安装端 `pnpm-lock.yaml` 校验 `sha512`）。可用 `github:hysonger/my-dsh-plugins`（可加 `#<commit-sha>` 按提交哈希唯一锁定整套组合包）或本地 `file:$PWD` 一次性安装全部插件；根目录不设构建脚本以避免 git 安装触发 `allowBuilds`。
+- **根组合包**：根目录 `package.json` 将本仓库声明为 DSH 组合包（`my-dsh-plugins`），通过 `dsh.bundle.patch` 列表复用各子插件的 `cordis.patch.yml`，并在 `dependencies` 中列出各本地子插件及其运行时 npm 依赖（因 git 安装时 pnpm 不会递归安装 `file:./` 子包的依赖）。组合包只包含自研插件，不设根 patch 层，也不纳入第三方插件。可用 `github:hysonger/my-dsh-plugins`（可加 `#<commit-sha>` 按提交哈希唯一锁定整套组合包）或本地 `file:$PWD` 一次性安装全部插件；根目录不设构建脚本以避免 git 安装触发 `allowBuilds`。
 - **新增插件**：在根目录下新建独立目录，作为标准 DSH 插件包（`package.json` 含 `dsh` 字段，`cordis.patch.yml` 为 profile patch 层），并同步加入根目录 `package.json` 的 `dependencies`、`dsh.bundle.patch`（连同其运行时依赖），使用根仓库统一提交，不再独立 `git init`。
 - **运行插件**：按单插件开发/调试时继续以插件子目录的本地绝对路径安装进 DSH（`dsh plugin --profile desktop add <绝对路径>`），本地路径安装下改源码即生效；整包本地安装使用 `dsh plugin --profile <name> add "file:$PWD"`。保持现有目录位置及本地链接，不擅自改成远端安装。
 - **测试**：根目录运行 `npm run check`（`node --test test/`），各插件进入对应目录运行各自检查（如 `npm --prefix <dir> run check` / `node --test test/`）。
@@ -26,11 +26,14 @@
 
 ## 规则
 
-用户可能在本工作区内做添加或更新第三方插件的工作。注意：对于外来插件（以及拟升级至新版本的已纳入第三方插件），安装、纳入组合包或调整 `package.json` 锁定版本前一律先进行系统的**安全性审计**并核对摘要，否则不得实施安装或放宽锁定版本；根组合包对第三方插件固定精确版本（禁用浮动范围）的意图为**保障供应链安全**。
+本仓库只维护自有插件。组合包不得通过 `dependencies`、根 patch 层或安装说明纳入第三方插件；第三方插件需要时由用户单独安装。第三方插件的审计记录保存在 [docs/audits/](docs/audits/README.md)，即使对应插件未纳入组合包、被移除或纳入被撤销，也不得删除这些记录。
+
+用户可能在本工作区单独审计或安装第三方插件（含加固 fork）。安装、升级或调整版本前必须完成系统的**安全性审计**并核对摘要，固定精确版本（禁用浮动范围）；新的审计材料可写入 `docs/audits/`。不要为纳入第三方插件而放宽组合包或 profile 的依赖策略。
 
 ## 单仓库范围与历史
 
 - 根目录 `README.md` 为插件入口，各插件保留独立的 `package.json`、依赖和测试，不依赖根 npm workspace。
 - `_upstream/`、`research/`、`.dsh-feasibility-*/`、依赖、缓存和迁移备份为本地材料，由根 `.gitignore` 排除。
 - 迁移记录和旧 SHA 对应关系见 `docs/migration/`。旧历史已统一增加插件目录前缀，后续正常使用根仓库提交。
+- 第三方插件审计记录保存在 `docs/audits/`，作为历史证据长期保留；组合包本身不再包含第三方插件。
 - 创建 GitHub 远程仓库和推送需要用户单独批准；本地整合本身不包含发布。
